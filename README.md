@@ -17,11 +17,12 @@ Best case scenario: This could serve as inspiration as to how to improve nix out
 
 ## Running
 
-Once you have installed `nix-output-monitor` to your path, run any nix command and pipe stderr and stdout into it.
+Once you have installed `nix-output-monitor` to your path, run any nix command (`nixos-rebuild`,`nix-build`,`home-manager switch`) and pipe stderr and stdout into `nom`.
 
 ```
 nix-build 2>&1 | nom
 ```
+
 ## Example Run
 
 The recording is a bit laggy, but at least on my notebook it's quite smooth and readable.
@@ -46,10 +47,11 @@ The formatting code is a mess and has no tests, so feel free to tell me about an
 
 **The output will only refresh, when nix prints a new line.** This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
 
-Luckily I don‘t think this program screws up anything more than your terminal.
 
 ## Strengths
 
-nom ignores any output it doesn‘t recognize and will always print out everything it receives so you can never loose information. (besides coloring of nix output).
+Luckily I don‘t think this program screws up anything more than your terminal.
 
-nom does not assume that you run exaclty one nix-build. If you run e.g. a script running multiple builds it will aggregate the information of all of them.
+nom ignores any output it doesn‘t recognize and will always print out everything it receives. So you can never loose information (besides coloring of nix output).
+
+nom does not assume that you run exactly one nix-build. If you run e.g. a script running multiple builds it will aggregate the information of all of them.
