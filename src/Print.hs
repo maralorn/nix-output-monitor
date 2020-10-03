@@ -15,7 +15,7 @@ import qualified Data.Text                     as Text
 import           System.Console.ANSI.Types
 import           System.Console.ANSI
 
-vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, todo, leftT, bold, green, yellow, blue, reset
+vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, todo, leftT, bold, green, yellow, blue, reset, cyan, magenta, cellBorder, tablePadding, emptyCell, skipCell
   :: Text
 vertical = "┃"
 verticalSlim = "│"
@@ -37,6 +37,8 @@ cyan = toText $ setSGRCode [SetColor Foreground Dull Cyan]
 magenta = toText $ setSGRCode [SetColor Foreground Dull Magenta]
 reset = toText $ setSGRCode [Reset]
 
+times :: Int -> Text -> Text
+times = stimesMonoid
 
 cell :: Int -> Text
 cell x =
@@ -67,7 +69,7 @@ stateToText buildState@BuildState { outstandingBuilds, outstandingDownloads, pla
         printBuilds currentTime runningRemoteBuilds runningLocalBuilds <> leftT
       else upperleft
     )
-    <> stimesMonoid 3 horizontal
+    <> times 3 horizontal
     <> showCond showBuilds
                 (bold <> " Builds               " <> reset <> cellBorder)
     <> showCond showDownloads (bold <> "Downloads    " <> reset <> cellBorder)
@@ -173,7 +175,9 @@ printHosts BuildState { runningRemoteBuilds, runningLocalBuilds, completedLocalB
 
               <> showCond showUploads
                           (c (green <> up) (l h completedUploads) <> cellBorder)
-              <> magenta <> toText h <> reset
+              <> magenta
+              <> toText h
+              <> reset
       )
       <$> hosts
   hosts =
@@ -211,7 +215,9 @@ printBuilds now remoteBuilds localBuilds =
       <> running
       <> reset
       <> " "
-      <> cyan <> p <> reset
+      <> cyan
+      <> p
+      <> reset
       <> " "
       <> clock
       <> " "
