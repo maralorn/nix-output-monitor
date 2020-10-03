@@ -1,0 +1,75 @@
+cabal-version:      2.4
+name:               nix-output-monitor
+version:            0.1.0.0
+
+-- synopsis:
+-- description:
+-- bug-reports:
+-- license:
+license-file:       LICENSE
+author:             Malte Brandy
+maintainer:         malte.brandy@maralorn.de
+
+-- copyright:
+-- category:
+build-type:         Simple
+extra-source-files: CHANGELOG.md
+
+common common-config
+  default-extensions:
+    DerivingStrategies
+    DuplicateRecordFields
+    FlexibleContexts
+    GeneralizedNewtypeDeriving
+    NamedFieldPuns
+    OverloadedStrings
+    ScopedTypeVariables
+
+  build-depends:
+    , ansi-terminal
+    , attoparsec
+    , base
+    , containers
+    , directory
+    , mtl
+    , nix-derivation
+    , relude
+    , text
+    , time
+    , unix
+
+  default-language:   Haskell2010
+  ghc-options:        -Wall
+
+common tests
+  import:         common-config
+  hs-source-dirs: test
+  build-depends:
+    , HUnit
+    , nix-output-monitor
+
+test-suite unit-tests
+  import:  tests
+  type:    exitcode-stdio-1.0
+  main-is: Main.hs
+
+test-suite golden-tests
+  import:        tests
+  type:          exitcode-stdio-1.0
+  main-is:       Golden.hs
+  build-depends: process
+
+library
+  import:          common-config
+  hs-source-dirs:  src
+  exposed-modules:
+    Debug
+    IO
+    Parser
+    Print
+    Update
+
+executable nom
+  import:        common-config
+  main-is:       Main.hs
+  build-depends: nix-output-monitor
