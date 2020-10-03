@@ -28,9 +28,9 @@ stateToText buildState@BuildState { outstandingBuilds, outstandingDownloads, pla
     <> (if numHosts > 0 then printHosts buildState else "")
     <> unlines errors
     <> "Total - Builds: "
-    <> show (runningBuilds)
+    <> show runningBuilds
     <> " running, "
-    <> show (numCompletedBuilds)
+    <> show numCompletedBuilds
     <> " done, "
     <> show numOutstandingBuilds
     <> " missing; Downloads: "
@@ -105,7 +105,7 @@ printBuilds now remoteBuilds localBuilds =
  where
   remoteLabels = Map.foldMapWithKey
     (\host builds ->
-      (\(x, t) -> ((name $ toStorePath x) <> " on " <> toText host, t))
+      (\(x, t) -> (name (toStorePath x) <> " on " <> toText host, t))
         <$> toList builds
     )
     remoteBuilds

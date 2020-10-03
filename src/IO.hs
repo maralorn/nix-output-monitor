@@ -13,7 +13,9 @@ import           System.Console.ANSI
 processStream
   :: forall a b . Parser a -> b -> (a -> b -> IO b) -> (b -> Text.Text) -> IO ()
 processStream parser initalState updater printer =
-  void . processText parser initalState updater (Just printer) =<< LTextIO.getContents
+  void
+    .   processText parser initalState updater (Just printer)
+    =<< LTextIO.getContents
 
 processText
   :: forall a b
@@ -52,5 +54,5 @@ processText parser initalState updater printerMay lazyInput = do
 
 parseStream :: Parser a -> LText.Text -> [a]
 parseStream parser input = case parse parser input of
-  Fail _ _ _       -> []
-  Done rest result -> (result : parseStream parser rest)
+  Fail{}           -> []
+  Done rest result -> result : parseStream parser rest

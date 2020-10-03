@@ -79,4 +79,4 @@ main = do
         result
       assertEqual "no rest" "" rest
     ]
-  if (errors counts + failures counts == 0) then exitSuccess else exitFailure
+  if errors counts + failures counts == 0 then exitSuccess else exitFailure

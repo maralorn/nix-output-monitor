@@ -32,7 +32,7 @@ main = do
                     expectedState
                     (endState { startTime = fixTime, currentTime = fixTime })
     ]
-  if (errors counts + failures counts == 0) then exitSuccess else exitFailure
+  if errors counts + failures counts == 0 then exitSuccess else exitFailure
 
 fixTime :: UTCTime
 fixTime = read "2020-10-03 12:54:17.029638514 UTC"

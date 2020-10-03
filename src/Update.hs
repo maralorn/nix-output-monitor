@@ -27,8 +27,10 @@ updateState result oldState = do
           Uploading   path host -> pure . uploading host path
           Downloading path host -> pure . downloading host path
           PlanCopies number     -> pure . planCopy number
-          RemoteBuild path host -> \s -> buildingRemote host path <$> lookupDerivation s path
-          LocalBuild path       -> \s -> buildingLocal path <$> lookupDerivation s path
+          RemoteBuild path host ->
+            \s -> buildingRemote host path <$> lookupDerivation s path
+          LocalBuild path ->
+            \s -> buildingLocal path <$> lookupDerivation s path
           PlanBuilds plannedBuilds ->
             \s ->
               planBuilds plannedBuilds
@@ -42,7 +44,7 @@ updateState result oldState = do
   set s = do
     newlyCompletedOutputs <- fromList <$> filterM
       (maybe (pure False) (doesPathExist . toString) . drv2out s)
-      (fst <$> (toList $ runningLocalBuilds s))
+      (fst <$> toList (runningLocalBuilds s))
     pure $ s
       { runningLocalBuilds   = Set.filter
                                  (\x ->
@@ -59,7 +61,7 @@ out2drv :: BuildState -> StorePath -> Maybe Derivation
 out2drv s = flip Map.lookup (outputToDerivation s)
 
 lookupDerivation :: BuildState -> Derivation -> IO BuildState
-lookupDerivation (bs@BuildState { outputToDerivation, derivationToOutput, errors }) drv
+lookupDerivation bs@BuildState { outputToDerivation, derivationToOutput, errors } drv
   = do
     text <- LTextIO.readFile (toString drv)
     let output = do
@@ -71,7 +73,11 @@ lookupDerivation (bs@BuildState { outputToDerivation, derivationToOutput, errors
         { outputToDerivation = Map.insert path drv outputToDerivation
         , derivationToOutput = Map.insert drv path derivationToOutput
         }
-      Nothing -> bs { errors = "Could not determine output path for derivation" <> toText drv:errors }
+      Nothing -> bs
+        { errors = "Could not determine output path for derivation"
+                   <> toText drv
+                   :  errors
+        }
 data BuildState = BuildState
   { outstandingBuilds     :: Set Derivation
   , outstandingDownloads  :: Set StorePath
@@ -122,29 +128,32 @@ planCopy inc s@BuildState { plannedCopies } =
 
 downloading :: Host -> StorePath -> BuildState -> BuildState
 downloading host storePath s@BuildState { outstandingDownloads, completedDownloads, completedUploads, plannedCopies, runningRemoteBuilds, completedRemoteBuilds }
-  = let
-      newCompletedDownloads = Map.insertWith Set.union
-                                             host
-                                             (Set.singleton storePath)
-                                             completedDownloads
-      total = countPaths completedUploads + countPaths newCompletedDownloads
-      drv   = out2drv s storePath
-      done  = join . find (drv ==) $ Just . fst <$> toList
-        (Map.findWithDefault mempty host runningRemoteBuilds)
-    in
-      s
-        { plannedCopies = if total > plannedCopies then total else plannedCopies
-        , runningRemoteBuilds   = Map.adjust
-                                    (Set.filter ((drv /=) . Just . fst))
-                                    host
-                                    runningRemoteBuilds
-        , completedRemoteBuilds =
-          (maybe id (\x -> Map.insertWith Set.union host (Set.singleton x)) done
-            )
-            completedRemoteBuilds
-        , outstandingDownloads  = Set.delete storePath outstandingDownloads
-        , completedDownloads    = newCompletedDownloads
-        }
+  = let newCompletedDownloads = Map.insertWith Set.union
+                                               host
+                                               (Set.singleton storePath)
+                                               completedDownloads
+        total = countPaths completedUploads + countPaths newCompletedDownloads
+        drv   = out2drv s storePath
+        done  = join . find (drv ==) $ Just . fst <$> toList
+          (Map.findWithDefault mempty host runningRemoteBuilds)
+    in  s
+          { plannedCopies         = if total > plannedCopies
+                                      then total
+                                      else plannedCopies
+          , runningRemoteBuilds   = Map.adjust
+                                      (Set.filter ((drv /=) . Just . fst))
+                                      host
+                                      runningRemoteBuilds
+          , completedRemoteBuilds = maybe
+                                      id
+                                      ( Map.insertWith Set.union host
+                                      . Set.singleton
+                                      )
+                                      done
+                                      completedRemoteBuilds
+          , outstandingDownloads  = Set.delete storePath outstandingDownloads
+          , completedDownloads    = newCompletedDownloads
+          }
 
 uploading :: Host -> StorePath -> BuildState -> BuildState
 uploading host storePath s@BuildState { completedUploads } = s
