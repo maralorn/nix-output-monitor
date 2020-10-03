@@ -31,6 +31,10 @@ nix-output-monitor receives most it's information from parsing nix-build output.
 Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width.
 This program also makes assumptions like your nix-store is at "/nix/store" or that every derivation has an output at "out".
 
+The formatting code is a mess and has no tests, so feel free to tell me about any corner cases where it breaks.
+
+*The output will only refresh, when nix prints a new line.* This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
+
 ## Strengths
 
 nom ignores any output it doesn‘t recognize and will always print out everything it receives so you can never loose information. (besides coloring of nix output).
