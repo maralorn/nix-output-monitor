@@ -37,14 +37,14 @@ With more builds on a remote server:
 ## Caveats
 
 This will fail in unexpected and expected ways.
-nix-output-monitor receives most it's information from parsing nix-build output. The parser might be to strict or to loose for use cases I didn‘t think of. Then *the numbers display will be off*!
+nix-output-monitor receives most it's information from parsing nix-build output. The parser might be to strict or to loose for use cases I didn‘t think of. Then **the numbers displayed will be off**!
 
 Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width.
 This program also makes assumptions like your nix-store is at "/nix/store" or that every derivation has an output at "out".
 
 The formatting code is a mess and has no tests, so feel free to tell me about any corner cases where it breaks.
 
-*The output will only refresh, when nix prints a new line.* This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
+**The output will only refresh, when nix prints a new line.** This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
 
 Lukily I don‘t think this program screw up anything more than your terminal.
 
