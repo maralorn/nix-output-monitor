@@ -37,6 +37,20 @@ With more builds on a remote server:
 
 [![asciicast](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe.svg)](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe)
 
+## Implementation
+
+The program consists of three steps in a loop, powered by Haskell lazyness.
+
+1. parsing (If you have suggestion for improving my parser combinators, I am all ears!)
+2. updating state (with IO to look into the the nix store.)
+3. printing
+
+Right now it uses three sources of information:
+
+1. The parsed nix-build output
+2. it checks if build results exist in the nix-store
+3. it querys `.drv` files for information about the `out` output path.
+
 ## Caveats
 
 This will fail in unexpected and expected ways.
