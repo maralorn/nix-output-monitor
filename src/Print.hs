@@ -109,7 +109,7 @@ stateToText buildState@BuildState { outstandingBuilds, outstandingDownloads, pla
          <> cell (length outstandingDownloads)
          <> cellBorder
          )
-    <> showCond showUploads "          "
+    <> showCond showUploads ("       " <> cellBorder)
     <> clock
     <> " "
     <> timeDiff currentTime startTime
@@ -147,7 +147,7 @@ printHosts BuildState { runningRemoteBuilds, runningLocalBuilds, completedLocalB
          <> skipCell
          )
     <> showCond showDownloads (skipCell <> skipCell)
-    <> showCond showUploads   skipCell
+    <> showCond showUploads   ("  " <> skipCell)
     <> "local"
     :  remoteLabels
     )
@@ -174,7 +174,7 @@ printHosts BuildState { runningRemoteBuilds, runningLocalBuilds, completedLocalB
                    )
 
               <> showCond showUploads
-                          (c (green <> up) (l h completedUploads) <> cellBorder)
+                          (c (green <> up) (l h completedUploads) <> "  " <> cellBorder)
               <> magenta
               <> toText h
               <> reset
@@ -203,7 +203,7 @@ printBuilds now remoteBuilds localBuilds =
  where
   remoteLabels = Map.foldMapWithKey
     (\host builds ->
-      (\(x, t) -> (name (toStorePath x) <> " on " <> magenta <> toText host, t))
+      (\(x, t) -> (name (toStorePath x) <> reset <> " on " <> magenta <> toText host, t))
         <$> toList builds
     )
     remoteBuilds
