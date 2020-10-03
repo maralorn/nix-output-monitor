@@ -2,16 +2,15 @@ cabal-version:      2.4
 name:               nix-output-monitor
 version:            0.1.0.0
 
--- synopsis:
--- description:
--- bug-reports:
--- license:
+synopsis: Parses output of nix-build to show additional information
+description: A tool you can pipe stdout and stderr into to get your terminal output enriched with useful information.
+homepage:           https://github.com/maralorn/nix-output-monitor
+bug-reports:        https://github.com/maralorn/nix-output-monitor/issues
+license:            AGPL-3.0-or-later
 license-file:       LICENSE
-author:             Malte Brandy
-maintainer:         malte.brandy@maralorn.de
+author:             Malte Brandy <malte.brandy@maralorn.de>
+maintainer:         Malte Brandy <malte.brandy@maralorn.de>
 
--- copyright:
--- category:
 build-type:         Simple
 extra-source-files: CHANGELOG.md
 
