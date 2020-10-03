@@ -26,7 +26,11 @@ nix-build 2>&1 | nom
 
 The recording is a bit laggy, but at least on my notebook it's quite smooth and readable.
 
+With some local builds and downloads:
+
 [![asciicast](https://asciinema.org/a/HKWeTpFS42muAaJapSvMiSEbn.svg)](https://asciinema.org/a/HKWeTpFS42muAaJapSvMiSEbn)
+
+With more builds on a remote server:
 
 [![asciicast](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe.svg)](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe)
 
