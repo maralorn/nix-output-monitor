@@ -1,7 +1,7 @@
 nix-output-monitor
 ==================
 
-Pipe your nix-build output through the nix-output-monitor to get additional information while building.
+Pipe your nix-build output through the nix-output-monitor (aka nom) to get additional information while building.
 
 ## Status
 
@@ -17,11 +17,13 @@ Best case scenario: This could serve as inspiration as to how to improve nix out
 
 ## Running
 
-Once you have installed `nix-output-monitor` to your path, run any nix command (`nixos-rebuild`,`nix-build`,`home-manager switch`) and pipe stderr and stdout into `nom`.
+Once you have installed `nix-output-monitor` to your path, run any nix command (`nixos-rebuild`,`nix-build`,`home-manager switch`, **not** `nix build`.) and pipe stderr and stdout into `nom`.
 
 ```
 nix-build 2>&1 | nom
 ```
+
+**Don‘t forget to redirect stderr, too.** That's what the 2>&1, does.
 
 ## Example Run
 
@@ -47,10 +49,11 @@ The formatting code is a mess and has no tests, so feel free to tell me about an
 
 **The output will only refresh, when nix prints a new line.** This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
 
+Luckily I don‘t think this program screws up anything more than your terminal.
 
 ## Strengths
 
-Luckily I don‘t think this program screws up anything more than your terminal.
+The biggest strength of nom are ovbiously the colorful unicode symbols! (If you don‘t agree I accept PRs to making that configurable.)
 
 nom ignores any output it doesn‘t recognize and will always print out everything it receives. So you can never loose information (besides coloring of nix output).
 
