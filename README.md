@@ -46,7 +46,7 @@ The formatting code is a mess and has no tests, so feel free to tell me about an
 
 **The output will only refresh, when nix prints a new line.** This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
 
-Lukily I don‘t think this program screw up anything more than your terminal.
+Luckily I don‘t think this program screws up anything more than your terminal.
 
 ## Strengths
 
