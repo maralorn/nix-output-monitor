@@ -22,6 +22,13 @@ Once you have installed `nix-output-monitor` to your path, run any nix command a
 ```
 nix-build 2>&1 | nom
 ```
+## Example Run
+
+The recording is a bit laggy, but at least on my notebook it's quite smooth and readable.
+
+[![asciicast](https://asciinema.org/a/HKWeTpFS42muAaJapSvMiSEbn.svg)](https://asciinema.org/a/HKWeTpFS42muAaJapSvMiSEbn)
+
+[![asciicast](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe.svg)](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe)
 
 ## Caveats
 
