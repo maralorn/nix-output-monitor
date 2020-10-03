@@ -109,7 +109,7 @@ stateToText buildState@BuildState { outstandingBuilds, outstandingDownloads, pla
          <> cell (length outstandingDownloads)
          <> cellBorder
          )
-    <> (showCond showUploads "          ")
+    <> showCond showUploads "          "
     <> clock
     <> " "
     <> timeDiff currentTime startTime
@@ -147,7 +147,7 @@ printHosts BuildState { runningRemoteBuilds, runningLocalBuilds, completedLocalB
          <> skipCell
          )
     <> showCond showDownloads (skipCell <> skipCell)
-    <> showCond showUploads   (skipCell)
+    <> showCond showUploads   skipCell
     <> "local"
     :  remoteLabels
     )
