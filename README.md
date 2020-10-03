@@ -28,5 +28,10 @@ nix-build 2>&1 | nom
 This will fail in unexpected and expected ways.
 nix-output-monitor receives most it's information from parsing nix-build output. The parser might be to strict or to loose for use cases I didn‘t think of. Then *the numbers display will be off*!
 
-Terminal clearing and reprinting is brittle it might fail with your terminal or terminal width.
+Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width.
 This program also makes assumptions like your nix-store is at "/nix/store" or that every derivation has an output at "out".
+
+## Strengths
+
+nom ignores any output it doesn‘t recognize and will always print out everything it receives so you can never loose information. (besides coloring of nix output).
+nom does not assume that you run exaclty one nix-build. If you run e.g. a script running multiple builds it will aggregate the information of all of them.
