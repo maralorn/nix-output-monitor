@@ -35,7 +35,10 @@ The formatting code is a mess and has no tests, so feel free to tell me about an
 
 *The output will only refresh, when nix prints a new line.* This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
 
+Lukily I don‘t think this program screw up anything more than your terminal.
+
 ## Strengths
 
 nom ignores any output it doesn‘t recognize and will always print out everything it receives so you can never loose information. (besides coloring of nix output).
+
 nom does not assume that you run exaclty one nix-build. If you run e.g. a script running multiple builds it will aggregate the information of all of them.
