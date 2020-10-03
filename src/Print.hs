@@ -173,15 +173,17 @@ printHosts BuildState { runningRemoteBuilds, runningLocalBuilds, completedLocalB
                    <> skipCell
                    )
 
-              <> showCond showUploads
-                          (c (green <> up) (l h completedUploads) <> "  " <> cellBorder)
+              <> showCond
+                   showUploads
+                   (c (green <> up) (l h completedUploads) <> "  " <> cellBorder)
               <> magenta
               <> toText h
               <> reset
       )
       <$> hosts
   hosts =
-    toList
+    sort
+      .  toList
       $  Map.keysSet runningRemoteBuilds
       <> Map.keysSet completedRemoteBuilds
       <> Map.keysSet completedUploads
@@ -203,7 +205,9 @@ printBuilds now remoteBuilds localBuilds =
  where
   remoteLabels = Map.foldMapWithKey
     (\host builds ->
-      (\(x, t) -> (name (toStorePath x) <> reset <> " on " <> magenta <> toText host, t))
+      (\(x, t) ->
+          (name (toStorePath x) <> reset <> " on " <> magenta <> toText host, t)
+        )
         <$> toList builds
     )
     remoteBuilds
