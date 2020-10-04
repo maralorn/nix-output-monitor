@@ -8,7 +8,9 @@ import           Data.Text.Lazy                as LText
 import           Data.Text.Lazy.IO             as LTextIO
 import           System.IO                      ( hFlush )
 import           System.Console.ANSI
-import           Control.Concurrent.STM         ( swapTVar )
+import           Control.Concurrent.STM         ( swapTVar
+                                                , check
+                                                )
 import           Control.Concurrent             ( threadDelay )
 import           Control.Concurrent.Async
 import           Data.Time
@@ -38,6 +40,13 @@ processText parser initialState updater printerMay lazyInput = do
   stateVar  <- newTVarIO initialState
   linesVar  <- newTVarIO 0
   let
+    keepPrinting :: IO ()
+    keepPrinting = forever $ do
+      race_ (concurrently_ (threadDelay 20000) waitForInput)  (threadDelay 1000000)
+      writeToScreen
+    keepProcessing :: IO ()
+    keepProcessing =
+      mapM_ processResult . parseStream (match parser) $ lazyInput
     processResult :: (Text.Text, a) -> IO ()
     processResult (text, result) = do
       oldState <- readTVarIO stateVar
@@ -64,18 +73,9 @@ processText parser initialState updater printerMay lazyInput = do
           putText buffer
           when (linesToWrite > 0) $ putTextLn output
           hFlush stdout
-    keepProcessing :: IO ()
-    keepProcessing =
-      (mapM_ processResult . parseStream (match parser) $ lazyInput)
     waitForInput :: IO ()
-    waitForInput = do
-      threadDelay 20000
-      buffer <- readTVarIO bufferVar
-      when (Text.null buffer) waitForInput
-    keepPrinting :: IO ()
-    keepPrinting = forever $ do
-      race_ waitForInput (threadDelay 500000)
-      writeToScreen
+    waitForInput =
+      atomically $ check . not . Text.null =<< readTVar bufferVar
   race_ keepProcessing keepPrinting
   writeToScreen
   readTVarIO stateVar
