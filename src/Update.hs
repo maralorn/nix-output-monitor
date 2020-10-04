@@ -28,9 +28,9 @@ updateState result oldState = do
           Downloading path host -> pure . downloading host path
           PlanCopies number     -> pure . planCopy number
           RemoteBuild path host ->
-            \s -> buildingRemote host path <$> lookupDerivation s path
+            \s -> buildingRemote host path now <$> lookupDerivation s path
           LocalBuild path ->
-            \s -> buildingLocal path <$> lookupDerivation s path
+            \s -> buildingLocal path now <$> lookupDerivation s path
           PlanBuilds plannedBuilds ->
             \s ->
               planBuilds plannedBuilds
@@ -39,7 +39,7 @@ updateState result oldState = do
             pure . planDownloads plannedDownloads
           NotRecognized -> pure
         )
-          oldState { currentTime = now }
+          oldState
  where
   set s = do
     newlyCompletedOutputs <- fromList <$> filterM
@@ -91,7 +91,6 @@ data BuildState = BuildState
   , outputToDerivation    :: Map StorePath Derivation
   , derivationToOutput    :: Map Derivation StorePath
   , startTime             :: UTCTime
-  , currentTime           :: UTCTime
   , errors                :: [Text]
   }
   deriving stock (Show, Eq, Read)
@@ -108,7 +107,6 @@ initalState now = BuildState mempty
                              mempty
                              mempty
                              mempty
-                             now
                              now
                              mempty
 
@@ -163,22 +161,22 @@ uploading host storePath s@BuildState { completedUploads } = s
                                       completedUploads
   }
 
-buildingLocal :: Derivation -> BuildState -> BuildState
-buildingLocal storePath s@BuildState { outstandingBuilds, runningLocalBuilds, currentTime }
+buildingLocal :: Derivation -> UTCTime -> BuildState -> BuildState
+buildingLocal drv now s@BuildState { outstandingBuilds, runningLocalBuilds }
   = s
-    { runningLocalBuilds = Set.insert (storePath, currentTime)
+    { runningLocalBuilds = Set.insert (drv, now)
                                       runningLocalBuilds
-    , outstandingBuilds  = Set.delete storePath outstandingBuilds
+    , outstandingBuilds  = Set.delete drv outstandingBuilds
     }
-buildingRemote :: Host -> Derivation -> BuildState -> BuildState
-buildingRemote host storePath s@BuildState { outstandingBuilds, runningRemoteBuilds, currentTime }
+buildingRemote :: Host -> Derivation -> UTCTime -> BuildState -> BuildState
+buildingRemote host drv now s@BuildState { outstandingBuilds, runningRemoteBuilds }
   = s
     { runningRemoteBuilds = Map.insertWith
                               Set.union
                               host
-                              (Set.singleton (storePath, currentTime))
+                              (Set.singleton (drv,now))
                               runningRemoteBuilds
-    , outstandingBuilds   = Set.delete storePath outstandingBuilds
+    , outstandingBuilds   = Set.delete drv outstandingBuilds
     }
 
 countPaths :: Map a (Set b) -> Int

@@ -6,12 +6,20 @@ import           Data.Attoparsec.Text.Lazy
 import           Data.Text                     as Text
 import           Data.Text.Lazy                as LText
 import           Data.Text.Lazy.IO             as LTextIO
-import           Data.Text.IO                  as TextIO
 import           System.IO                      ( hFlush )
 import           System.Console.ANSI
+import           Control.Concurrent.STM         ( swapTVar )
+import           Control.Concurrent             ( threadDelay )
+import           Control.Concurrent.Async
+import           Data.Time
 
 processStream
-  :: forall a b . Parser a -> b -> (a -> b -> IO b) -> (b -> Text.Text) -> IO ()
+  :: forall a b
+   . Parser a
+  -> b
+  -> (a -> b -> IO b)
+  -> (UTCTime -> b -> Text.Text)
+  -> IO ()
 processStream parser initalState updater printer =
   void
     .   processText parser initalState updater (Just printer)
@@ -22,35 +30,55 @@ processText
    . Parser a
   -> b
   -> (a -> b -> IO b)
-  -> Maybe (b -> Text.Text)
+  -> Maybe (UTCTime -> b -> Text.Text)
   -> LText.Text
   -> IO b
-processText parser initalState updater printerMay lazyInput = do
-  ((), (endState, _)) <-
-    flip runStateT (initalState, 0)
-    . mapM_ processResult
-    . parseStream (match parser)
-    $ lazyInput
-  pure endState
- where
-  processResult :: (Text.Text, a) -> StateT (b, Int) IO ()
-  processResult (text, result) = do
-    (oldState, writtenLines) <- get
-    newState                 <- liftIO $ updater result oldState
-    case printerMay of
-      Nothing      -> put (newState, 0)
+processText parser initialState updater printerMay lazyInput = do
+  bufferVar <- newTVarIO ""
+  stateVar  <- newTVarIO initialState
+  linesVar  <- newTVarIO 0
+  let
+    processResult :: (Text.Text, a) -> IO ()
+    processResult (text, result) = do
+      oldState <- readTVarIO stateVar
+      newState <- liftIO $ updater result oldState
+      atomically $ do
+        writeTVar stateVar newState
+        modifyTVar' bufferVar (<> text)
+    writeToScreen :: IO ()
+    writeToScreen = case printerMay of
+      Nothing      -> pass
       Just printer -> do
-        let output       = printer newState
-            linesToWrite = Relude.length (Text.lines output)
-        put (newState, linesToWrite)
+        now <- getCurrentTime
+        (writtenLines, buffer, linesToWrite, output) <- atomically $ do
+          buildState <- readTVar stateVar
+          let output       = printer now buildState
+              linesToWrite = Relude.length (Text.lines output)
+          writtenLines <- swapTVar linesVar linesToWrite
+          buffer       <- swapTVar bufferVar ""
+          pure (writtenLines, buffer, linesToWrite, output)
         liftIO $ do
           when (writtenLines > 0) $ do
             cursorUpLine writtenLines
             clearFromCursorToScreenEnd
-          TextIO.putStr text
-          when (linesToWrite > 0) $ TextIO.putStrLn output
+          putText buffer
+          when (linesToWrite > 0) $ putTextLn output
           hFlush stdout
-
+    keepProcessing :: IO ()
+    keepProcessing =
+      (mapM_ processResult . parseStream (match parser) $ lazyInput)
+    waitForInput :: IO ()
+    waitForInput = do
+      threadDelay 20000
+      buffer <- readTVarIO bufferVar
+      when (Text.null buffer) waitForInput
+    keepPrinting :: IO ()
+    keepPrinting = forever $ do
+      race_ waitForInput (threadDelay 500000)
+      writeToScreen
+  race_ keepProcessing keepPrinting
+  writeToScreen
+  readTVarIO stateVar
 
 parseStream :: Parser a -> LText.Text -> [a]
 parseStream parser input = case parse parser input of

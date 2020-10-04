@@ -59,14 +59,14 @@ condCell :: Bool -> Text -> Text
 condCell cond text =
   if cond then text else stimesMonoid (Text.length text - 3) " " <> cellBorder
 
-stateToText :: BuildState -> Text
-stateToText buildState@BuildState { outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, currentTime, startTime, completedRemoteBuilds }
+stateToText :: UTCTime -> BuildState -> Text
+stateToText now buildState@BuildState { outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds }
   | totalBuilds + plannedCopies == 0
   = ""
   | otherwise
   = (if runningBuilds > 0
       then
-        printBuilds currentTime runningRemoteBuilds runningLocalBuilds <> leftT
+        printBuilds now runningRemoteBuilds runningLocalBuilds <> leftT
       else upperleft
     )
     <> times 3 horizontal
@@ -112,7 +112,7 @@ stateToText buildState@BuildState { outstandingBuilds, outstandingDownloads, pla
     <> showCond showUploads ("       " <> cellBorder)
     <> clock
     <> " "
-    <> timeDiff currentTime startTime
+    <> timeDiff now startTime
     <> reset
  where
   showHosts     = numHosts > 0
@@ -199,6 +199,7 @@ printBuilds now remoteBuilds localBuilds =
   unlines
     .  (upperleft <> horizontal <> " Currently building:" :)
     .  fmap printBuild
+    .  reverse
     .  sortOn snd
     $  remoteLabels
     <> localLabels

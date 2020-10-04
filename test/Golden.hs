@@ -9,10 +9,7 @@ import           Data.Time
 import           IO
 import           Update                         ( initalState
                                                 , updateState
-                                                , BuildState
-                                                  ( startTime
-                                                  , currentTime
-                                                  )
+                                                , BuildState(startTime)
                                                 )
 import           Relude.Unsafe
 
@@ -30,9 +27,6 @@ main = do
           "test/golden1.state"
         assertEqual "State matches"
                     expectedState
-                    (endState { startTime = fixTime, currentTime = fixTime })
+                    endState { startTime = read "2020-10-03 12:54:17.029638514 UTC" }
     ]
   if errors counts + failures counts == 0 then exitSuccess else exitFailure
-
-fixTime :: UTCTime
-fixTime = read "2020-10-03 12:54:17.029638514 UTC"

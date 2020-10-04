@@ -1,16 +1,16 @@
 cabal-version:      2.4
 name:               nix-output-monitor
 version:            0.1.0.0
+synopsis:           Parses output of nix-build to show additional information
+description:
+  A tool you can pipe stdout and stderr into to get your terminal output enriched with useful information.
 
-synopsis: Parses output of nix-build to show additional information
-description: A tool you can pipe stdout and stderr into to get your terminal output enriched with useful information.
 homepage:           https://github.com/maralorn/nix-output-monitor
 bug-reports:        https://github.com/maralorn/nix-output-monitor/issues
 license:            AGPL-3.0-or-later
 license-file:       LICENSE
 author:             Malte Brandy <malte.brandy@maralorn.de>
 maintainer:         Malte Brandy <malte.brandy@maralorn.de>
-
 build-type:         Simple
 extra-source-files: CHANGELOG.md
 
@@ -26,6 +26,7 @@ common common-config
 
   build-depends:
     , ansi-terminal
+    , async
     , attoparsec
     , base
     , containers
@@ -33,6 +34,7 @@ common common-config
     , mtl
     , nix-derivation
     , relude
+    , stm
     , text
     , time
     , unix
@@ -40,8 +42,27 @@ common common-config
   default-language:   Haskell2010
   ghc-options:        -Wall
 
+library
+  import:          common-config
+  hs-source-dirs:  src
+  exposed-modules:
+    Debug
+    IO
+    Parser
+    Print
+    Update
+
+common exes
+  import:      common-config
+  ghc-options: -threaded
+
+executable nom
+  import:        exes
+  main-is:       Main.hs
+  build-depends: nix-output-monitor
+
 common tests
-  import:         common-config
+  import:         exes
   hs-source-dirs: test
   build-depends:
     , HUnit
@@ -57,18 +78,3 @@ test-suite golden-tests
   type:          exitcode-stdio-1.0
   main-is:       Golden.hs
   build-depends: process
-
-library
-  import:          common-config
-  hs-source-dirs:  src
-  exposed-modules:
-    Debug
-    IO
-    Parser
-    Print
-    Update
-
-executable nom
-  import:        common-config
-  main-is:       Main.hs
-  build-depends: nix-output-monitor
