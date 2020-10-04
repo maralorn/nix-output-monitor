@@ -27,7 +27,7 @@ nix-build 2>&1 | nom
 
 ## Example Run
 
-The recording is a bit laggy, but at least on my notebook it's quite smooth and readable.
+The recording is a bit laggy, but after a rewrite of the printing timing it is super smooth and readable.
 
 With some local builds and downloads:
 
@@ -60,8 +60,6 @@ Terminal clearing and reprinting is brittle. It might fail with your terminal or
 This program also makes assumptions like your nix-store is at "/nix/store" or that every derivation has an output at "out".
 
 The formatting code is a mess and has no tests, so feel free to tell me about any corner cases where it breaks.
-
-**The output will only refresh, when nix prints a new line.** This mean the timer will feel laggy. But in a sense it isn‘t. Actually nom seems to be quite efficient.
 
 Luckily I don‘t think this program screws up anything more than your terminal.
 
