@@ -63,7 +63,6 @@ executable nom
 
 common tests
   import:         exes
-  hs-source-dirs: test
   build-depends:
     , HUnit
     , nix-output-monitor
@@ -71,10 +70,11 @@ common tests
 test-suite unit-tests
   import:  tests
   type:    exitcode-stdio-1.0
-  main-is: Main.hs
+  main-is: Test.hs
 
 test-suite golden-tests
   import:        tests
+  hs-source-dirs: test
   type:          exitcode-stdio-1.0
   main-is:       Golden.hs
   build-depends: process

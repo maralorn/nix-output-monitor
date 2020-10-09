@@ -20,10 +20,10 @@ Best case scenario: This could serve as inspiration as to how to improve nix out
 Once you have installed `nix-output-monitor` to your path, run any nix command (`nixos-rebuild`,`nix-build`,`home-manager switch`, **not** `nix build`.) and pipe stderr and stdout into `nom`.
 
 ```
-nix-build 2>&1 | nom
+nix-build |& nom
 ```
 
-**Don‘t forget to redirect stderr, too.** That's what the 2>&1, does.
+**Don‘t forget to redirect stderr, too.** That's what the `&`, does.
 
 ## Example Run
 
