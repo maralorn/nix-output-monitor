@@ -38,15 +38,13 @@ I recommend any font from `pkgs.nerdfonts` e.g. `"JetBrainsMono Nerd Font"`.
 
 ## Example Run
 
-The recording is a bit laggy, but after a rewrite of the printing timing it is super smooth and readable.
-
 With some local builds and downloads:
 
 [![asciicast](https://asciinema.org/a/HKWeTpFS42muAaJapSvMiSEbn.svg)](https://asciinema.org/a/HKWeTpFS42muAaJapSvMiSEbn)
 
 With more builds on a remote server:
 
-[![asciicast](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe.svg)](https://asciinema.org/a/N3DVPbuRHDM0cKdIO580szKPe)
+[![asciicast](https://asciinema.org/a/1TVTTlogGdmbC1jtwWCPiatb7.svg)](https://asciinema.org/a/1TVTTlogGdmbC1jtwWCPiatb7)
 
 ## Implementation
 
