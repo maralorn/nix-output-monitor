@@ -25,6 +25,17 @@ nix-build |& nom
 
 **Don‘t forget to redirect stderr, too.** That's what the `&`, does.
 
+## Icons
+
+```Haskell
+running = "▶" -- yellow
+done = "☑" -- green
+todo = "☐" -- blue
+```
+
+If you can‘t see all icons you maybe need another terminal font.
+I recommend any font from `pkgs.nerdfonts` e.g. `"JetBrainsMono Nerd Font"`.
+
 ## Example Run
 
 The recording is a bit laggy, but after a rewrite of the printing timing it is super smooth and readable.
