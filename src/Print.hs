@@ -27,8 +27,8 @@ down = "⬇"
 up = "⬆"
 clock = "⏲"
 running = "▶"
-done = "☑"
-todo = "☐"
+done = "✔"
+todo = "⏳"
 bold = toText $ setSGRCode [SetConsoleIntensity BoldIntensity]
 green = toText $ setSGRCode [SetColor Foreground Dull Green]
 yellow = toText $ setSGRCode [SetColor Foreground Dull Yellow]
@@ -92,7 +92,7 @@ stateToText now buildState@BuildState { outstandingBuilds, outstandingDownloads,
          <> green
          <> done
          <> cell numCompletedBuilds
-         <> cellBorder
+         <> " " <> verticalSlim
          <> blue
          <> todo
          <> cell numOutstandingBuilds
@@ -103,7 +103,7 @@ stateToText now buildState@BuildState { outstandingBuilds, outstandingDownloads,
          (  green
          <> down
          <> cell downloadsDone
-         <> cellBorder
+         <> " " <> verticalSlim
          <> blue
          <> todo
          <> cell (length outstandingDownloads)

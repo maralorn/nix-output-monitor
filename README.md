@@ -29,8 +29,8 @@ nix-build |& nom
 
 ```Haskell
 running = "▶" -- yellow
-done = "☑" -- green
-todo = "☐" -- blue
+done = "✔" -- green
+todo = "⏳" -- blue
 ```
 
 If you can‘t see all icons you maybe need another terminal font.
