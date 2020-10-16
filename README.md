@@ -5,7 +5,7 @@ Pipe your nix-build output through the nix-output-monitor (aka nom) to get addit
 
 ## Status
 
-This is an experimental fun project. You are free and very welcome to contribute feedback, issues or PRs, but I do not commit to maintain this project over a long time period.
+This is an experimental fun project. The purpose of it is to write something fun and useful in Haskell. You are free and very welcome to contribute feedback, issues or PRs, but I do not commit to maintain this project over a long time period.
 This program relies on the output of the v1 nix commands (i.e. nix-build not nix build) and will hopefully one day be obsolete.
 
 Best case scenario: This could serve as inspiration as to how to improve nix output in the future.
