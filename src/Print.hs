@@ -69,9 +69,9 @@ stateToText now buildState@BuildState { outstandingBuilds, outstandingDownloads,
         printBuilds now runningRemoteBuilds runningLocalBuilds <> leftT
       else upperleft
     )
-    <> times 3 horizontal
+    <> times 3 horizontal <> " "
     <> showCond showBuilds
-                (bold <> " Builds               " <> reset <> cellBorder)
+                (bold <> "Builds               " <> reset <> cellBorder)
     <> showCond showDownloads (bold <> "Downloads    " <> reset <> cellBorder)
     <> showCond showUploads   (bold <> "Uploads" <> reset <> cellBorder)
     <> showCond showHosts     (bold <> "Host" <> reset)
