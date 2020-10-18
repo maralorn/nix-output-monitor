@@ -12,6 +12,7 @@ Best case scenario: This could serve as inspiration as to how to improve nix out
 
 ## Installing
 
+* nixpkgs: nom is in nixpkgs/nixos unstable just install `pkgs.nix-output-monitor` in the usual way.
 * cabal: Install `cabal-install` and run `cabal install` in the checked out repo.
 * nix: or run `nix-build` or `nix-env` or include the `default.nix` of this repo in your nixos config.
 
