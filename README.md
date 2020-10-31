@@ -26,6 +26,14 @@ nix-build |& nom
 
 **Don‘t forget to redirect stderr, too.** That's what the `&`, does.
 
+### Preserving colored text
+
+To preserve the color of the redirected text you can use the `unbuffer` command from the `expect` package.
+
+```
+unbuffer nix-build |& nom
+```
+
 ## Icons
 
 ```Haskell
