@@ -20,7 +20,7 @@ Best case scenario: This could serve as inspiration as to how to improve nix out
 
 Once you have installed `nix-output-monitor` to your path, run any nix command (`nixos-rebuild`,`nix-build`,`home-manager switch`, **not** `nix build`.) and pipe stderr and stdout into `nom`.
 
-```
+```shell
 nix-build |& nom
 ```
 
@@ -30,7 +30,7 @@ nix-build |& nom
 
 To preserve the color of the redirected text you can use the `unbuffer` command from the `expect` package.
 
-```
+```shell
 unbuffer nix-build |& nom
 ```
 
