@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Main where
 
 import           Prelude                        ( )
@@ -10,15 +11,22 @@ import           IO
 import           Data.Time
 import           Data.Text.IO                   ( hPutStrLn )
 import           System.Environment             ( getArgs )
+import           Paths_nix_output_monitor       ( version )
+import           Data.Version                   ( showVersion )
 
 main :: IO ()
 main = do
-  args <- getArgs
-  unless (null args) $ do
-    hPutStrLn stderr helpText
-    -- It's not a mistake if the user requests the help text, otherwise tell
-    -- them off with a non-zero exit code.
-    if any ((== "-h") <||> (== "--help")) args then exitSuccess else exitFailure
+  getArgs >>= \case
+    []            -> pure ()
+    ["--version"] -> do
+      hPutStrLn stderr
+                ("nix-output-monitor " <> fromString (showVersion version))
+      exitSuccess
+    xs -> do
+      hPutStrLn stderr helpText
+      -- It's not a mistake if the user requests the help text, otherwise tell
+      -- them off with a non-zero exit code.
+      if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   now <- getCurrentTime
   processStream parser (initalState now) updateState stateToText
 
