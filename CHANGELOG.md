@@ -1,5 +1,11 @@
 # Revision history for nix-output-monitor
 
+## 0.1.0.4 -- 2021-02-?
+
+* Added recognition of `--check` builds
+* Added recognition of failed builds
+* Display final derivation in status line
+
 ## 0.1.0.3 -- 2021-02-20
 
 * Reworked the printing code to make it more robust
