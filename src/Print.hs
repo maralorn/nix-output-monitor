@@ -1,22 +1,17 @@
+{-# LANGUAGE ViewPatterns #-}
+
 module Print where
 
-import           Prelude                        ( )
-import           Parser                         ( StorePath(..)
-                                                , Host(..)
-                                                , Derivation(..)
-                                                )
-import           Relude
-import           Update
-import           Data.Time
-import qualified Data.Map.Strict               as Map
-import qualified Data.Set                      as Set
-import           Text.Printf
-import qualified Data.Text                     as Text
-import           System.Console.ANSI.Types
-import           System.Console.ANSI
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import Data.Time
+import Parser (Derivation (..), Host (..), StorePath (..))
+import Relude
+import Table
+import Update
+import Prelude ()
 
-vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, todo, leftT, bold, green, yellow, blue, reset, cyan, magenta, cellBorder, tablePadding, emptyCell, skipCell
-  :: Text
+vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, todo, leftT, cellBorder, tablePadding, emptyCell, skipCell :: Text
 vertical = "┃"
 verticalSlim = "│"
 lowerleft = "┗"
@@ -29,96 +24,65 @@ clock = "⏲"
 running = "▶"
 done = "✔"
 todo = "⏳"
-bold = toText $ setSGRCode [SetConsoleIntensity BoldIntensity]
-green = toText $ setSGRCode [SetColor Foreground Dull Green]
-yellow = toText $ setSGRCode [SetColor Foreground Dull Yellow]
-blue = toText $ setSGRCode [SetColor Foreground Dull Blue]
-cyan = toText $ setSGRCode [SetColor Foreground Dull Cyan]
-magenta = toText $ setSGRCode [SetColor Foreground Dull Magenta]
-reset = toText $ setSGRCode [Reset]
-
-times :: Int -> Text -> Text
-times = stimesMonoid
-
-cell :: Int -> Text
-cell x =
-  let str = fromString . printf "% 4d" $ x
-  in  (if x > 0 then bold <> str else str) <> reset
-
 cellBorder = " " <> verticalSlim <> " "
 tablePadding = vertical <> "    "
 emptyCell = "     "
 skipCell = emptyCell <> cellBorder
 
-showCond :: Bool -> Text -> Text
+showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
-showCondHide :: Bool -> Text -> Text
-showCondHide cond text =
-  if cond then text else stimesMonoid (Text.length text) " "
-condCell :: Bool -> Text -> Text
-condCell cond text =
-  if cond then text else stimesMonoid (Text.length text - 3) " " <> cellBorder
 
 stateToText :: UTCTime -> BuildState -> Text
-stateToText now buildState@BuildState { outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds }
-  | totalBuilds + plannedCopies == 0
-  = ""
-  | otherwise
-  = (if runningBuilds > 0
-      then
-        printBuilds now runningRemoteBuilds runningLocalBuilds <> leftT
-      else upperleft
-    )
-    <> times 3 horizontal <> " "
-    <> showCond showBuilds
-                (bold <> "Builds               " <> reset <> cellBorder)
-    <> showCond showDownloads (bold <> "Downloads    " <> reset <> cellBorder)
-    <> showCond showUploads   (bold <> "Uploads" <> reset <> cellBorder)
-    <> showCond showHosts     (bold <> "Host" <> reset)
-    <> "\n"
-    <> (if showHosts
-         then printHosts buildState showBuilds showDownloads showUploads
-         else ""
-       )
-    <> lowerleft
-    <> horizontal
-    <> " 𝚺 "
-    <> showCond
-         showBuilds
-         (  yellow
-         <> running
-         <> cell runningBuilds
-         <> cellBorder
-         <> green
-         <> done
-         <> cell numCompletedBuilds
-         <> " " <> verticalSlim
-         <> blue
-         <> todo
-         <> cell numOutstandingBuilds
-         <> cellBorder
-         )
-    <> showCond
-         showDownloads
-         (  green
-         <> down
-         <> cell downloadsDone
-         <> " " <> verticalSlim
-         <> blue
-         <> todo
-         <> cell (length outstandingDownloads)
-         <> cellBorder
-         )
-    <> showCond showUploads ("       " <> cellBorder)
-    <> clock
-    <> " "
-    <> timeDiff now startTime
-    <> reset
+stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds}
+  | totalBuilds + plannedCopies == 0 = ""
+  | otherwise = builds <> table
  where
-  showHosts     = numHosts > 0
-  showBuilds    = totalBuilds > 0
+  builds =
+    showCond
+      (runningBuilds > 0)
+      $ prependLines
+        (upperleft <> horizontal)
+        (vertical <> " ")
+        (vertical <> " ")
+        (printBuilds now runningRemoteBuilds runningLocalBuilds)
+        <> "\n"
+  table =
+    prependLines
+      ((if runningBuilds > 0 then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
+      (vertical <> "    ")
+      (lowerleft <> horizontal <> " 𝚺 ")
+      $ printAlignedSep innerTable
+  innerTable = fromMaybe (one (text "")) (nonEmpty headers) :| tableRows
+  headers =
+    (cells 3 <$> optHeader showBuilds "Builds")
+      <> (cells 2 <$> optHeader showDownloads "Downloads")
+      <> optHeader showUploads "Uploads"
+      <> optHeader showHosts "Host"
+  optHeader cond = showCond cond . one . bold . header :: Text -> [Entry]
+  tableRows =
+    showCond
+      showHosts
+      (printHosts buildState showBuilds showDownloads showUploads)
+      <> maybeToList (nonEmpty lastRow)
+  lastRow =
+    showCond
+      showBuilds
+      [ nonZeroBold runningBuilds (yellow (label running (disp runningBuilds)))
+      , nonZeroBold numCompletedBuilds (green (label done (disp numCompletedBuilds)))
+      , nonZeroBold numOutstandingBuilds (blue (label todo (disp numOutstandingBuilds)))
+      ]
+      <> showCond
+        showDownloads
+        [ nonZeroBold downloadsDone (green (label down (disp downloadsDone)))
+        , nonZeroBold numOutstandingDownloads . blue . label todo . disp $ numOutstandingDownloads
+        ]
+      <> showCond showUploads [text ""]
+      <> (one . bold . header $ clock <> " " <> timeDiff now startTime)
+  showHosts = numHosts > 0
+  showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + length outstandingDownloads > 0
-  showUploads   = countPaths completedUploads > 0
+  showUploads = countPaths completedUploads > 0
+  numOutstandingDownloads = Set.size outstandingDownloads
   numHosts =
     length (Map.keysSet runningRemoteBuilds)
       + length (Map.keysSet completedRemoteBuilds)
@@ -130,104 +94,84 @@ stateToText now buildState@BuildState { outstandingBuilds, outstandingDownloads,
   totalBuilds = numOutstandingBuilds + runningBuilds + numCompletedBuilds
   downloadsDone = countPaths completedDownloads
 
-printHosts :: BuildState -> Bool -> Bool -> Bool -> Text
-printHosts BuildState { runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, completedRemoteBuilds } showBuilds showDownloads showUploads
-  = unlines
-    (  tablePadding
-    <> showCond
-         showBuilds
-         (  yellow
-         <> running
-         <> cell (Set.size runningLocalBuilds)
-         <> cellBorder
-         <> green
-         <> done
-         <> cell (Set.size completedLocalBuilds)
-         <> cellBorder
-         <> skipCell
-         )
-    <> showCond showDownloads (skipCell <> skipCell)
-    <> showCond showUploads   ("  " <> skipCell)
-    <> "local"
-    :  remoteLabels
-    )
+printHosts :: BuildState -> Bool -> Bool -> Bool -> [NonEmpty Entry]
+printHosts BuildState{runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, completedRemoteBuilds} showBuilds showDownloads showUploads =
+  mapMaybe nonEmpty $
+    ( showCond
+        showBuilds
+        [ nonZeroShowBold numRunningLocalBuilds (yellow (label running (disp numRunningLocalBuilds)))
+        , nonZeroShowBold numCompletedLocalBuilds (green (label done (disp numCompletedLocalBuilds)))
+        , dummy
+        ]
+        <> showCond showDownloads [dummy, dummy]
+        <> showCond showUploads [dummy]
+        <> one (header "local")
+    ) :
+    remoteLabels
  where
-  remoteLabels =
-    (\h ->
-        let runningBuilds = l h runningRemoteBuilds
-            doneBuilds    = l h completedRemoteBuilds
-        in  tablePadding
-              <> showCond
-                   showBuilds
-                   (  c (yellow <> running) runningBuilds
-                   <> cellBorder
-                   <> c (green <> done) doneBuilds
-                   <> cellBorder
-                   <> skipCell
-                   )
-
-              <> showCond
-                   showDownloads
-                   (  c (green <> down) (l h completedDownloads)
-                   <> cellBorder
-                   <> skipCell
-                   )
-
-              <> showCond
-                   showUploads
-                   (c (green <> up) (l h completedUploads) <> "  " <> cellBorder)
-              <> magenta
-              <> toText h
-              <> reset
-      )
-      <$> hosts
+  numRunningLocalBuilds = Set.size runningLocalBuilds
+  numCompletedLocalBuilds = Set.size completedLocalBuilds
+  labelForHost h =
+    showCond
+      showBuilds
+      [ nonZeroShowBold runningBuilds (yellow (label running (disp runningBuilds)))
+      , nonZeroShowBold doneBuilds (green (label done (disp doneBuilds)))
+      , dummy
+      ]
+      <> showCond
+        showDownloads
+        [nonZeroShowBold downloads (green (label down (disp downloads))), dummy]
+      <> showCond
+        showUploads
+        [nonZeroShowBold uploads (green (label up (disp uploads)))]
+      <> one (magenta (header (toText h)))
+   where
+    uploads = l h completedUploads
+    downloads = l h completedDownloads
+    runningBuilds = l h runningRemoteBuilds
+    doneBuilds = l h completedRemoteBuilds
+  remoteLabels = labelForHost <$> hosts
   hosts =
     sort
-      .  toList
-      $  Map.keysSet runningRemoteBuilds
-      <> Map.keysSet completedRemoteBuilds
-      <> Map.keysSet completedUploads
-      <> Map.keysSet completedDownloads
+      . toList
+      $ Map.keysSet runningRemoteBuilds
+        <> Map.keysSet completedRemoteBuilds
+        <> Map.keysSet completedUploads
+        <> Map.keysSet completedDownloads
   l host = Set.size . Map.findWithDefault mempty host
-  c icon num = if num > 0 then icon <> cell num else emptyCell
-printBuilds
-  :: UTCTime
-  -> Map Host (Set (Derivation, UTCTime))
-  -> Set (Derivation, UTCTime)
-  -> Text
+
+nonZeroShowBold :: Int -> Entry -> Entry
+nonZeroShowBold num = if num > 0 then bold else const dummy
+nonZeroBold :: Int -> Entry -> Entry
+nonZeroBold num = if num > 0 then bold else id
+
+printBuilds ::
+  UTCTime ->
+  Map Host (Set (Derivation, UTCTime)) ->
+  Set (Derivation, UTCTime) ->
+  NonEmpty Text
 printBuilds now remoteBuilds localBuilds =
-  unlines
-    .  (upperleft <> horizontal <> " Currently building:" :)
-    .  fmap printBuild
-    .  reverse
-    .  sortOn snd
-    $  remoteLabels
-    <> localLabels
+  printAligned . (one (cells 3 (header " Currently building:")) :|)
+    . fmap printBuild
+    . reverse
+    . sortOn snd
+    $ remoteLabels
+      <> localLabels
  where
-  remoteLabels = Map.foldMapWithKey
-    (\host builds ->
-      (\(x, t) ->
-          (name (toStorePath x) <> reset <> " on " <> magenta <> toText host, t)
-        )
-        <$> toList builds
-    )
-    remoteBuilds
-  localLabels = (\(x, t) -> (name $ toStorePath x, t)) <$> toList localBuilds
-  printBuild (p, t) =
-    vertical
-      <> " "
-      <> yellow
-      <> running
-      <> reset
-      <> " "
-      <> cyan
-      <> p
-      <> reset
-      <> " "
-      <> clock
-      <> " "
-      <> timeDiff now t
+  remoteLabels =
+    Map.foldMapWithKey
+      ( \host builds ->
+          ( \(x, t) ->
+              ((cyan . text . name . toStorePath $ x) :| [text "on", magenta . text . toText $ host], t)
+          )
+            <$> toList builds
+      )
+      remoteBuilds
+  localLabels :: [(NonEmpty Entry, UTCTime)]
+  localLabels = first (one . cyan . text . name . toStorePath) <$> toList localBuilds
+  printBuild (toList -> p, t) = yellow (text running) :| (p <> [header (clock <> " " <> timeDiff now t)])
 
 timeDiff :: UTCTime -> UTCTime -> Text
-timeDiff larger smaller = toText
-  $ formatTime defaultTimeLocale "%02H:%02M:%02S" (diffUTCTime larger smaller)
+timeDiff larger smaller =
+  toText $
+    formatTime defaultTimeLocale "%02H:%02M:%02S" (diffUTCTime larger smaller)
