@@ -20,10 +20,9 @@ processStream ::
   b ->
   (a -> b -> IO b) ->
   (UTCTime -> b -> Text.Text) ->
-  IO ()
+  IO b
 processStream parser initalState updater printer =
-  void
-    . processText parser initalState updater (Just printer)
+   processText parser initalState updater (Just printer)
     =<< LTextIO.getContents
 
 processText ::

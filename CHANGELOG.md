@@ -5,6 +5,7 @@
 * Added recognition of `--check` builds
 * Added recognition of failed builds
 * Display final derivation in status line
+* Exit with failure code when a failed build was recognized
 
 ## 0.1.0.3 -- 2021-02-20
 

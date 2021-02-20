@@ -3,6 +3,7 @@ module Main where
 import Relude
 import Prelude ()
 
+import qualified Data.Set as Set
 import Data.Text.IO (hPutStrLn)
 import Data.Time (getCurrentTime)
 import Data.Version (showVersion)
@@ -11,7 +12,7 @@ import Parser (parser)
 import Paths_nix_output_monitor (version)
 import Print (stateToText)
 import System.Environment (getArgs)
-import Update (initalState, updateState)
+import Update (countPaths, failedLocalBuilds, failedRemoteBuilds, initalState, updateState)
 
 main :: IO ()
 main = do
@@ -26,7 +27,10 @@ main = do
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   now <- getCurrentTime
-  processStream parser (initalState now) updateState stateToText
+  finalState <- processStream parser (initalState now) updateState stateToText
+  if Set.size (failedLocalBuilds finalState) + countPaths (failedRemoteBuilds finalState) == 0
+    then exitSuccess
+    else exitFailure
 
 helpText :: Text
 helpText =
