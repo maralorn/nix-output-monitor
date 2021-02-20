@@ -1,4 +1,4 @@
-module Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, red, disp, dummy, header) where
+module Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, red, disp, dummy, header, displayWidth, Table.truncate) where
 
 import Relude
 import Prelude ()
@@ -24,7 +24,20 @@ data Entry = Entry
   }
 
 displayWidth :: Text -> Int
-displayWidth = sum . fmap wcwidth . toString
+displayWidth = fst . Text.foldl widthFold (0, False)
+
+truncate :: Int -> Text -> Text
+truncate cut = either id (\(x,_,_) -> x) . Text.foldl (truncateFold cut) (Right ("",  0, False))
+
+truncateFold :: Int -> Either Text (Text, Int, Bool) -> Char -> Either Text (Text, Int, Bool)
+truncateFold _ (Left x) _ = Left x
+truncateFold cut (Right (l, x, e)) c = if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
+ where (newX, newE) = widthFold (x, e) c
+widthFold :: (Int, Bool) -> Char -> (Int, Bool)
+widthFold (x, True) 'm' = (x, False)
+widthFold (x, True) _ = (x, True)
+widthFold (x, False) (fromEnum -> 27) = (x, True) -- Escape sequence
+widthFold (x, False) c = (x + wcwidth c, False)
 
 disp :: Show a => a -> Entry
 disp = text . show
@@ -98,9 +111,6 @@ chopWidthFromRow :: Text -> Int -> NonEmpty Entry -> [Entry]
 chopWidthFromRow sep width (entry@Entry{span} :| rest)
   | span > 1 = entry{span = span - 1, lcontent = "", rcontent = mtimesDefault (max 0 (entryWidth entry - width - displayWidth sep)) " "} : rest
 chopWidthFromRow _ _ (_ :| rest) = rest
-
--- >>> printRow " | " [7,5,3] (label ">" (text "<") :| [cells 2 (text "b")])
--- ">     < |           b"
 
 printRow :: Text -> [Int] -> NonEmpty Entry -> Text
 printRow sep colWidths entries = Text.intercalate sep $ snd (foldl foldFun (colWidths, id) entries) []
