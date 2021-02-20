@@ -35,6 +35,11 @@ main = do
                             "haskell-language-server-0.4.0.0"
                       )
                   )
+                  ( Derivation $
+                      StorePath
+                        "7n05q79qhrgvnfmvv2v3cnj3yqf4d1hf"
+                        "haskell-language-server-0.4.0.0"
+                  )
               )
               result
             (rest2, result2) <- assertParse parser rest
@@ -60,7 +65,7 @@ main = do
               )
               result
             assertEqual "no rest" "" rest
-        , "Parse local Building" ~: do
+        , "Parse local building" ~: do
             (rest, result) <-
               assertParse
                 parser
@@ -72,7 +77,7 @@ main = do
               )
               result
             assertEqual "no rest" "" rest
-        , "Parse remote Building" ~: do
+        , "Parse remote building" ~: do
             (rest, result) <-
               assertParse
                 parser
