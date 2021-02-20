@@ -4,7 +4,7 @@ import Relude
 import Prelude ()
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently_, race_)
+import Control.Concurrent.Async (concurrently_, race_, withAsync)
 import Control.Concurrent.STM (check, swapTVar)
 import Data.Attoparsec.Text.Lazy (Parser, Result (Done, Fail), match, parse)
 import Data.Text as Text (Text, lines, null)
@@ -22,7 +22,7 @@ processStream ::
   (UTCTime -> b -> Text.Text) ->
   IO b
 processStream parser initalState updater printer =
-   processText parser initalState updater (Just printer)
+  processText parser initalState updater (Just printer)
     =<< LTextIO.getContents
 
 processText ::
@@ -48,13 +48,12 @@ processText parser initialState updater printerMay lazyInput = do
       processResult (text, result) = do
         oldState <- readTVarIO stateVar
         newState <- liftIO $ updater result oldState
-        atomically $ do
+        atomically do
           writeTVar stateVar newState
           modifyTVar' bufferVar (<> text)
       writeToScreen :: IO ()
-      writeToScreen = case printerMay of
-        Nothing -> pass
-        Just printer -> do
+      writeToScreen =
+        printerMay & maybe pass \printer -> do
           now <- getCurrentTime
           (writtenLines, buffer, linesToWrite, output) <- atomically $ do
             buildState <- readTVar stateVar
@@ -64,7 +63,7 @@ processText parser initialState updater printerMay lazyInput = do
             buffer <- swapTVar bufferVar ""
             pure (writtenLines, buffer, linesToWrite, output)
           liftIO $ do
-            when (writtenLines > 0) $ do
+            when (writtenLines > 0) do
               cursorUpLine writtenLines
               clearFromCursorToScreenEnd
             putText buffer
@@ -73,7 +72,11 @@ processText parser initialState updater printerMay lazyInput = do
       waitForInput :: IO ()
       waitForInput =
         atomically $ check . not . Text.null =<< readTVar bufferVar
-  race_ keepProcessing keepPrinting
+      checkForInput :: IO ()
+      checkForInput = race_ waitForInput do
+        threadDelay 10000000
+        putStrLn "No input for more than 10 seconds. Have you redirected nix-build stderr into nom? Please read the README."
+  withAsync checkForInput $ const (race_ keepProcessing keepPrinting)
   writeToScreen
   readTVarIO stateVar
 

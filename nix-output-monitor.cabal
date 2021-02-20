@@ -25,6 +25,7 @@ common common-config
     OverloadedStrings
     ScopedTypeVariables
     ViewPatterns
+    BlockArguments
 
   build-depends:
     , ansi-terminal
