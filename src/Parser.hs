@@ -1,26 +1,33 @@
 module Parser where
 
-import           Prelude                        ( )
-import           Relude                  hiding ( take
-                                                , takeWhile
-                                                )
+import Relude hiding (take, takeWhile)
+import Prelude ()
 
-import           Data.Text               hiding ( take
-                                                , takeWhile
-                                                )
-import           Data.Attoparsec.Text.Lazy
+import Data.Attoparsec.Text.Lazy (
+  Parser,
+  char,
+  decimal,
+  double,
+  endOfLine,
+  inClass,
+  isEndOfLine,
+  string,
+  take,
+  takeTill,
+  takeWhile,
+ )
+import Data.Text (stripSuffix)
 
-
-data ParseResult =
-   Uploading StorePath Host
- | Downloading StorePath Host
- | PlanCopies Int
- | RemoteBuild Derivation Host
- | LocalBuild Derivation
- | NotRecognized
- | PlanBuilds (Set Derivation)
- | PlanDownloads Double Double (Set StorePath)
- deriving (Show, Eq, Read)
+data ParseResult
+  = Uploading StorePath Host
+  | Downloading StorePath Host
+  | PlanCopies Int
+  | RemoteBuild Derivation Host
+  | LocalBuild Derivation
+  | NotRecognized
+  | PlanBuilds (Set Derivation)
+  | PlanDownloads Double Double (Set StorePath)
+  deriving (Show, Eq, Read)
 
 parser :: Parser ParseResult
 parser = planBuilds <|> planDownloads <|> copying <|> building <|> noMatch
@@ -31,7 +38,8 @@ data StorePath = StorePath
   }
   deriving stock (Show, Ord, Eq, Read)
 
-newtype Derivation = Derivation { toStorePath :: StorePath } deriving stock (Show, Ord, Eq, Read)
+newtype Derivation = Derivation {toStorePath :: StorePath}
+  deriving stock (Show, Ord, Eq, Read)
 
 instance ToText Derivation where
   toText = (<> ".drv") . toText . toStorePath
@@ -46,7 +54,9 @@ instance ToText StorePath where
 instance ToString StorePath where
   toString = toString . toText
 
-newtype Host = Host Text deriving newtype (Ord, Eq) deriving stock (Show, Read)
+newtype Host = Host Text
+  deriving newtype (Ord, Eq)
+  deriving stock (Show, Read)
 instance ToText Host where
   toText (Host name) = name
 instance ToString Host where
@@ -62,9 +72,10 @@ storePath =
     <*> (char '-' *> takeWhile (inClass "a-zA-Z0-9_.-"))
 
 derivation :: Parser Derivation
-derivation = storePath >>= \x -> case stripSuffix ".drv" (name x) of
-  Just realName -> pure . Derivation $ x { name = realName }
-  Nothing       -> mzero
+derivation =
+  storePath >>= \x -> case stripSuffix ".drv" (name x) of
+    Just realName -> pure . Derivation $ x{name = realName}
+    Nothing -> mzero
 
 inTicks :: Parser a -> Parser a
 inTicks x = tick *> x <* tick
@@ -87,11 +98,8 @@ indent = () <$ string "  "
 planBuilds :: Parser ParseResult
 planBuilds =
   PlanBuilds
-    .   fromList
-    <$> (  string "these derivations will be built:"
-        *> endOfLine
-        *> many planBuildLine
-        )
+    . fromList
+    <$> (string "these derivations will be built:" *> endOfLine *> many planBuildLine)
 
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivation <* endOfLine
@@ -101,10 +109,7 @@ planDownloads =
   PlanDownloads
     <$> (string "these paths will be fetched (" *> double)
     <*> (string " MiB download, " *> double)
-    <*> (  string " MiB unpacked):"
-        *> endOfLine
-        *> (fromList <$> many planDownloadLine)
-        )
+    <*> (string " MiB unpacked):" *> endOfLine *> (fromList <$> many planDownloadLine))
 
 planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePath <* endOfLine
@@ -112,9 +117,7 @@ planDownloadLine = indent *> storePath <* endOfLine
 copying :: Parser ParseResult
 copying =
   string "copying "
-    *> (   transmission
-       <|> (PlanCopies <$> decimal <* string " paths" <* ellipsisEnd)
-       )
+    *> (transmission <|> (PlanCopies <$> decimal <* string " paths" <* ellipsisEnd))
 
 transmission :: Parser ParseResult
 transmission = do

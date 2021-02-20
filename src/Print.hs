@@ -1,15 +1,15 @@
-{-# LANGUAGE ViewPatterns #-}
-
 module Print where
+
+import Relude
+import Prelude ()
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.Time
-import Parser (Derivation (..), Host (..), StorePath (..))
-import Relude
+import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
+
+import Parser ( Host, Derivation(toStorePath), StorePath(name) )
 import Table
 import Update
-import Prelude ()
 
 vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, todo, leftT, cellBorder, tablePadding, emptyCell, skipCell :: Text
 vertical = "┃"

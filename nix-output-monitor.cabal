@@ -67,7 +67,7 @@ executable nom
   build-depends: nix-output-monitor
 
 common tests
-  import:         exes
+  import:        exes
   build-depends:
     , HUnit
     , nix-output-monitor
@@ -78,8 +78,8 @@ test-suite unit-tests
   main-is: Test.hs
 
 test-suite golden-tests
-  import:        tests
+  import:         tests
   hs-source-dirs: test
-  type:          exitcode-stdio-1.0
-  main-is:       Golden.hs
-  build-depends: process
+  type:           exitcode-stdio-1.0
+  main-is:        Golden.hs
+  build-depends:  process

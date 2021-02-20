@@ -1,10 +1,12 @@
 module Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, disp, dummy, header) where
 
+import Relude
+import Prelude ()
+
 import Control.Exception (assert)
 import Data.Char.WCWidth (wcwidth)
 import Data.Foldable (foldl)
 import qualified Data.Text as Text
-import Relude
 import System.Console.ANSI (
   Color (Blue, Cyan, Green, Magenta, Yellow),
   ColorIntensity (Dull),
@@ -13,7 +15,6 @@ import System.Console.ANSI (
   SGR (Reset, SetColor, SetConsoleIntensity),
   setSGRCode,
  )
-import Prelude ()
 
 data Entry = Entry
   { codes :: [SGR]
