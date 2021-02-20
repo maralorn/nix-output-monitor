@@ -11,7 +11,7 @@ import Parser (Derivation (toStorePath), Host, StorePath (name))
 import Table
 import Update
 
-vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, warning, todo, leftT, cellBorder, tablePadding, emptyCell, skipCell :: Text
+vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, goal, warning, todo, leftT, cellBorder, tablePadding, emptyCell, skipCell :: Text
 vertical = "┃"
 verticalSlim = "│"
 lowerleft = "┗"
@@ -25,6 +25,7 @@ running = "▶"
 done = "✔"
 todo = "⏳"
 warning = "⚠"
+goal = "🏁"
 cellBorder = " " <> verticalSlim <> " "
 tablePadding = vertical <> "    "
 emptyCell = "     "
@@ -34,7 +35,7 @@ showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
 stateToText :: UTCTime -> BuildState -> Text
-stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds, failedLocalBuilds, failedRemoteBuilds}
+stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds, failedLocalBuilds, failedRemoteBuilds, lastPlannedBuild}
   | totalBuilds + plannedCopies + numFailedBuilds == 0 = ""
   | otherwise = builds <> failedBuilds <> table
  where
@@ -87,7 +88,7 @@ stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, p
         , nonZeroBold numOutstandingDownloads . blue . label todo . disp $ numOutstandingDownloads
         ]
       <> showCond showUploads [text ""]
-      <> (one . bold . header $ clock <> " " <> timeDiff now startTime)
+      <> (one . bold . header $  maybe "" (\build -> "🏁" <> (name . toStorePath) build <> " ") lastPlannedBuild <> clock <> " " <> timeDiff now startTime)
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + length outstandingDownloads > 0
