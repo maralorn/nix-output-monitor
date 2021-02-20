@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## 0.1.0.3 -- 2021-02-20
+
+* Reworked the printing code to make it more robust
+
 ## 0.1.0.2 -- 2020-10-18
 
 * Fixed a layout bug when no builds are going on.
