@@ -90,5 +90,15 @@ main = do
               )
               result
             assertEqual "no rest" "" rest
+        , "Parse failed build" ~: do
+            (rest, result) <-
+              assertParse
+                parser
+                "error: build of '/nix/store/wip79zsa5yaiwb4mfixjgzl09i79jrb6-nix-output-monitor-0.1.0.3.drv' failed\n"
+            assertEqual
+              "result matches"
+              (Failed (Derivation $ StorePath "wip79zsa5yaiwb4mfixjgzl09i79jrb6" "nix-output-monitor-0.1.0.3"))
+              result
+            assertEqual "no rest" "" rest
         ]
   if errors counts + failures counts == 0 then exitSuccess else exitFailure

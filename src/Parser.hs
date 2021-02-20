@@ -25,12 +25,14 @@ data ParseResult
   | RemoteBuild Derivation Host
   | LocalBuild Derivation
   | NotRecognized
-  | PlanBuilds (Set Derivation)
+  | PlanBuilds (Set Derivation) Derivation
   | PlanDownloads Double Double (Set StorePath)
+  | Checking Derivation
+  | Failed Derivation
   deriving (Show, Eq, Read)
 
 parser :: Parser ParseResult
-parser = planBuilds <|> planDownloads <|> copying <|> building <|> noMatch
+parser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking <|> noMatch
 
 data StorePath = StorePath
   { hash :: Text
@@ -95,11 +97,12 @@ ellipsisEnd = string "..." >> endOfLine
 indent :: Parser ()
 indent = () <$ string "  "
 
+-- these derivations will be built:
+--  /nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv
 planBuilds :: Parser ParseResult
 planBuilds =
-  PlanBuilds
-    . fromList
-    <$> (string "these derivations will be built:" *> endOfLine *> many planBuildLine)
+  maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x))) . nonEmpty
+    =<< (string "these derivations will be built:" *> endOfLine *> many planBuildLine)
 
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivation <* endOfLine
@@ -114,6 +117,16 @@ planDownloads =
 planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePath <* endOfLine
 
+-- error: build of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv' failed
+failed :: Parser ParseResult
+failed = Failed <$> (string "error: build of " *> inTicks derivation <* string " failed" <* endOfLine)
+
+-- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
+checking :: Parser ParseResult
+checking = Checking <$> (string "checking outputs of " *> inTicks derivation <* ellipsisEnd)
+
+-- copying 1 paths...
+-- copying path '/nix/store/fzyahnw94msbl4ic5vwlnyakslq4x1qm-source' to 'ssh://maralorn@example.org'...
 copying :: Parser ParseResult
 copying =
   string "copying "
@@ -133,6 +146,7 @@ toHost = string " to " *> host
 onHost :: Parser Host
 onHost = string " on " *> host
 
+-- building '/nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv' on 'ssh://maralorn@example.org'...
 building :: Parser ParseResult
 building = do
   p <- string "building " *> inTicks derivation

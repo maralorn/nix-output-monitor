@@ -1,4 +1,4 @@
-module Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, disp, dummy, header) where
+module Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, red, disp, dummy, header) where
 
 import Relude
 import Prelude ()
@@ -8,7 +8,7 @@ import Data.Char.WCWidth (wcwidth)
 import Data.Foldable (foldl)
 import qualified Data.Text as Text
 import System.Console.ANSI (
-  Color (Blue, Cyan, Green, Magenta, Yellow),
+  Color (Blue, Cyan, Green, Magenta, Red, Yellow),
   ColorIntensity (Dull),
   ConsoleIntensity (BoldIntensity),
   ConsoleLayer (Foreground),
@@ -48,9 +48,10 @@ addCode code e = e{codes = code : codes e}
 addColor :: Color -> Entry -> Entry
 addColor = addCode . SetColor Foreground Dull
 
-bold, green, yellow, blue, cyan, magenta :: Entry -> Entry
+bold, red, green, yellow, blue, cyan, magenta :: Entry -> Entry
 bold = addCode (SetConsoleIntensity BoldIntensity)
 green = addColor Green
+red = addColor Red
 yellow = addColor Yellow
 blue = addColor Blue
 cyan = addColor Cyan

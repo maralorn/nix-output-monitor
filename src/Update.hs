@@ -15,6 +15,26 @@ import System.Directory (doesPathExist)
 import Parser (Derivation (..), Host, ParseResult (..), StorePath (..))
 import qualified Parser
 
+data BuildState = BuildState
+  { outstandingBuilds :: Set Derivation
+  , outstandingDownloads :: Set StorePath
+  , plannedCopies :: Int
+  , runningLocalBuilds :: Set (Derivation, UTCTime)
+  , runningRemoteBuilds :: Map Host (Set (Derivation, UTCTime))
+  , completedLocalBuilds :: Set Derivation
+  , failedLocalBuilds :: Set (Derivation, (UTCTime, UTCTime))
+  , completedRemoteBuilds :: Map Host (Set Derivation)
+  , failedRemoteBuilds :: Map Host (Set (Derivation, (UTCTime, UTCTime)))
+  , completedDownloads :: Map Host (Set StorePath)
+  , completedUploads :: Map Host (Set StorePath)
+  , outputToDerivation :: Map StorePath Derivation
+  , derivationToOutput :: Map Derivation StorePath
+  , lastPlannedBuild :: Maybe Derivation
+  , startTime :: UTCTime
+  , errors :: [Text]
+  }
+  deriving stock (Show, Eq, Read)
+
 updateState :: ParseResult -> BuildState -> IO BuildState
 updateState result oldState = do
   now <- getCurrentTime
@@ -27,12 +47,14 @@ updateState result oldState = do
               \s -> buildingRemote host path now <$> lookupDerivation s path
             LocalBuild path ->
               \s -> buildingLocal path now <$> lookupDerivation s path
-            PlanBuilds plannedBuilds ->
+            PlanBuilds plannedBuilds lastBuild ->
               \s ->
                 planBuilds plannedBuilds
-                  <$> foldM lookupDerivation s plannedBuilds
+                  <$> foldM lookupDerivation (s{lastPlannedBuild = Just lastBuild}) plannedBuilds
             PlanDownloads _download _unpacked plannedDownloads ->
               pure . planDownloads plannedDownloads
+            Checking drv -> pure . buildingLocal drv now
+            Failed drv -> pure . failedBuild now drv
             NotRecognized -> pure
         )
       oldState
@@ -46,21 +68,27 @@ updateState result oldState = do
     pure $
       s
         { runningLocalBuilds =
-            Set.filter
-              ( \x ->
-                  fst x `Set.notMember` newlyCompletedOutputs
-              )
-              (runningLocalBuilds s)
+            Set.filter ((`Set.notMember` newlyCompletedOutputs) . fst) (runningLocalBuilds s)
         , completedLocalBuilds =
-            Set.union
-              (completedLocalBuilds s)
-              newlyCompletedOutputs
+            Set.union (completedLocalBuilds s) newlyCompletedOutputs
         }
 
 drv2out :: BuildState -> Derivation -> Maybe StorePath
 drv2out s = flip Map.lookup (derivationToOutput s)
 out2drv :: BuildState -> StorePath -> Maybe Derivation
 out2drv s = flip Map.lookup (outputToDerivation s)
+
+failedBuild :: UTCTime -> Derivation -> BuildState -> BuildState
+failedBuild now drv bs@BuildState{runningLocalBuilds, runningRemoteBuilds, failedLocalBuilds, failedRemoteBuilds} =
+  bs
+    { failedLocalBuilds = maybe id (\stamp -> Set.insert (drv, (now, stamp))) wasLocal failedLocalBuilds
+    , runningLocalBuilds = maybe id (const $ Set.filter ((/= drv) . fst)) wasLocal runningLocalBuilds
+    , failedRemoteBuilds = maybe id (\(host, stamp) -> Map.insertWith Set.union host $ Set.singleton (drv, (now, stamp))) wasRemote failedRemoteBuilds
+    , runningRemoteBuilds = maybe id (Map.adjust (Set.filter ((drv /=) . fst)) . fst) wasRemote runningRemoteBuilds
+    }
+ where
+  wasLocal = fmap snd . find ((== drv) . fst) . toList $ runningLocalBuilds
+  wasRemote = fmap (second snd) $ find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningRemoteBuilds)
 
 lookupDerivation :: BuildState -> Derivation -> IO BuildState
 lookupDerivation bs@BuildState{outputToDerivation, derivationToOutput, errors} drv =
@@ -82,22 +110,6 @@ lookupDerivation bs@BuildState{outputToDerivation, derivationToOutput, errors} d
             bs
               { errors = "Could not determine output path for derivation" <> toText drv : errors
               }
-data BuildState = BuildState
-  { outstandingBuilds :: Set Derivation
-  , outstandingDownloads :: Set StorePath
-  , plannedCopies :: Int
-  , runningLocalBuilds :: Set (Derivation, UTCTime)
-  , runningRemoteBuilds :: Map Host (Set (Derivation, UTCTime))
-  , completedLocalBuilds :: Set Derivation
-  , completedRemoteBuilds :: Map Host (Set Derivation)
-  , completedDownloads :: Map Host (Set StorePath)
-  , completedUploads :: Map Host (Set StorePath)
-  , outputToDerivation :: Map StorePath Derivation
-  , derivationToOutput :: Map Derivation StorePath
-  , startTime :: UTCTime
-  , errors :: [Text]
-  }
-  deriving stock (Show, Eq, Read)
 
 initalState :: UTCTime -> BuildState
 initalState now =
@@ -113,6 +125,9 @@ initalState now =
     mempty
     mempty
     mempty
+    mempty
+    mempty
+    Nothing
     now
     mempty
 

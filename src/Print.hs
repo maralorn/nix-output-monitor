@@ -7,11 +7,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
-import Parser ( Host, Derivation(toStorePath), StorePath(name) )
+import Parser (Derivation (toStorePath), Host, StorePath (name))
 import Table
 import Update
 
-vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, todo, leftT, cellBorder, tablePadding, emptyCell, skipCell :: Text
+vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, warning, todo, leftT, cellBorder, tablePadding, emptyCell, skipCell :: Text
 vertical = "┃"
 verticalSlim = "│"
 lowerleft = "┗"
@@ -24,6 +24,7 @@ clock = "⏲"
 running = "▶"
 done = "✔"
 todo = "⏳"
+warning = "⚠"
 cellBorder = " " <> verticalSlim <> " "
 tablePadding = vertical <> "    "
 emptyCell = "     "
@@ -33,9 +34,9 @@ showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
 stateToText :: UTCTime -> BuildState -> Text
-stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds}
-  | totalBuilds + plannedCopies == 0 = ""
-  | otherwise = builds <> table
+stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds, failedLocalBuilds, failedRemoteBuilds}
+  | totalBuilds + plannedCopies + numFailedBuilds == 0 = ""
+  | otherwise = builds <> failedBuilds <> table
  where
   builds =
     showCond
@@ -46,9 +47,18 @@ stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, p
         (vertical <> " ")
         (printBuilds now runningRemoteBuilds runningLocalBuilds)
         <> "\n"
+  failedBuilds =
+    showCond
+      (numFailedBuilds > 0)
+      $ prependLines
+        ((if runningBuilds > 0 then leftT else upperleft) <> horizontal)
+        (vertical <> " ")
+        (vertical <> " ")
+        (printFailedBuilds failedRemoteBuilds failedLocalBuilds)
+        <> "\n"
   table =
     prependLines
-      ((if runningBuilds > 0 then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
+      ((if numFailedBuilds + runningBuilds > 0 then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
       (vertical <> "    ")
       (lowerleft <> horizontal <> " 𝚺 ")
       $ printAlignedSep innerTable
@@ -82,6 +92,7 @@ stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, p
   showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + length outstandingDownloads > 0
   showUploads = countPaths completedUploads > 0
+  numFailedBuilds = Set.size failedLocalBuilds + countPaths failedRemoteBuilds
   numOutstandingDownloads = Set.size outstandingDownloads
   numHosts =
     length (Map.keysSet runningRemoteBuilds)
@@ -160,16 +171,31 @@ printBuilds now remoteBuilds localBuilds =
  where
   remoteLabels =
     Map.foldMapWithKey
-      ( \host builds ->
-          ( \(x, t) ->
-              ((cyan . text . name . toStorePath $ x) :| [text "on", magenta . text . toText $ host], t)
-          )
-            <$> toList builds
-      )
+      (\host builds -> first (remoteLabel host) <$> toList builds)
       remoteBuilds
-  localLabels :: [(NonEmpty Entry, UTCTime)]
-  localLabels = first (one . cyan . text . name . toStorePath) <$> toList localBuilds
+  localLabels = first localLabel <$> toList localBuilds
   printBuild (toList -> p, t) = yellow (text running) :| (p <> [header (clock <> " " <> timeDiff now t)])
+printFailedBuilds ::
+  Map Host (Set (Derivation, (UTCTime, UTCTime))) ->
+  Set (Derivation, (UTCTime, UTCTime)) ->
+  NonEmpty Text
+printFailedBuilds remoteBuilds localBuilds =
+  printAligned . (one (cells 3 (red (header " Failed builds:"))) :|)
+    . fmap printBuild
+    $ remoteLabels
+      <> localLabels
+ where
+  remoteLabels =
+    Map.foldMapWithKey
+      (\host builds -> first (remoteLabel host) <$> toList builds)
+      remoteBuilds
+  localLabels = first localLabel <$> toList localBuilds
+  printBuild (toList -> p, diff) = red (text warning) :| p <> one (text ("after " <> clock <> " " <> uncurry timeDiff diff))
+
+remoteLabel :: ToText a => a -> Derivation -> NonEmpty Entry
+remoteLabel host build = (cyan . text . name . toStorePath $ build) :| [text "on", magenta . text . toText $ host]
+localLabel :: Derivation -> NonEmpty Entry
+localLabel = one . cyan . text . name . toStorePath
 
 timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff larger smaller =
