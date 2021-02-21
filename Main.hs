@@ -26,7 +26,8 @@ main = do
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   firstState <- initalState
-  finalState <- processStream parser firstState updateState stateToText
+  stateVar <- newTVarIO firstState
+  finalState <- processStream parser stateVar updateState stateToText
   if Set.size (failedLocalBuilds finalState) + countPaths (failedRemoteBuilds finalState) == 0
     then exitSuccess
     else exitFailure

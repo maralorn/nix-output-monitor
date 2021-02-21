@@ -6,6 +6,7 @@ import Prelude ()
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_, withAsync)
 import Control.Concurrent.STM (check, swapTVar)
+import Control.Exception (IOException, catch)
 import Data.Attoparsec.Text.Lazy (Parser, Result (Done, Fail), match, parse)
 import qualified Data.Text as Text
 import Data.Text.Lazy as LText (Text)
@@ -15,31 +16,32 @@ import System.Console.ANSI (SGR (Reset), clearFromCursorToScreenEnd, cursorUpLin
 import System.Console.Terminal.Size (Window (Window), size)
 import System.IO (hFlush)
 
-
 import Table (displayWidth, truncate)
 
 processStream ::
   forall a b.
   Parser a ->
-  b ->
+  TVar b ->
   (a -> b -> IO b) ->
   (UTCTime -> b -> Text.Text) ->
   IO b
-processStream parser initalState updater printer =
-  processText parser initalState updater (Just printer)
-    =<< LTextIO.getContents
+processStream parser stateVar updater printer = run
+ where
+  run = catch go (\(_ :: IOException) -> go)
+  go =
+    processText parser stateVar updater (Just printer)
+      =<< LTextIO.getContents
 
 processText ::
   forall a b.
   Parser a ->
-  b ->
+  TVar b ->
   (a -> b -> IO b) ->
   Maybe (UTCTime -> b -> Text.Text) ->
   LText.Text ->
   IO b
-processText parser initialState updater printerMay lazyInput = do
+processText parser stateVar updater printerMay lazyInput = do
   bufferVar <- newTVarIO ""
-  stateVar <- newTVarIO initialState
   linesVar <- newTVarIO 0
   let keepPrinting :: IO ()
       keepPrinting = forever $ do
