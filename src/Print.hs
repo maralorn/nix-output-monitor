@@ -11,7 +11,7 @@ import Parser (Derivation (toStorePath), Host, StorePath (name))
 import Table
 import Update
 
-vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, goal, warning, todo, leftT, cellBorder, tablePadding, average, emptyCell, skipCell :: Text
+vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, cellBorder, tablePadding, average, emptyCell, skipCell :: Text
 vertical = "┃"
 verticalSlim = "│"
 lowerleft = "┗"
@@ -27,6 +27,7 @@ todo = "⏳"
 warning = "⚠"
 goal = "🏁"
 average = "∅"
+bigsum = "∑"
 cellBorder = " " <> verticalSlim <> " "
 tablePadding = vertical <> "    "
 emptyCell = "     "
@@ -62,7 +63,7 @@ stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, p
     prependLines
       ((if numFailedBuilds + runningBuilds > 0 then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
       (vertical <> "    ")
-      (lowerleft <> horizontal <> " 𝚺 ")
+      (lowerleft <> horizontal <> " " <> bigsum <> " ")
       $ printAlignedSep innerTable
   innerTable = fromMaybe (one (text "")) (nonEmpty headers) :| tableRows
   headers =

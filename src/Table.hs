@@ -23,6 +23,9 @@ data Entry = Entry
   , span :: Int
   }
 
+-- >>> displayWidth "∑"
+-- 1
+
 displayWidth :: Text -> Int
 displayWidth = fst . Text.foldl widthFold (0, False)
 
