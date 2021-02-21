@@ -1,7 +1,6 @@
 module Main where
 
 import Data.Text.Lazy.IO as LTextIO
-import Data.Time
 import IO
 import Parser
 import Relude
@@ -23,9 +22,9 @@ main = do
         [ "Golden 1" ~: do
             -- First we ensure that the necessary derivations exist in the store
             callProcess "nix-build" ["test/golden1.nix", "--no-out-link"]
-            now <- getCurrentTime
             log <- LTextIO.readFile "test/golden1.log"
-            endState <- processText parser (initalState now) updateState Nothing log
+            firstState <- initalState
+            endState <- processText parser firstState updateState Nothing log
             expectedState <-
               read . toString
                 <$> LTextIO.readFile

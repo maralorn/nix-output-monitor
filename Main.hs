@@ -5,7 +5,6 @@ import Prelude ()
 
 import qualified Data.Set as Set
 import Data.Text.IO (hPutStrLn)
-import Data.Time (getCurrentTime)
 import Data.Version (showVersion)
 import IO (processStream)
 import Parser (parser)
@@ -26,8 +25,8 @@ main = do
       -- It's not a mistake if the user requests the help text, otherwise tell
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
-  now <- getCurrentTime
-  finalState <- processStream parser (initalState now) updateState stateToText
+  firstState <- initalState
+  finalState <- processStream parser firstState updateState stateToText
   if Set.size (failedLocalBuilds finalState) + countPaths (failedRemoteBuilds finalState) == 0
     then exitSuccess
     else exitFailure

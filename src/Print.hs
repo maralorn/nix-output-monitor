@@ -5,7 +5,7 @@ import Prelude ()
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
+import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
 import Parser (Derivation (toStorePath), Host, StorePath (name))
 import Table
@@ -88,7 +88,7 @@ stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, p
         , nonZeroBold numOutstandingDownloads . blue . label todo . disp $ numOutstandingDownloads
         ]
       <> showCond showUploads [text ""]
-      <> (one . bold . header $  maybe "" (\build -> "🏁" <> (name . toStorePath) build <> " ") lastPlannedBuild <> clock <> " " <> timeDiff now startTime)
+      <> (one . bold . header $ maybe "" (\build -> "🏁" <> (name . toStorePath) build <> " ") lastPlannedBuild <> clock <> " " <> timeDiff now startTime)
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + length outstandingDownloads > 0
@@ -159,8 +159,8 @@ nonZeroBold num = if num > 0 then bold else id
 
 printBuilds ::
   UTCTime ->
-  Map Host (Set (Derivation, UTCTime)) ->
-  Set (Derivation, UTCTime) ->
+  Map Host (Set (Derivation, (UTCTime, Maybe Int))) ->
+  Set (Derivation, (UTCTime, Maybe Int)) ->
   NonEmpty Text
 printBuilds now remoteBuilds localBuilds =
   printAligned . (one (cells 3 (header " Currently building:")) :|)
@@ -175,10 +175,18 @@ printBuilds now remoteBuilds localBuilds =
       (\host builds -> first (remoteLabel host) <$> toList builds)
       remoteBuilds
   localLabels = first localLabel <$> toList localBuilds
-  printBuild (toList -> p, t) = yellow (text running) :| (p <> [header (clock <> " " <> timeDiff now t)])
+  printBuild (toList -> p, (t, l)) =
+    yellow (text running)
+      :| ( p
+            <> [ header
+                  ( clock <> " " <> timeDiff now t
+                      <> maybe "" ((<> ")") . (" (∅" <>) . timeDiffSeconds) l
+                  )
+               ]
+         )
 printFailedBuilds ::
-  Map Host (Set (Derivation, (UTCTime, UTCTime))) ->
-  Set (Derivation, (UTCTime, UTCTime)) ->
+  Map Host (Set (Derivation, Int)) ->
+  Set (Derivation, Int) ->
   NonEmpty Text
 printFailedBuilds remoteBuilds localBuilds =
   printAligned . (one (cells 3 (red (header " Failed builds:"))) :|)
@@ -191,7 +199,7 @@ printFailedBuilds remoteBuilds localBuilds =
       (\host builds -> first (remoteLabel host) <$> toList builds)
       remoteBuilds
   localLabels = first localLabel <$> toList localBuilds
-  printBuild (toList -> p, diff) = red (text warning) :| p <> one (text ("after " <> clock <> " " <> uncurry timeDiff diff))
+  printBuild (toList -> p, diff) = red (text warning) :| p <> one (text ("after " <> clock <> " " <> timeDiffSeconds diff))
 
 remoteLabel :: ToText a => a -> Derivation -> NonEmpty Entry
 remoteLabel host build = (cyan . text . name . toStorePath $ build) :| [text "on", magenta . text . toText $ host]
@@ -202,3 +210,7 @@ timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff larger smaller =
   toText $
     formatTime defaultTimeLocale "%02H:%02M:%02S" (diffUTCTime larger smaller)
+
+timeDiffSeconds :: Int -> Text
+timeDiffSeconds seconds =
+  toText $ formatTime defaultTimeLocale "%02H:%02M:%02S" (fromIntegral seconds :: NominalDiffTime)

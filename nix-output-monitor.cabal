@@ -16,6 +16,9 @@ extra-source-files: CHANGELOG.md
 
 common common-config
   default-extensions:
+    BlockArguments
+    DeriveAnyClass
+    DeriveGeneric
     DerivingStrategies
     DuplicateRecordFields
     FlexibleContexts
@@ -25,24 +28,25 @@ common common-config
     OverloadedStrings
     ScopedTypeVariables
     ViewPatterns
-    BlockArguments
 
   build-depends:
     , ansi-terminal
     , async
     , attoparsec
     , base
+    , cassava
     , containers
     , directory
+    , filepath
     , mtl
     , nix-derivation
     , relude
     , stm
+    , terminal-size
     , text
     , time
     , unix
     , wcwidth
-    , terminal-size
 
   default-language:   Haskell2010
   ghc-options:        -Wall
