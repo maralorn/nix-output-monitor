@@ -24,7 +24,8 @@ main = do
             callProcess "nix-build" ["test/golden1.nix", "--no-out-link"]
             log <- LTextIO.readFile "test/golden1.log"
             firstState <- initalState
-            endState <- processText parser firstState updateState Nothing log
+            stateVar <- newTVarIO firstState
+            endState <- processText parser stateVar updateState Nothing log
             expectedState <-
               read . toString
                 <$> LTextIO.readFile
