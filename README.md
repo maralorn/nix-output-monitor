@@ -45,6 +45,7 @@ up = "⬆" -- green, uploads
 warning = "⚠" -- failed build
 goal = "🏁" -- the final build of the running command
 average = "∅" -- a moving average over past builds of this derivation
+bigsum = "∑" -- a summary over all packages and hosts
 ```
 
 If you can‘t see all icons you maybe need another terminal font.

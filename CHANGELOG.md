@@ -2,6 +2,10 @@
 
 ## 1.0.1.0 -- 2021-02-21
 
+* Use a different symbol for the total
+
+## 1.0.1.0 -- 2021-02-21
+
 * Catch IO errors and try to restart
 
 ## 1.0.0.0 -- 2021-02-21
