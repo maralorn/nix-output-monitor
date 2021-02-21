@@ -7,6 +7,7 @@
 * Display final derivation in status line
 * Exit with failure code when a failed build was recognized
 * Truncate output so that it works in too small terminal windows
+* Save past build times in cache and display the moving average to the user
 
 ## 0.1.0.3 -- 2021-02-20
 
