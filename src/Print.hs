@@ -11,7 +11,7 @@ import Parser (Derivation (toStorePath), Host, StorePath (name))
 import Table
 import Update
 
-vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, goal, warning, todo, leftT, cellBorder, tablePadding, emptyCell, skipCell :: Text
+vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, goal, warning, todo, leftT, cellBorder, tablePadding, average, emptyCell, skipCell :: Text
 vertical = "┃"
 verticalSlim = "│"
 lowerleft = "┗"
@@ -26,6 +26,7 @@ done = "✔"
 todo = "⏳"
 warning = "⚠"
 goal = "🏁"
+average = "∅"
 cellBorder = " " <> verticalSlim <> " "
 tablePadding = vertical <> "    "
 emptyCell = "     "
@@ -177,13 +178,7 @@ printBuilds now remoteBuilds localBuilds =
   localLabels = first localLabel <$> toList localBuilds
   printBuild (toList -> p, (t, l)) =
     yellow (text running)
-      :| ( p
-            <> [ header
-                  ( clock <> " " <> timeDiff now t
-                      <> maybe "" ((<> ")") . (" (∅" <>) . timeDiffSeconds) l
-                  )
-               ]
-         )
+      :| (p <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)])
 printFailedBuilds ::
   Map Host (Set (Derivation, Int)) ->
   Set (Derivation, Int) ->

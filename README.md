@@ -34,12 +34,17 @@ To preserve the color of the redirected text you can use the `unbuffer` command 
 unbuffer nix-build |& nom
 ```
 
-## Icons
+## Icons / Legend
 
 ```Haskell
-running = "▶" -- yellow
-done = "✔" -- green
-todo = "⏳" -- blue
+running = "▶" -- yellow, running builds
+done = "✔" -- green, completed builds
+todo = "⏳" -- blue, planned builds/downloads
+down = "⬇" -- green, downloads (running and finished sadly in one number)
+up = "⬆" -- green, uploads
+warning = "⚠" -- failed build
+goal = "🏁" -- the final build of the running command
+average = "∅" -- a moving average over past builds of this derivation
 ```
 
 If you can‘t see all icons you maybe need another terminal font.
@@ -68,16 +73,15 @@ Right now it uses three sources of information:
 1. The parsed nix-build output
 2. it checks if build results exist in the nix-store
 3. it querys `.drv` files for information about the `out` output path.
+4. It caches build times in `~/.cache/nix-output-monitor/build-reports.csv`.
 
 ## Caveats
 
 This will fail in unexpected and expected ways.
 nix-output-monitor receives most it's information from parsing nix-build output. The parser might be to strict or to loose for use cases I didn‘t think of. Then **the numbers displayed will be off**!
 
-Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width.
+Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width. But at this point if invested some effort to make it usable.
 This program also makes assumptions like your nix-store is at "/nix/store" or that every derivation has an output at "out".
-
-The formatting code is a mess and has no tests, so feel free to tell me about any corner cases where it breaks.
 
 Luckily I don‘t think this program screws up anything more than your terminal.
 
