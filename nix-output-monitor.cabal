@@ -68,7 +68,7 @@ common exes
 
 executable nom
   import:        exes
-  main-is:       Main.hs
+  main-is:       bin/Main.hs
   other-modules: Paths_nix_output_monitor
   build-depends: nix-output-monitor
 
