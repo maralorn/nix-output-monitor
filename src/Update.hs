@@ -82,9 +82,9 @@ data BuildState = BuildState
   , runningLocalBuilds :: Set (Derivation, (UTCTime, Maybe Int))
   , runningRemoteBuilds :: Map Host (Set (Derivation, (UTCTime, Maybe Int)))
   , completedLocalBuilds :: Set Derivation
-  , failedLocalBuilds :: Set (Derivation, Int)
+  , failedLocalBuilds :: Set (Derivation, Int, Int)
   , completedRemoteBuilds :: Map Host (Set Derivation)
-  , failedRemoteBuilds :: Map Host (Set (Derivation, Int))
+  , failedRemoteBuilds :: Map Host (Set (Derivation, Int, Int))
   , completedDownloads :: Map Host (Set StorePath)
   , completedUploads :: Map Host (Set StorePath)
   , outputToDerivation :: Map StorePath Derivation
@@ -157,17 +157,17 @@ drv2out s = flip Map.lookup (derivationToOutput s)
 out2drv :: BuildState -> StorePath -> Maybe Derivation
 out2drv s = flip Map.lookup (outputToDerivation s)
 
-failedBuild :: UTCTime -> Derivation -> BuildState -> BuildState
-failedBuild now drv bs@BuildState{runningLocalBuilds, runningRemoteBuilds, failedLocalBuilds, failedRemoteBuilds} =
+failedBuild :: UTCTime -> Derivation -> Int -> BuildState -> BuildState
+failedBuild now drv code bs@BuildState{runningLocalBuilds, runningRemoteBuilds, failedLocalBuilds, failedRemoteBuilds} =
   bs
-    { failedLocalBuilds = maybe id (\stamp -> Set.insert (drv, floor (diffUTCTime now stamp))) wasLocal failedLocalBuilds
+    { failedLocalBuilds = maybe id (\stamp -> Set.insert (drv, floor (diffUTCTime now stamp), code)) wasLocal failedLocalBuilds
     , runningLocalBuilds = maybe id (const $ Set.filter ((/= drv) . fst)) wasLocal runningLocalBuilds
-    , failedRemoteBuilds = maybe id (\(host, stamp) -> Map.insertWith Set.union host $ Set.singleton (drv, floor (diffUTCTime now stamp))) wasRemote failedRemoteBuilds
+    , failedRemoteBuilds = maybe id (\(host, stamp) -> Map.insertWith Set.union host $ Set.singleton (drv, floor (diffUTCTime now stamp), code)) wasRemote failedRemoteBuilds
     , runningRemoteBuilds = maybe id (Map.adjust (Set.filter ((drv /=) . fst)) . fst) wasRemote runningRemoteBuilds
     }
  where
   wasLocal = fmap (fst . snd) . find ((== drv) . fst) . toList $ runningLocalBuilds
-  wasRemote = fmap (second (fst .snd)) $ find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningRemoteBuilds)
+  wasRemote = fmap (second (fst . snd)) $ find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningRemoteBuilds)
 
 lookupDerivation :: BuildState -> Derivation -> IO BuildState
 lookupDerivation bs@BuildState{outputToDerivation, derivationToOutput, errors} drv =

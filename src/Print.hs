@@ -165,7 +165,7 @@ printBuilds ::
   Set (Derivation, (UTCTime, Maybe Int)) ->
   NonEmpty Text
 printBuilds now remoteBuilds localBuilds =
-  printAligned . (one (cells 3 (header " Currently building:")) :|)
+  printAligned . (one (cells 3 (bold (header " Currently building:"))) :|)
     . fmap printBuild
     . reverse
     . sortOn snd
@@ -181,21 +181,21 @@ printBuilds now remoteBuilds localBuilds =
     yellow (text running)
       :| (p <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)])
 printFailedBuilds ::
-  Map Host (Set (Derivation, Int)) ->
-  Set (Derivation, Int) ->
+  Map Host (Set (Derivation, Int, Int)) ->
+  Set (Derivation, Int, Int) ->
   NonEmpty Text
 printFailedBuilds remoteBuilds localBuilds =
-  printAligned . (one (cells 3 (red (header " Failed builds:"))) :|)
+  printAligned . (one (cells 3 (bold (header " Failed builds:"))) :|)
     . fmap printBuild
     $ remoteLabels
       <> localLabels
  where
   remoteLabels =
     Map.foldMapWithKey
-      (\host builds -> first (remoteLabel host) <$> toList builds)
+      (\host builds -> (\(a, b, c) -> (remoteLabel host a, b, c)) <$> toList builds)
       remoteBuilds
-  localLabels = first localLabel <$> toList localBuilds
-  printBuild (toList -> p, diff) = red (text warning) :| p <> one (text ("after " <> clock <> " " <> timeDiffSeconds diff))
+  localLabels = (\(a, b, c) -> (localLabel a, b, c)) <$> toList localBuilds
+  printBuild (toList -> p, diff, code) = yellow (text warning) :| p <> [red (text ("failed with exit code " <> show code)), text ("after " <> clock <> " " <> timeDiffSeconds diff)]
 
 remoteLabel :: ToText a => a -> Derivation -> NonEmpty Entry
 remoteLabel host build = (cyan . text . name . toStorePath $ build) :| [text "on", magenta . text . toText $ host]

@@ -28,7 +28,7 @@ data ParseResult
   | PlanBuilds (Set Derivation) Derivation
   | PlanDownloads Double Double (Set StorePath)
   | Checking Derivation
-  | Failed Derivation
+  | Failed Derivation Int
   deriving (Show, Eq, Read)
 
 parser :: Parser ParseResult
@@ -117,9 +117,9 @@ planDownloads =
 planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePath <* endOfLine
 
--- error: build of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv' failed
+-- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed :: Parser ParseResult
-failed = Failed <$> (string "error: build of " *> inTicks derivation <* string " failed" <* endOfLine)
+failed = Failed <$> (string "builder for " *> inTicks derivation <* string " failed with exit code ") <*> (decimal <* endOfLine)
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser ParseResult
