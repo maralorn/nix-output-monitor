@@ -26,6 +26,7 @@ common common-config
     LambdaCase
     NamedFieldPuns
     OverloadedStrings
+    RecordWildCards
     ScopedTypeVariables
     ViewPatterns
 
