@@ -7,6 +7,7 @@ import Relude
 import Relude.Unsafe
 import System.Process
 import Test.HUnit
+import System.Directory
 
 import Update
 import Prelude ()
@@ -18,7 +19,8 @@ main = do
       test
         [ "Golden 1" ~: do
             -- First we ensure that the necessary derivations exist in the store
-            callProcess "nix-build" ["test/golden1.nix", "--no-out-link"]
+            pathForced <- doesFileExist "/nix/store/5gki8h3p9g63mp9q6xy9z7hlq1haqq6j-remote-build"
+            unless pathForced $ callProcess "nix-build" ["test/golden1.nix", "--no-out-link"]
             log <- LTextIO.readFile "test/golden1.log"
             firstState <- initalState
             stateVar <- newTVarIO firstState
