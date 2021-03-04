@@ -1,5 +1,12 @@
 # Revision history for nix-output-monitor
 
+## 1.0.2.0 -- 2021-03-04
+
+### Bug fixes
+
+* Introduce proper file locking for build times DB. Multiple running nom instances should work now with every single build time being recorded.
+* Improved the parser for failed build messages. Should now correctly work with `nix-build -k`.
+
 ## 1.0.1.0 -- 2021-02-21
 
 * Use a different symbol for the total
