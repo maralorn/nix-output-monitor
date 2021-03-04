@@ -8,7 +8,7 @@ import Relude.Unsafe as Unsafe (fromJust)
 import System.Directory (doesPathExist)
 
 import Update (
-  BuildState (completedLocalBuilds, completedRemoteBuilds, outstandingBuilds, runningLocalBuilds, runningRemoteBuilds),
+  BuildState (completedBuilds, outstandingBuilds, runningBuilds),
   drv2out,
  )
 
@@ -25,13 +25,9 @@ printState endState = do
             <> if exists then " (exists)" else " (DOES NOT EXIST)"
   putTextLn "OutstandingBuilds:"
   mapM_ (putTextLn <=< po) (outstandingBuilds endState)
-  putTextLn "RunningLocalBuilds:"
-  mapM_ (putTextLn <=< po . fst) (runningLocalBuilds endState)
-  putTextLn "CompletedLocalBuilds:"
-  mapM_ (putTextLn <=< po) (completedLocalBuilds endState)
-  putTextLn "RunningRemoteBuilds:"
+  putTextLn "RunningBuilds:"
   mapM_
     (putTextLn <=< po . fst)
-    (foldr union mempty $ runningRemoteBuilds endState)
-  putTextLn "CompletedRemoteBuilds:"
-  mapM_ (putTextLn <=< po) (foldr union mempty $ completedRemoteBuilds endState)
+    (foldr union mempty $ runningBuilds endState)
+  putTextLn "CompletedBuilds:"
+  mapM_ (putTextLn <=< po) (foldr union mempty $ completedBuilds endState)

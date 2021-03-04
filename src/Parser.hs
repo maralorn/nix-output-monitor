@@ -22,8 +22,7 @@ data ParseResult
   = Uploading StorePath Host
   | Downloading StorePath Host
   | PlanCopies Int
-  | RemoteBuild Derivation Host
-  | LocalBuild Derivation
+  | Build Derivation Host
   | NotRecognized
   | PlanBuilds (Set Derivation) Derivation
   | PlanDownloads Double Double (Set StorePath)
@@ -56,11 +55,12 @@ instance ToText StorePath where
 instance ToString StorePath where
   toString = toString . toText
 
-newtype Host = Host Text
-  deriving newtype (Ord, Eq)
+data Host = Localhost | Host Text
+  deriving stock (Ord, Eq)
   deriving stock (Show, Read)
 instance ToText Host where
   toText (Host name) = name
+  toText Localhost = "localhost"
 instance ToString Host where
   toString = toString . toText
 
@@ -150,4 +150,4 @@ onHost = string " on " *> host
 building :: Parser ParseResult
 building = do
   p <- string "building " *> inTicks derivation
-  LocalBuild p <$ ellipsisEnd <|> RemoteBuild p <$> onHost <* ellipsisEnd
+  Build p Localhost <$ ellipsisEnd <|> Build p <$> onHost <* ellipsisEnd

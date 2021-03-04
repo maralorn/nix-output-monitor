@@ -7,7 +7,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
-import Parser (Derivation (toStorePath), Host, StorePath (name))
+
+import Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import Table
 import Update
 
@@ -37,31 +38,31 @@ showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
 stateToText :: UTCTime -> BuildState -> Text
-stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, plannedCopies, runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, startTime, completedRemoteBuilds, failedLocalBuilds, failedRemoteBuilds, lastPlannedBuild}
+stateToText now buildState@BuildState{..}
   | totalBuilds + plannedCopies + numFailedBuilds == 0 = ""
-  | otherwise = builds <> failedBuilds <> table
+  | otherwise = runningBuildsDisplay <> failedBuildsDisplay <> table
  where
-  builds =
+  runningBuildsDisplay =
     showCond
-      (runningBuilds > 0)
+      (numRunningBuilds > 0)
       $ prependLines
         (upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds now runningRemoteBuilds runningLocalBuilds)
+        (printBuilds now runningBuilds)
         <> "\n"
-  failedBuilds =
+  failedBuildsDisplay =
     showCond
       (numFailedBuilds > 0)
       $ prependLines
-        ((if runningBuilds > 0 then leftT else upperleft) <> horizontal)
+        ((if numRunningBuilds > 0 then leftT else upperleft) <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printFailedBuilds failedRemoteBuilds failedLocalBuilds)
+        (printFailedBuilds failedBuilds)
         <> "\n"
   table =
     prependLines
-      ((if numFailedBuilds + runningBuilds > 0 then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
+      ((if numFailedBuilds + numRunningBuilds > 0 then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
       (vertical <> "    ")
       (lowerleft <> horizontal <> " " <> bigsum <> " ")
       $ printAlignedSep innerTable
@@ -80,7 +81,7 @@ stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, p
   lastRow =
     showCond
       showBuilds
-      [ nonZeroBold runningBuilds (yellow (label running (disp runningBuilds)))
+      [ nonZeroBold numRunningBuilds (yellow (label running (disp numRunningBuilds)))
       , nonZeroBold numCompletedBuilds (green (label done (disp numCompletedBuilds)))
       , nonZeroBold numOutstandingBuilds (blue (label todo (disp numOutstandingBuilds)))
       ]
@@ -90,45 +91,46 @@ stateToText now buildState@BuildState{outstandingBuilds, outstandingDownloads, p
         , nonZeroBold numOutstandingDownloads . blue . label todo . disp $ numOutstandingDownloads
         ]
       <> showCond showUploads [text ""]
-      <> (one . bold . header $ maybe "" (\build -> "🏁" <> (name . toStorePath) build <> " ") lastPlannedBuild <> clock <> " " <> timeDiff now startTime)
+      <> (one . bold . lastBuildColor . header $ lastBuildText <> clock <> " " <> timeDiff now startTime)
+  lastBuildIcon drv
+    | drv `Set.member` outstandingBuilds = (id, todo)
+  lastBuildIcon drv
+    | drv `Set.member` completedBuildsSet = (green, goal)
+  lastBuildIcon drv
+    | setAny ((== drv) . fst) runningBuildsSet = (id, running)
+  lastBuildIcon _ = (red, warning)
+  (lastBuildColor, lastBuildText) = lastPlannedBuild & maybe (id, "") \build ->
+     let (c, i) = lastBuildIcon build in (c, i <> " " <> (name . toStorePath) build <> " ")
+
+
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + length outstandingDownloads > 0
   showUploads = countPaths completedUploads > 0
-  numFailedBuilds = Set.size failedLocalBuilds + countPaths failedRemoteBuilds
+  numFailedBuilds = Set.size failedBuildsSet
   numOutstandingDownloads = Set.size outstandingDownloads
   numHosts =
-    length (Map.keysSet runningRemoteBuilds)
-      + length (Map.keysSet completedRemoteBuilds)
-      + length (Map.keysSet completedUploads)
-  runningBuilds = countPaths runningRemoteBuilds + length runningLocalBuilds
-  numCompletedBuilds =
-    countPaths completedRemoteBuilds + length completedLocalBuilds
+     Set.size (Set.filter (/= Localhost) (Map.keysSet runningBuilds <> Map.keysSet completedBuilds <> Map.keysSet completedUploads))
+  numRunningBuilds = Set.size runningBuildsSet
+  failedBuildsSet = collapseMultimap failedBuilds
+  completedBuildsSet = collapseMultimap completedBuilds
+  runningBuildsSet = collapseMultimap runningBuilds
+  numCompletedBuilds = Set.size completedBuildsSet
   numOutstandingBuilds = length outstandingBuilds
-  totalBuilds = numOutstandingBuilds + runningBuilds + numCompletedBuilds
+  totalBuilds = numOutstandingBuilds + numRunningBuilds + numCompletedBuilds
   downloadsDone = countPaths completedDownloads
 
+setAny :: (a -> Bool) -> Set a -> Bool
+setAny pred' = Set.foldr (\x y -> pred' x || y) False
+
 printHosts :: BuildState -> Bool -> Bool -> Bool -> [NonEmpty Entry]
-printHosts BuildState{runningRemoteBuilds, runningLocalBuilds, completedLocalBuilds, completedDownloads, completedUploads, completedRemoteBuilds} showBuilds showDownloads showUploads =
-  mapMaybe nonEmpty $
-    ( showCond
-        showBuilds
-        [ nonZeroShowBold numRunningLocalBuilds (yellow (label running (disp numRunningLocalBuilds)))
-        , nonZeroShowBold numCompletedLocalBuilds (green (label done (disp numCompletedLocalBuilds)))
-        , dummy
-        ]
-        <> showCond showDownloads [dummy, dummy]
-        <> showCond showUploads [dummy]
-        <> one (header "local")
-    ) :
-    remoteLabels
+printHosts BuildState{runningBuilds, completedBuilds, completedDownloads, completedUploads} showBuilds showDownloads showUploads =
+  mapMaybe nonEmpty $ labelForHost <$> hosts
  where
-  numRunningLocalBuilds = Set.size runningLocalBuilds
-  numCompletedLocalBuilds = Set.size completedLocalBuilds
   labelForHost h =
     showCond
       showBuilds
-      [ nonZeroShowBold runningBuilds (yellow (label running (disp runningBuilds)))
+      [ nonZeroShowBold numRunningBuilds (yellow (label running (disp numRunningBuilds)))
       , nonZeroShowBold doneBuilds (green (label done (disp doneBuilds)))
       , dummy
       ]
@@ -142,14 +144,13 @@ printHosts BuildState{runningRemoteBuilds, runningLocalBuilds, completedLocalBui
    where
     uploads = l h completedUploads
     downloads = l h completedDownloads
-    runningBuilds = l h runningRemoteBuilds
-    doneBuilds = l h completedRemoteBuilds
-  remoteLabels = labelForHost <$> hosts
+    numRunningBuilds = l h runningBuilds
+    doneBuilds = l h completedBuilds
   hosts =
     sort
       . toList
-      $ Map.keysSet runningRemoteBuilds
-        <> Map.keysSet completedRemoteBuilds
+      $ Map.keysSet runningBuilds
+        <> Map.keysSet completedBuilds
         <> Map.keysSet completedUploads
         <> Map.keysSet completedDownloads
   l host = Set.size . Map.findWithDefault mempty host
@@ -162,45 +163,36 @@ nonZeroBold num = if num > 0 then bold else id
 printBuilds ::
   UTCTime ->
   Map Host (Set (Derivation, (UTCTime, Maybe Int))) ->
-  Set (Derivation, (UTCTime, Maybe Int)) ->
   NonEmpty Text
-printBuilds now remoteBuilds localBuilds =
+printBuilds now builds =
   printAligned . (one (cells 3 (bold (header " Currently building:"))) :|)
     . fmap printBuild
     . reverse
     . sortOn snd
-    $ remoteLabels
-      <> localLabels
- where
-  remoteLabels =
+    $
     Map.foldMapWithKey
-      (\host builds -> first (remoteLabel host) <$> toList builds)
-      remoteBuilds
-  localLabels = first localLabel <$> toList localBuilds
+      (\host hostBuilds -> first (hostLabel host) <$> toList hostBuilds)
+      builds
+ where
   printBuild (toList -> p, (t, l)) =
     yellow (text running)
       :| (p <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)])
+
 printFailedBuilds ::
   Map Host (Set (Derivation, Int, Int)) ->
-  Set (Derivation, Int, Int) ->
   NonEmpty Text
-printFailedBuilds remoteBuilds localBuilds =
+printFailedBuilds builds =
   printAligned . (one (cells 3 (bold (header " Failed builds:"))) :|)
     . fmap printBuild
-    $ remoteLabels
-      <> localLabels
+    $ Map.foldMapWithKey
+      (\host hostBuilds -> (\(a, b, c) -> (hostLabel host a, b, c)) <$> toList hostBuilds)
+      builds
  where
-  remoteLabels =
-    Map.foldMapWithKey
-      (\host builds -> (\(a, b, c) -> (remoteLabel host a, b, c)) <$> toList builds)
-      remoteBuilds
-  localLabels = (\(a, b, c) -> (localLabel a, b, c)) <$> toList localBuilds
   printBuild (toList -> p, diff, code) = yellow (text warning) :| p <> [red (text ("failed with exit code " <> show code)), text ("after " <> clock <> " " <> timeDiffSeconds diff)]
 
-remoteLabel :: ToText a => a -> Derivation -> NonEmpty Entry
-remoteLabel host build = (cyan . text . name . toStorePath $ build) :| [text "on", magenta . text . toText $ host]
-localLabel :: Derivation -> NonEmpty Entry
-localLabel = one . cyan . text . name . toStorePath
+hostLabel :: Host -> Derivation -> NonEmpty Entry
+hostLabel Localhost build = one . cyan . text . name . toStorePath $ build
+hostLabel host build = (cyan . text . name . toStorePath $ build) :| [text "on", magenta . text . toText $ host]
 
 timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff larger smaller =

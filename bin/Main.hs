@@ -3,7 +3,6 @@ module Main where
 import Relude
 import Prelude ()
 
-import qualified Data.Set as Set
 import Data.Text.IO (hPutStrLn)
 import Data.Version (showVersion)
 import IO (processStream)
@@ -11,7 +10,7 @@ import Parser (parser)
 import Paths_nix_output_monitor (version)
 import Print (stateToText)
 import System.Environment (getArgs)
-import Update (countPaths, failedLocalBuilds, failedRemoteBuilds, initalState, updateState)
+import Update (countPaths, failedBuilds, initalState, updateState)
 
 main :: IO ()
 main = do
@@ -28,7 +27,7 @@ main = do
   firstState <- initalState
   stateVar <- newTVarIO firstState
   finalState <- processStream parser stateVar updateState stateToText
-  if Set.size (failedLocalBuilds finalState) + countPaths (failedRemoteBuilds finalState) == 0
+  if countPaths (failedBuilds finalState) == 0
     then exitSuccess
     else exitFailure
 

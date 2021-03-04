@@ -42,7 +42,7 @@ widthFold (x, True) _ = (x, True)
 widthFold (x, False) (fromEnum -> 27) = (x, True) -- Escape sequence
 widthFold (x, False) c = (x + wcwidth c, False)
 
-disp :: Show a => a -> Entry
+disp :: Int -> Entry
 disp = text . show
 
 dummy :: Entry

@@ -1,10 +1,12 @@
-import Data.Attoparsec.Text.Lazy
-import Data.Maybe
-import Data.Set
-import Parser
 import Relude
-import Test.HUnit
 import Prelude ()
+
+import Data.Attoparsec.Text.Lazy ( parse, Parser, Result(Done) )
+import Data.Maybe ( fromJust )
+import Data.Set ( singleton )
+import Test.HUnit
+
+import Parser
 
 assertParse :: Parser a -> LText -> IO (LText, a)
 assertParse parser' input = do
@@ -72,8 +74,9 @@ main = do
                 "building '/nix/store/dpqlnrbvzhjxp06d1mc3ksf2w8m2ldms-aeson-1.5.2.0.drv'...\n"
             assertEqual
               "result matches"
-              ( LocalBuild
+              ( Build
                   (Derivation $ StorePath "dpqlnrbvzhjxp06d1mc3ksf2w8m2ldms" "aeson-1.5.2.0")
+                  Localhost
               )
               result
             assertEqual "no rest" "" rest
@@ -84,7 +87,7 @@ main = do
                 "building '/nix/store/63jjdifv1x1nymjxdwla603xy1sggakk-hoogle-local-0.1.drv' on 'ssh://maralorn@example.com'...\n"
             assertEqual
               "result matches"
-              ( RemoteBuild
+              ( Build
                   (Derivation $ StorePath "63jjdifv1x1nymjxdwla603xy1sggakk" "hoogle-local-0.1")
                   (Host "ssh://maralorn@example.com")
               )

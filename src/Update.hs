@@ -24,7 +24,7 @@ import System.IO.LockFile (
   withLockFile,
  )
 
-import Parser (Derivation (..), Host, ParseResult (..), StorePath (..))
+import Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified Parser
 
 data BuildReport = BuildReport {reportHost :: !Text, reportName :: !Text, reportSeconds :: !Int}
@@ -38,7 +38,7 @@ buildReportsDir = getXdgDirectory XdgCache "nix-output-monitor"
 buildReportsFilename :: FilePath
 buildReportsFilename = "build-reports.csv"
 
-saveBuildReports :: FilePath -> Map (Text, Text) Int -> IO ()
+saveBuildReports :: FilePath -> BuildReportMap -> IO ()
 saveBuildReports dir reports = catch trySave (\(_ :: IOException) -> pass)
  where
   trySave =
@@ -46,11 +46,11 @@ saveBuildReports dir reports = catch trySave (\(_ :: IOException) -> pass)
       createDirectoryIfMissing True dir
       writeFileLBS (dir </> buildReportsFilename) (encode . toCSV $ reports)
 
-maybeUpdateBuildReportsIO :: Text -> [(Derivation, UTCTime)] -> BuildReportMap -> IO BuildReportMap
+maybeUpdateBuildReportsIO :: Host -> [(Derivation, UTCTime)] -> BuildReportMap -> IO BuildReportMap
 maybeUpdateBuildReportsIO name updates reports =
   nonEmpty updates & maybe (pure reports) (updateBuildReportsIO name)
 
-updateBuildReportsIO :: Text -> NonEmpty (Derivation, UTCTime) -> IO BuildReportMap
+updateBuildReportsIO :: Host -> NonEmpty (Derivation, UTCTime) -> IO BuildReportMap
 updateBuildReportsIO name updates = catch tryUpdate handleLockFail
  where
   handleLockFail (UnableToAcquireLockFile file) = do
@@ -69,29 +69,33 @@ updateBuildReportsIO name updates = catch tryUpdate handleLockFail
         saveBuildReports dir reports
         pure reports
 
-loadBuildReports :: FilePath -> IO (Map (Text, Text) Int)
+loadBuildReports :: FilePath -> IO BuildReportMap
 loadBuildReports dir = catch tryLoad (\(_ :: IOException) -> pure mempty)
  where
   !tryLoad = readFileLBS (dir </> buildReportsFilename) <&> either (const mempty) (fromCSV . toList) . decode NoHeader
 
-type BuildReportMap = Map (Text, Text) Int
+type BuildReportMap = Map (Host, Text) Int
 
 toCSV :: BuildReportMap -> [BuildReport]
-toCSV = fmap (\((reportHost, reportName), reportSeconds) -> BuildReport{..}) . Map.assocs
+toCSV = fmap (\((fromHost -> reportHost, reportName), reportSeconds) -> BuildReport{..}) . Map.assocs
+ where
+    fromHost = \case
+      Localhost -> ""
+      Host x -> x
 
 fromCSV :: [BuildReport] -> BuildReportMap
-fromCSV = fromList . fmap (\BuildReport{..} -> ((reportHost, reportName), reportSeconds))
+fromCSV = fromList . fmap (\BuildReport{..} -> ((toHost reportHost, reportName), reportSeconds))
+ where toHost = \case
+          "" -> Localhost
+          x -> Host x
 
 data BuildState = BuildState
   { outstandingBuilds :: Set Derivation
   , outstandingDownloads :: Set StorePath
   , plannedCopies :: Int
-  , runningLocalBuilds :: Set (Derivation, (UTCTime, Maybe Int))
-  , runningRemoteBuilds :: Map Host (Set (Derivation, (UTCTime, Maybe Int)))
-  , completedLocalBuilds :: Set Derivation
-  , failedLocalBuilds :: Set (Derivation, Int, Int)
-  , completedRemoteBuilds :: Map Host (Set Derivation)
-  , failedRemoteBuilds :: Map Host (Set (Derivation, Int, Int))
+  , runningBuilds :: Map Host (Set (Derivation, (UTCTime, Maybe Int)))
+  , completedBuilds :: Map Host (Set Derivation)
+  , failedBuilds :: Map Host (Set (Derivation, Int, Int))
   , completedDownloads :: Map Host (Set StorePath)
   , completedUploads :: Map Host (Set StorePath)
   , outputToDerivation :: Map StorePath Derivation
@@ -111,44 +115,41 @@ updateState result oldState = do
       Uploading path host -> pure . uploading host path
       Downloading path host -> \s -> do
         let (done, newS) = downloading host path s
-        newBuildReports <- maybeUpdateBuildReportsIO (toText host) (maybeToList done) (buildReports newS)
+        newBuildReports <- maybeUpdateBuildReportsIO host (maybeToList done) (buildReports newS)
         pure newS{buildReports = newBuildReports}
       PlanCopies number -> pure . planCopy number
-      RemoteBuild path host ->
-        \s -> buildingRemote host path now <$> lookupDerivation s path
-      LocalBuild path ->
-        \s -> buildingLocal path now <$> lookupDerivation s path
+      Build path host ->
+        \s -> building host path now <$> lookupDerivation s path
       PlanBuilds plannedBuilds lastBuild ->
         \s ->
           planBuilds plannedBuilds
             <$> foldM lookupDerivation (s{lastPlannedBuild = Just lastBuild}) plannedBuilds
       PlanDownloads _download _unpacked plannedDownloads ->
         pure . planDownloads plannedDownloads
-      Checking drv -> pure . buildingLocal drv now
+      Checking drv -> pure . building Localhost drv now
       Failed drv code -> pure . failedBuild now drv code
       NotRecognized -> pure
     oldState
+  let runningLocalBuilds = fromMaybe mempty $ Map.lookup Localhost (runningBuilds newState)
   newCompletedOutputs <-
     filterM
       (maybe (pure False) (doesPathExist . toString) . drv2out newState . fst)
-      (toList (runningLocalBuilds newState))
+      (toList runningLocalBuilds)
   let newCompletedDrvs = fromList (fst <$> newCompletedOutputs)
       newCompletedReports = second fst <$> newCompletedOutputs
   newBuildReports <-
-    maybeUpdateBuildReportsIO "" newCompletedReports (buildReports newState)
+    maybeUpdateBuildReportsIO Localhost newCompletedReports (buildReports newState)
   pure $
     newState
-      { runningLocalBuilds =
-          Set.filter ((`Set.notMember` newCompletedDrvs) . fst) (runningLocalBuilds newState)
-      , completedLocalBuilds =
-          Set.union (completedLocalBuilds newState) newCompletedDrvs
+      { runningBuilds = Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) Localhost (runningBuilds newState)
+      , completedBuilds = insertMultiMap Localhost newCompletedDrvs (completedBuilds newState)
       , buildReports = newBuildReports
       }
 
 movingAverage :: Double
 movingAverage = 0.5
 
-updateBuildReports :: UTCTime -> Text -> NonEmpty (Derivation, UTCTime) -> BuildReportMap -> BuildReportMap
+updateBuildReports :: UTCTime -> Host -> NonEmpty (Derivation, UTCTime) -> BuildReportMap -> BuildReportMap
 updateBuildReports now host builds = foldr (.) id (insertBuildReport <$> builds)
  where
   insertBuildReport (n, t) =
@@ -163,16 +164,13 @@ out2drv :: BuildState -> StorePath -> Maybe Derivation
 out2drv s = flip Map.lookup (outputToDerivation s)
 
 failedBuild :: UTCTime -> Derivation -> Int -> BuildState -> BuildState
-failedBuild now drv code bs@BuildState{runningLocalBuilds, runningRemoteBuilds, failedLocalBuilds, failedRemoteBuilds} =
+failedBuild now drv code bs@BuildState{runningBuilds, failedBuilds} =
   bs
-    { failedLocalBuilds = maybe id (\stamp -> Set.insert (drv, floor (diffUTCTime now stamp), code)) wasLocal failedLocalBuilds
-    , runningLocalBuilds = maybe id (const $ Set.filter ((/= drv) . fst)) wasLocal runningLocalBuilds
-    , failedRemoteBuilds = maybe id (\(host, stamp) -> Map.insertWith Set.union host $ Set.singleton (drv, floor (diffUTCTime now stamp), code)) wasRemote failedRemoteBuilds
-    , runningRemoteBuilds = maybe id (Map.adjust (Set.filter ((drv /=) . fst)) . fst) wasRemote runningRemoteBuilds
+    { failedBuilds = maybe id (\(host, stamp) -> insertMultiMap host $ Set.singleton (drv, floor (diffUTCTime now stamp), code)) buildHost failedBuilds
+    , runningBuilds = maybe id (Map.adjust (Set.filter ((drv /=) . fst)) . fst) buildHost runningBuilds
     }
  where
-  wasLocal = fmap (fst . snd) . find ((== drv) . fst) . toList $ runningLocalBuilds
-  wasRemote = fmap (second (fst . snd)) $ find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningRemoteBuilds)
+  buildHost = fmap (second (fst . snd)) $ find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningBuilds)
 
 lookupDerivation :: BuildState -> Derivation -> IO BuildState
 lookupDerivation bs@BuildState{outputToDerivation, derivationToOutput, errors} drv =
@@ -212,9 +210,6 @@ initalState = do
       mempty
       mempty
       mempty
-      mempty
-      mempty
-      mempty
       Nothing
       buildReports
       now
@@ -235,23 +230,28 @@ planCopy :: Int -> BuildState -> BuildState
 planCopy inc s@BuildState{plannedCopies} =
   s{plannedCopies = plannedCopies + inc}
 
+insertMultiMap :: (Ord k, Ord a) => k -> Set a -> Map k (Set a) -> Map k (Set a)
+insertMultiMap = Map.insertWith Set.union
+
+insertMultiMapOne :: (Ord k, Ord a) => k -> a -> Map k (Set a) -> Map k (Set a)
+insertMultiMapOne k v = Map.insertWith Set.union k (one v)
+
 downloading :: Host -> StorePath -> BuildState -> (Maybe (Derivation, UTCTime), BuildState)
-downloading host storePath s@BuildState{outstandingDownloads, completedDownloads, completedUploads, plannedCopies, runningRemoteBuilds, completedRemoteBuilds} =
+downloading host storePath s@BuildState{outstandingDownloads, completedDownloads, completedUploads, plannedCopies, runningBuilds, completedBuilds} =
   ( second fst <$> done
   , s
       { plannedCopies = if total > plannedCopies then total else plannedCopies
-      , runningRemoteBuilds = Map.adjust (Set.filter ((drv /=) . Just . fst)) host runningRemoteBuilds
-      , completedRemoteBuilds = maybe id (Map.insertWith Set.union host . Set.singleton) (fst <$> done) completedRemoteBuilds
+      , runningBuilds = Map.adjust (Set.filter ((drv /=) . Just . fst)) host runningBuilds
+      , completedBuilds = maybe id (insertMultiMap host . Set.singleton) (fst <$> done) completedBuilds
       , outstandingDownloads = Set.delete storePath outstandingDownloads
       , completedDownloads = newCompletedDownloads
       }
   )
  where
-  newCompletedDownloads =
-    Map.insertWith Set.union host (Set.singleton storePath) completedDownloads
+  newCompletedDownloads = insertMultiMap host (Set.singleton storePath) completedDownloads
   total = countPaths completedUploads + countPaths newCompletedDownloads
   drv = out2drv s storePath
-  done = find ((drv ==) . Just . fst) $ toList (Map.findWithDefault mempty host runningRemoteBuilds)
+  done = find ((drv ==) . Just . fst) $ toList (Map.findWithDefault mempty host runningBuilds)
 
 uploading :: Host -> StorePath -> BuildState -> BuildState
 uploading host storePath s@BuildState{completedUploads} =
@@ -259,23 +259,16 @@ uploading host storePath s@BuildState{completedUploads} =
     { completedUploads = Map.insertWith Set.union host (Set.singleton storePath) completedUploads
     }
 
-buildingLocal :: Derivation -> UTCTime -> BuildState -> BuildState
-buildingLocal drv now s@BuildState{outstandingBuilds, runningLocalBuilds, buildReports} =
+building :: Host -> Derivation -> UTCTime -> BuildState -> BuildState
+building host drv now s@BuildState{outstandingBuilds, runningBuilds, buildReports} =
   s
-    { runningLocalBuilds = Set.insert (drv, (now, lastNeeded)) runningLocalBuilds
+    { runningBuilds = Map.insertWith Set.union host (Set.singleton (drv, (now, lastNeeded))) runningBuilds
     , outstandingBuilds = Set.delete drv outstandingBuilds
     }
  where
-  lastNeeded = Map.lookup ("", getReportName drv) buildReports
+  lastNeeded = Map.lookup (host, getReportName drv) buildReports
 
-buildingRemote :: Host -> Derivation -> UTCTime -> BuildState -> BuildState
-buildingRemote host drv now s@BuildState{outstandingBuilds, runningRemoteBuilds, buildReports} =
-  s
-    { runningRemoteBuilds = Map.insertWith Set.union host (Set.singleton (drv, (now, lastNeeded))) runningRemoteBuilds
-    , outstandingBuilds = Set.delete drv outstandingBuilds
-    }
- where
-  lastNeeded = Map.lookup (toText host, getReportName drv) buildReports
-
-countPaths :: Map a (Set b) -> Int
-countPaths = Map.foldr (\x y -> Set.size x + y) 0
+collapseMultimap :: Ord b => Map a (Set b) -> Set b
+collapseMultimap = Map.foldr (<>) mempty
+countPaths :: Ord b => Map a (Set b) -> Int
+countPaths = Set.size . collapseMultimap

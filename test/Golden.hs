@@ -25,6 +25,7 @@ main = do
             firstState <- initalState
             stateVar <- newTVarIO firstState
             endState <- processText parser stateVar updateState Nothing log
+            print endState { buildReports = mempty, startTime = read "2021-03-04 00:35:28.627866489 UTC"}
             expectedState <- read . toString <$> LTextIO.readFile "test/golden1.state"
             assertEqual "State matches" expectedState
               endState{startTime = read "2021-03-04 00:35:28.627866489 UTC", buildReports = mempty}
