@@ -7,11 +7,8 @@ import Relude
 import Relude.Unsafe
 import System.Process
 import Test.HUnit
-import Update (
-  BuildState (startTime),
-  initalState,
-  updateState,
- )
+
+import Update
 import Prelude ()
 
 main :: IO ()
@@ -26,13 +23,8 @@ main = do
             firstState <- initalState
             stateVar <- newTVarIO firstState
             endState <- processText parser stateVar updateState Nothing log
-            expectedState <-
-              read . toString
-                <$> LTextIO.readFile
-                  "test/golden1.state"
-            assertEqual
-              "State matches"
-              expectedState
-              endState{startTime = read "2020-10-03 12:54:17.029638514 UTC"}
+            expectedState <- read . toString <$> LTextIO.readFile "test/golden1.state"
+            assertEqual "State matches" expectedState
+              endState{startTime = read "2021-03-04 00:35:28.627866489 UTC", buildReports = mempty}
         ]
-  if errors counts + failures counts == 0 then exitSuccess else exitFailure
+  if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure

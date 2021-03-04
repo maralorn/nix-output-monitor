@@ -94,10 +94,10 @@ main = do
             (rest, result) <-
               assertParse
                 parser
-                "error: build of '/nix/store/wip79zsa5yaiwb4mfixjgzl09i79jrb6-nix-output-monitor-0.1.0.3.drv' failed\n"
+                "builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1\n"
             assertEqual
               "result matches"
-              (Failed (Derivation $ StorePath "wip79zsa5yaiwb4mfixjgzl09i79jrb6" "nix-output-monitor-0.1.0.3"))
+              (Failed (Derivation $ StorePath "fbpdwqrfwr18nn504kb5jqx7s06l1mar" "regex-base-0.94.0.1") 1)
               result
             assertEqual "no rest" "" rest
         ]

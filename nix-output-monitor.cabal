@@ -76,16 +76,17 @@ common tests
   import:        exes
   build-depends:
     , HUnit
+    , process
     , nix-output-monitor
 
 test-suite unit-tests
   import:  tests
   type:    exitcode-stdio-1.0
-  main-is: Test.hs
+  hs-source-dirs: test
+  main-is: Property.hs
 
 test-suite golden-tests
   import:         tests
   hs-source-dirs: test
   type:           exitcode-stdio-1.0
   main-is:        Golden.hs
-  build-depends:  process
