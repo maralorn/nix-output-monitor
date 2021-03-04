@@ -1,7 +1,8 @@
-nix-output-monitor
-==================
+# nix-output-monitor
 
 Pipe your nix-build output through the nix-output-monitor (aka nom) to get additional information while building.
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/nix-output-monitor.svg)](https://repology.org/project/nix-output-monitor/versions)
 
 ## Status
 
@@ -18,6 +19,12 @@ Best case scenario: This could serve as inspiration as to how to improve nix out
 
 ## Running
 
+### The Easy Way
+
+When installed from nixpkgs you can replace every call to `nix-build` with the bundled wrapper script `nom-build`.
+
+### The Flexible Way
+
 Once you have installed `nix-output-monitor` to your path, run any nix command (`nixos-rebuild`,`nix-build`,`home-manager switch`, **not** `nix build`.) and pipe stderr and stdout into `nom`.
 
 ```shell
@@ -26,9 +33,9 @@ nix-build |& nom
 
 **Don‘t forget to redirect stderr, too.** That's what the `&`, does.
 
-### Preserving colored text
+### Preserving Colored Text
 
-To preserve the color of the redirected text you can use the `unbuffer` command from the `expect` package.
+To preserve the color of the redirected text you can use the `unbuffer` command from the `expect` package. (The `nom-build` wrapper does this for you.)
 
 ```shell
 unbuffer nix-build |& nom
