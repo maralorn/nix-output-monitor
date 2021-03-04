@@ -39,6 +39,8 @@ common common-config
     , containers
     , directory
     , filepath
+    , lock-file
+    , data-default
     , mtl
     , nix-derivation
     , relude

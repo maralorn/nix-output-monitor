@@ -3,19 +3,27 @@ module Update where
 import Relude
 import Prelude ()
 
+import Control.Exception (IOException, catch)
 import Control.Monad (foldM)
 import Data.Attoparsec.Text.Lazy (maybeResult, parse)
-import Data.Csv
+import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
+import Data.Default (def)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy.IO as LTextIO
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import qualified Nix.Derivation as Nix
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesPathExist, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesPathExist, getXdgDirectory, removeFile)
 import System.FilePath ((</>))
+import System.IO.LockFile (
+  LockingException (CaughtIOException, UnableToAcquireLockFile),
+  LockingParameters (retryToAcquireLock, sleepBetweenRetries),
+  RetryStrategy (NumberOfTimes),
+  withLockExt,
+  withLockFile,
+ )
 
-import Control.Exception (IOException, catch)
 import Parser (Derivation (..), Host, ParseResult (..), StorePath (..))
 import qualified Parser
 
@@ -30,24 +38,34 @@ buildReportsDir = getXdgDirectory XdgCache "nix-output-monitor"
 buildReportsFilename :: FilePath
 buildReportsFilename = "build-reports.csv"
 
-saveBuildReports :: Map (Text, Text) Int -> IO ()
-saveBuildReports s =
-  catch
-    ( do
-        dir <- buildReportsDir
-        createDirectoryIfMissing True dir
-        writeFileLBS (dir </> buildReportsFilename) (encode . toCSV $ s)
-    )
-    (\(_ :: IOException) -> pass)
+saveBuildReports :: FilePath -> Map (Text, Text) Int -> IO ()
+saveBuildReports dir reports = catch trySave (\(_ :: IOException) -> pass)
+ where
+  trySave =
+    do
+      createDirectoryIfMissing True dir
+      writeFileLBS (dir </> buildReportsFilename) (encode . toCSV $ reports)
 
-loadBuildReports :: IO (Map (Text, Text) Int)
-loadBuildReports =
-  catch
-    ( do
-        dir <- buildReportsDir
-        readFileLBS (dir </> buildReportsFilename) <&> either (const mempty) (fromCSV . toList) . decode NoHeader
-    )
-    (\(_ :: IOException) -> pure mempty)
+updateBuildReportsIO :: Text -> [(Derivation, UTCTime)] -> IO BuildReportMap
+updateBuildReportsIO name updates = catch tryUpdate handleLockFail
+ where
+  handleLockFail (UnableToAcquireLockFile file) = do
+    removeFile file
+    pure mempty
+  handleLockFail (CaughtIOException _) = pure mempty
+  tryUpdate = do
+    dir <- buildReportsDir
+    withLockFile def{retryToAcquireLock = NumberOfTimes 10, sleepBetweenRetries = 500000} (withLockExt (dir </> buildReportsFilename)) do
+      currentReports <- loadBuildReports dir
+      now <- getCurrentTime
+      let reports = updateBuildReports now name updates currentReports
+      saveBuildReports dir reports
+      pure reports
+
+loadBuildReports :: FilePath -> IO (Map (Text, Text) Int)
+loadBuildReports dir = catch tryLoad (\(_ :: IOException) -> pure mempty)
+ where
+  tryLoad = readFileLBS (dir </> buildReportsFilename) <&> either (const mempty) (fromCSV . toList) . decode NoHeader
 
 type BuildReportMap = Map (Text, Text) Int
 
@@ -81,47 +99,46 @@ data BuildState = BuildState
 updateState :: ParseResult -> BuildState -> IO BuildState
 updateState result oldState = do
   now <- getCurrentTime
-  set now
-    =<< ( case result of
-            Uploading path host -> pure . uploading host path
-            Downloading path host -> \s -> do
-              let (done, newS) = downloading host path s
-                  br = updateBuildReports now (toText host) (maybeToList done) (buildReports newS)
-              saveBuildReports br
-              pure (newS{buildReports = br})
-            PlanCopies number -> pure . planCopy number
-            RemoteBuild path host ->
-              \s -> buildingRemote host path now <$> lookupDerivation s path
-            LocalBuild path ->
-              \s -> buildingLocal path now <$> lookupDerivation s path
-            PlanBuilds plannedBuilds lastBuild ->
-              \s ->
-                planBuilds plannedBuilds
-                  <$> foldM lookupDerivation (s{lastPlannedBuild = Just lastBuild}) plannedBuilds
-            PlanDownloads _download _unpacked plannedDownloads ->
-              pure . planDownloads plannedDownloads
-            Checking drv -> pure . buildingLocal drv now
-            Failed drv -> pure . failedBuild now drv
-            NotRecognized -> pure
-        )
-      oldState
- where
-  set now s = do
-    newlyCompletedOutputs <-
-      filterM
-        (maybe (pure False) (doesPathExist . toString) . drv2out s . fst)
-        (toList (runningLocalBuilds s))
-    let newCompletedDrvs = fromList (fst <$> newlyCompletedOutputs)
-        br = updateBuildReports now "" (second fst <$> newlyCompletedOutputs) (buildReports s)
-    saveBuildReports br
-    pure $
-      s
-        { runningLocalBuilds =
-            Set.filter ((`Set.notMember` newCompletedDrvs) . fst) (runningLocalBuilds s)
-        , completedLocalBuilds =
-            Set.union (completedLocalBuilds s) newCompletedDrvs
-        , buildReports = br
-        }
+  newState <-
+    case result of
+      Uploading path host -> pure . uploading host path
+      Downloading path host -> \s -> do
+        let (done, newS) = downloading host path s
+        newBuildReports <- updateBuildReportsIO (toText host) (maybeToList done)
+        pure (newS{buildReports = newBuildReports})
+      PlanCopies number -> pure . planCopy number
+      RemoteBuild path host ->
+        \s -> buildingRemote host path now <$> lookupDerivation s path
+      LocalBuild path ->
+        \s -> buildingLocal path now <$> lookupDerivation s path
+      PlanBuilds plannedBuilds lastBuild ->
+        \s ->
+          planBuilds plannedBuilds
+            <$> foldM lookupDerivation (s{lastPlannedBuild = Just lastBuild}) plannedBuilds
+      PlanDownloads _download _unpacked plannedDownloads ->
+        pure . planDownloads plannedDownloads
+      Checking drv -> pure . buildingLocal drv now
+      Failed drv code -> pure . failedBuild now drv code
+      NotRecognized -> pure
+    oldState
+  newCompletedOutputs <-
+    filterM
+      (maybe (pure False) (doesPathExist . toString) . drv2out newState . fst)
+      (toList (runningLocalBuilds newState))
+  let newCompletedDrvs = fromList (fst <$> newCompletedOutputs)
+      newCompletedReports = second fst <$> newCompletedOutputs
+  newBuildReports <-
+    if length newCompletedReports >= 0
+      then updateBuildReportsIO "" newCompletedReports
+      else pure (buildReports newState)
+  pure $
+    newState
+      { runningLocalBuilds =
+          Set.filter ((`Set.notMember` newCompletedDrvs) . fst) (runningLocalBuilds newState)
+      , completedLocalBuilds =
+          Set.union (completedLocalBuilds newState) newCompletedDrvs
+      , buildReports = newBuildReports
+      }
 
 movingAverage :: Double
 movingAverage = 0.5
@@ -176,7 +193,8 @@ lookupDerivation bs@BuildState{outputToDerivation, derivationToOutput, errors} d
 initalState :: IO BuildState
 initalState = do
   now <- getCurrentTime
-  buildReports <- loadBuildReports
+  dir <- buildReportsDir
+  buildReports <- loadBuildReports dir
   pure $
     BuildState
       mempty
