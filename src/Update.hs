@@ -46,7 +46,11 @@ saveBuildReports dir reports = catch trySave (\(_ :: IOException) -> pass)
       createDirectoryIfMissing True dir
       writeFileLBS (dir </> buildReportsFilename) (encode . toCSV $ reports)
 
-updateBuildReportsIO :: Text -> [(Derivation, UTCTime)] -> IO BuildReportMap
+maybeUpdateBuildReportsIO :: Text -> [(Derivation, UTCTime)] -> BuildReportMap -> IO BuildReportMap
+maybeUpdateBuildReportsIO name updates reports =
+  nonEmpty updates & maybe (pure reports) (updateBuildReportsIO name)
+
+updateBuildReportsIO :: Text -> NonEmpty (Derivation, UTCTime) -> IO BuildReportMap
 updateBuildReportsIO name updates = catch tryUpdate handleLockFail
  where
   handleLockFail (UnableToAcquireLockFile file) = do
@@ -55,17 +59,20 @@ updateBuildReportsIO name updates = catch tryUpdate handleLockFail
   handleLockFail (CaughtIOException _) = pure mempty
   tryUpdate = do
     dir <- buildReportsDir
-    withLockFile def{retryToAcquireLock = NumberOfTimes 10, sleepBetweenRetries = 500000} (withLockExt (dir </> buildReportsFilename)) do
-      currentReports <- loadBuildReports dir
-      now <- getCurrentTime
-      let reports = updateBuildReports now name updates currentReports
-      saveBuildReports dir reports
-      pure reports
+    withLockFile
+      def{retryToAcquireLock = NumberOfTimes 10, sleepBetweenRetries = 500000}
+      (dir </> withLockExt buildReportsFilename)
+      do
+        !currentReports <- loadBuildReports dir
+        now <- getCurrentTime
+        let !reports = updateBuildReports now name updates currentReports
+        saveBuildReports dir reports
+        pure reports
 
 loadBuildReports :: FilePath -> IO (Map (Text, Text) Int)
 loadBuildReports dir = catch tryLoad (\(_ :: IOException) -> pure mempty)
  where
-  tryLoad = readFileLBS (dir </> buildReportsFilename) <&> either (const mempty) (fromCSV . toList) . decode NoHeader
+  !tryLoad = readFileLBS (dir </> buildReportsFilename) <&> either (const mempty) (fromCSV . toList) . decode NoHeader
 
 type BuildReportMap = Map (Text, Text) Int
 
@@ -104,8 +111,8 @@ updateState result oldState = do
       Uploading path host -> pure . uploading host path
       Downloading path host -> \s -> do
         let (done, newS) = downloading host path s
-        newBuildReports <- updateBuildReportsIO (toText host) (maybeToList done)
-        pure (newS{buildReports = newBuildReports})
+        newBuildReports <- maybeUpdateBuildReportsIO (toText host) (maybeToList done) (buildReports newS)
+        pure newS{buildReports = newBuildReports}
       PlanCopies number -> pure . planCopy number
       RemoteBuild path host ->
         \s -> buildingRemote host path now <$> lookupDerivation s path
@@ -128,9 +135,7 @@ updateState result oldState = do
   let newCompletedDrvs = fromList (fst <$> newCompletedOutputs)
       newCompletedReports = second fst <$> newCompletedOutputs
   newBuildReports <-
-    if length newCompletedReports >= 0
-      then updateBuildReportsIO "" newCompletedReports
-      else pure (buildReports newState)
+    maybeUpdateBuildReportsIO "" newCompletedReports (buildReports newState)
   pure $
     newState
       { runningLocalBuilds =
@@ -143,7 +148,7 @@ updateState result oldState = do
 movingAverage :: Double
 movingAverage = 0.5
 
-updateBuildReports :: UTCTime -> Text -> [(Derivation, UTCTime)] -> BuildReportMap -> BuildReportMap
+updateBuildReports :: UTCTime -> Text -> NonEmpty (Derivation, UTCTime) -> BuildReportMap -> BuildReportMap
 updateBuildReports now host builds = foldr (.) id (insertBuildReport <$> builds)
  where
   insertBuildReport (n, t) =

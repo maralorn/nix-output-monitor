@@ -16,6 +16,7 @@ extra-source-files: CHANGELOG.md
 
 common common-config
   default-extensions:
+    BangPatterns
     BlockArguments
     DeriveAnyClass
     DeriveGeneric
