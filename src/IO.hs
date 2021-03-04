@@ -28,9 +28,7 @@ processStream ::
 processStream parser stateVar updater printer = run
  where
   run = catch go (\(_ :: IOException) -> go)
-  go =
-    processText parser stateVar updater (Just printer)
-      =<< LTextIO.getContents
+  go = processText parser stateVar updater (Just printer) =<< LTextIO.getContents
 
 processText ::
   forall a b.
@@ -48,8 +46,7 @@ processText parser stateVar updater printerMay lazyInput = do
         race_ (concurrently_ (threadDelay 20000) waitForInput) (threadDelay 1000000)
         writeToScreen
       keepProcessing :: IO ()
-      keepProcessing =
-        mapM_ processResult . parseStream (match parser) $ lazyInput
+      keepProcessing = mapM_ processResult . parseStream (match parser) $ lazyInput
       processResult :: (Text.Text, a) -> IO ()
       processResult (text, result) = do
         oldState <- readTVarIO stateVar
