@@ -1,5 +1,10 @@
 # Revision history for nix-output-monitor
 
+## 1.0.3.0 -- 2021-03-04
+
+* Internal refactoring
+* State of last planned build is now displayed in bottom bar
+
 ## 1.0.2.0 -- 2021-03-04
 
 ### Bug fixes
