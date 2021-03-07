@@ -269,6 +269,6 @@ building host drv now s@BuildState{outstandingBuilds, runningBuilds, buildReport
   lastNeeded = Map.lookup (host, getReportName drv) buildReports
 
 collapseMultimap :: Ord b => Map a (Set b) -> Set b
-collapseMultimap = Map.foldr (<>) mempty
+collapseMultimap = Map.foldl' (<>) mempty
 countPaths :: Ord b => Map a (Set b) -> Int
 countPaths = Set.size . collapseMultimap

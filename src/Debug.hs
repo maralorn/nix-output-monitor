@@ -28,6 +28,6 @@ printState endState = do
   putTextLn "RunningBuilds:"
   mapM_
     (putTextLn <=< po . fst)
-    (foldr union mempty $ runningBuilds endState)
+    (foldl' union mempty $ runningBuilds endState)
   putTextLn "CompletedBuilds:"
-  mapM_ (putTextLn <=< po) (foldr union mempty $ completedBuilds endState)
+  mapM_ (putTextLn <=< po) (foldl' union mempty $ completedBuilds endState)
