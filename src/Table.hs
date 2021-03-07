@@ -30,7 +30,7 @@ displayWidth :: Text -> Int
 displayWidth = fst . Text.foldl widthFold (0, False)
 
 truncate :: Int -> Text -> Text
-truncate cut = either id (\(x,_,_) -> x) . Text.foldl (truncateFold cut) (Right ("",  0, False))
+truncate cut = either id (\(x,_,_) -> x) . Text.foldl' (truncateFold cut) (Right ("",  0, False))
 
 truncateFold :: Int -> Either Text (Text, Int, Bool) -> Char -> Either Text (Text, Int, Bool)
 truncateFold _ (Left x) _ = Left x
@@ -99,7 +99,7 @@ nextWidth sep rows = (width, chopWidthFromRows sep width rows)
 getWidthForNextColumn :: NonEmpty (NonEmpty Entry) -> Int
 getWidthForNextColumn = getWidthForColumn . fmap head
 getWidthForColumn :: NonEmpty Entry -> Int
-getWidthForColumn = foldr max 0 . fmap getRelevantWidthForEntry
+getWidthForColumn = foldl' max 0 . fmap getRelevantWidthForEntry
 getRelevantWidthForEntry :: Entry -> Int
 getRelevantWidthForEntry entry
   | span entry == 1 = entryWidth entry
@@ -116,7 +116,7 @@ chopWidthFromRow sep width (entry@Entry{span} :| rest)
 chopWidthFromRow _ _ (_ :| rest) = rest
 
 printRow :: Text -> [Int] -> NonEmpty Entry -> Text
-printRow sep colWidths entries = Text.intercalate sep $ snd (foldl foldFun (colWidths, id) entries) []
+printRow sep colWidths entries = Text.intercalate sep $ snd (foldl' foldFun (colWidths, id) entries) []
  where
   foldFun (colsLeft, line) entry@Entry{span} =
     (drop span colsLeft, line . (printEntry sep entry (take span colsLeft) :))

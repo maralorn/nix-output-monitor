@@ -121,7 +121,7 @@ stateToText now buildState@BuildState{..}
   downloadsDone = countPaths completedDownloads
 
 setAny :: (a -> Bool) -> Set a -> Bool
-setAny pred' = Set.foldr (\x y -> pred' x || y) False
+setAny pred' = Set.foldl' (\y x -> pred' x || y) False
 
 printHosts :: BuildState -> Bool -> Bool -> Bool -> [NonEmpty Entry]
 printHosts BuildState{runningBuilds, completedBuilds, completedDownloads, completedUploads} showBuilds showDownloads showUploads =
