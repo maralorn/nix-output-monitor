@@ -7,7 +7,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
-
 import Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import Table
 import Update
@@ -39,6 +38,7 @@ showCond = memptyIfFalse
 
 stateToText :: UTCTime -> BuildState -> Text
 stateToText now buildState@BuildState{..}
+  | not inputReceived = "nom is running for " <> timeDiff now startTime <> " without any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
   | totalBuilds + plannedCopies + numFailedBuilds == 0 = ""
   | otherwise = runningBuildsDisplay <> failedBuildsDisplay <> table
  where

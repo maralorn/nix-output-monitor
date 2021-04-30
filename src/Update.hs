@@ -104,6 +104,7 @@ data BuildState = BuildState
   , buildReports :: BuildReportMap
   , startTime :: UTCTime
   , errors :: [Text]
+  , inputReceived :: Bool
   }
   deriving stock (Show, Eq, Read)
 
@@ -144,6 +145,7 @@ updateState result oldState = do
       { runningBuilds = Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) Localhost (runningBuilds newState)
       , completedBuilds = insertMultiMap Localhost newCompletedDrvs (completedBuilds newState)
       , buildReports = newBuildReports
+      , inputReceived = True
       }
 
 movingAverage :: Double
@@ -214,6 +216,7 @@ initalState = do
       buildReports
       now
       mempty
+      False
 
 planBuilds :: Set Derivation -> BuildState -> BuildState
 planBuilds storePath s@BuildState{outstandingBuilds} =
