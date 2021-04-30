@@ -5,7 +5,6 @@ import Prelude ()
 
 import Control.Exception (assert)
 import Data.Char.WCWidth (wcwidth)
-import Data.Foldable (foldl)
 import qualified Data.Text as Text
 import System.Console.ANSI (
   Color (Blue, Cyan, Green, Magenta, Red, Yellow),
@@ -27,7 +26,7 @@ data Entry = Entry
 -- 1
 
 displayWidth :: Text -> Int
-displayWidth = fst . Text.foldl widthFold (0, False)
+displayWidth = fst . Text.foldl' widthFold (0, False)
 
 truncate :: Int -> Text -> Text
 truncate cut = either id (\(x,_,_) -> x) . Text.foldl' (truncateFold cut) (Right ("",  0, False))
