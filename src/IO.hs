@@ -4,7 +4,7 @@ import Relude
 import Prelude ()
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently_, race_, withAsync)
+import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, swapTVar)
 import Control.Exception (IOException, catch)
 import Data.Attoparsec.Text.Lazy (Parser, Result (Done, Fail), match, parse)
@@ -76,11 +76,7 @@ processText parser stateVar updater printerMay lazyInput = do
       waitForInput :: IO ()
       waitForInput =
         atomically $ check . not . Text.null =<< readTVar bufferVar
-      checkForInput :: IO ()
-      checkForInput = race_ waitForInput do
-        threadDelay 10000000
-        putStrLn "No input for more than 10 seconds. Have you redirected nix-build stderr into nom? Please read the README."
-  withAsync checkForInput $ const (race_ keepProcessing keepPrinting)
+  race_ keepProcessing keepPrinting
   writeToScreen
   readTVarIO stateVar
 
