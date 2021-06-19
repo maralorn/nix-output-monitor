@@ -88,7 +88,7 @@ Right now it uses three sources of information:
 This will fail in unexpected and expected ways.
 nix-output-monitor receives most it's information from parsing nix-build output. The parser might be to strict or to loose for use cases I didn‘t think of. Then **the numbers displayed will be off**!
 
-Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width. But at this point if invested some effort to make it usable.
+Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width. But at this point I‘ve invested some effort to make it usable.
 This program also makes assumptions like your nix-store is at "/nix/store" or that every derivation has an output at "out".
 
 Luckily I don‘t think this program screws up anything more than your terminal.
