@@ -1,5 +1,8 @@
 # Revision history for nix-output-monitor
 
+## 1.0.3.2 -- 2021-09-17
+ * Improve warning when nom received no input, again.
+
 ## 1.0.3.1 -- 2021-04-30
  * Improve warning when nom received no input
 
