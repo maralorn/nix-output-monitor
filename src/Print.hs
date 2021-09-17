@@ -38,7 +38,7 @@ showCond = memptyIfFalse
 
 stateToText :: UTCTime -> BuildState -> Text
 stateToText now buildState@BuildState{..}
-  | not inputReceived = "nom is running for " <> timeDiff now startTime <> " without any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
+  | not inputReceived = clock <> " " <> timeDiff now startTime <> showCond (diffUTCTime now startTime > 15) " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
   | totalBuilds + plannedCopies + numFailedBuilds == 0 = ""
   | otherwise = runningBuildsDisplay <> failedBuildsDisplay <> table
  where
