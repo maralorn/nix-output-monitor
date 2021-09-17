@@ -99,9 +99,9 @@ stateToText now buildState@BuildState{..}
   lastBuildIcon drv
     | setAny ((== drv) . fst) runningBuildsSet = (id, running)
   lastBuildIcon _ = (red, warning)
-  (lastBuildColor, lastBuildText) = lastPlannedBuild & maybe (id, "") \build ->
-     let (c, i) = lastBuildIcon build in (c, i <> " " <> (name . toStorePath) build <> " ")
-
+  (lastBuildColor, lastBuildText) =
+    lastPlannedBuild & maybe (id, "") \build ->
+      let (c, i) = lastBuildIcon build in (c, i <> " " <> (name . toStorePath) build <> " ")
 
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
@@ -110,7 +110,7 @@ stateToText now buildState@BuildState{..}
   numFailedBuilds = Set.size failedBuildsSet
   numOutstandingDownloads = Set.size outstandingDownloads
   numHosts =
-     Set.size (Set.filter (/= Localhost) (Map.keysSet runningBuilds <> Map.keysSet completedBuilds <> Map.keysSet completedUploads))
+    Set.size (Set.filter (/= Localhost) (Map.keysSet runningBuilds <> Map.keysSet completedBuilds <> Map.keysSet completedUploads))
   numRunningBuilds = Set.size runningBuildsSet
   failedBuildsSet = collapseMultimap failedBuilds
   completedBuildsSet = collapseMultimap completedBuilds
@@ -169,8 +169,7 @@ printBuilds now builds =
     . fmap printBuild
     . reverse
     . sortOn snd
-    $
-    Map.foldMapWithKey
+    $ Map.foldMapWithKey
       (\host hostBuilds -> first (hostLabel host) <$> toList hostBuilds)
       builds
  where
