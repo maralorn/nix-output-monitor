@@ -12,7 +12,7 @@ import qualified Data.Text as Text
 import Data.Text.Lazy as LText (Text)
 import Data.Text.Lazy.IO as LTextIO (getContents)
 import Data.Time (UTCTime, getCurrentTime)
-import System.Console.ANSI (SGR (Reset), clearFromCursorToScreenEnd, cursorUpLine, setSGRCode)
+import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
 import System.IO (hFlush)
 
@@ -67,9 +67,9 @@ processText parser stateVar updater printerMay lazyInput = do
             buffer <- swapTVar bufferVar ""
             pure (writtenLines, buffer, linesToWrite, output)
           liftIO $ do
-            when (writtenLines > 0) do
-              cursorUpLine writtenLines
-              clearFromCursorToScreenEnd
+            replicateM_ writtenLines $ do
+              cursorUpLine 1
+              clearLine
             putText buffer
             when (linesToWrite > 0) $ putTextLn output
             hFlush stdout
