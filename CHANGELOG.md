@@ -1,5 +1,8 @@
 # Revision history for nix-output-monitor
 
+## 1.0.3.3 -- 2021-09-24
+ * Reduce flickering for some terminal emulators. Thanks @pennae
+
 ## 1.0.3.2 -- 2021-09-17
  * Improve warning when nom received no input, again.
 
