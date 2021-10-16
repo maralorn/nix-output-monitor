@@ -57,6 +57,7 @@ bigsum = "∑" -- a summary over all packages and hosts
 
 If you can‘t see all icons you maybe need another terminal font.
 I recommend any font from `pkgs.nerdfonts` e.g. `"JetBrainsMono Nerd Font"`.
+If you experience flickering consider using another terminal emulator. I use `pkgs.kitty`, but most others are known to work.
 
 ## Example Run
 
