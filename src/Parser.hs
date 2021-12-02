@@ -1,3 +1,6 @@
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+
 module Parser where
 
 import Relude hiding (take, takeWhile)
@@ -6,6 +9,7 @@ import Prelude ()
 import Data.Attoparsec.Text.Lazy (
   Parser,
   char,
+  choice,
   decimal,
   double,
   endOfLine,
@@ -97,12 +101,19 @@ ellipsisEnd = string "..." >> endOfLine
 indent :: Parser ()
 indent = () <$ string "  "
 
--- these derivations will be built:
+-- these (<decimal> )?derivations will be built:
 --  /nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv
 planBuilds :: Parser ParseResult
 planBuilds =
   maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x))) . nonEmpty
-    =<< (string "these derivations will be built:" *> endOfLine *> many planBuildLine)
+    =<< ( choice
+            [ string "these derivations will be built:"
+            , string "this derivation will be built:"
+            , string "these " *> (decimal :: _ Int) *> string " derivations will be built:"
+            ]
+            *> endOfLine
+            *> many planBuildLine
+        )
 
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivation <* endOfLine
@@ -110,7 +121,14 @@ planBuildLine = indent *> derivation <* endOfLine
 planDownloads :: Parser ParseResult
 planDownloads =
   PlanDownloads
-    <$> (string "these paths will be fetched (" *> double)
+    <$> ( choice
+            [ string "these paths"
+            , string "this path"
+            , string "these " *> (decimal :: _ Int) *> string " paths"
+            ]
+            *> string " will be fetched ("
+            *> double
+        )
     <*> (string " MiB download, " *> double)
     <*> (string " MiB unpacked):" *> endOfLine *> (fromList <$> many planDownloadLine))
 
