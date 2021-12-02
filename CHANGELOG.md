@@ -1,5 +1,8 @@
 # Revision history for nix-output-monitor
 
+## 1.0.4.0 --2021-12-03
+ * Make parsing a bit more flexible for better nix 2.4 compatibility.
+
 ## 1.0.3.3 -- 2021-09-24
  * Reduce flickering for some terminal emulators. Thanks @pennae
 
