@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module Update where
 
 import Relude
@@ -79,15 +81,16 @@ type BuildReportMap = Map (Host, Text) Int
 toCSV :: BuildReportMap -> [BuildReport]
 toCSV = fmap (\((fromHost -> reportHost, reportName), reportSeconds) -> BuildReport{..}) . Map.assocs
  where
-    fromHost = \case
-      Localhost -> ""
-      Host x -> x
+  fromHost = \case
+    Localhost -> ""
+    Host x -> x
 
 fromCSV :: [BuildReport] -> BuildReportMap
 fromCSV = fromList . fmap (\BuildReport{..} -> ((toHost reportHost, reportName), reportSeconds))
- where toHost = \case
-          "" -> Localhost
-          x -> Host x
+ where
+  toHost = \case
+    "" -> Localhost
+    x -> Host x
 
 data BuildState = BuildState
   { outstandingBuilds :: Set Derivation
@@ -108,8 +111,11 @@ data BuildState = BuildState
   }
   deriving stock (Show, Eq, Read)
 
-updateState :: ParseResult -> BuildState -> IO BuildState
-updateState result oldState = do
+updateState :: (ParseResult, Text) -> BuildState -> IO (BuildState, Text)
+updateState (update, buffer) = fmap (,buffer) <$> updateState' update
+
+updateState' :: ParseResult -> BuildState -> IO BuildState
+updateState' result oldState = do
   now <- getCurrentTime
   newState <-
     case result of

@@ -5,7 +5,7 @@ import Prelude ()
 
 import Data.Text.IO (hPutStrLn)
 import Data.Version (showVersion)
-import IO (processStream)
+import IO (interact)
 import Parser (parser)
 import Paths_nix_output_monitor (version)
 import Print (stateToText)
@@ -25,8 +25,7 @@ main = do
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   firstState <- initalState
-  stateVar <- newTVarIO firstState
-  finalState <- processStream parser stateVar updateState stateToText
+  finalState <- interact parser updateState stateToText firstState
   if countPaths (failedBuilds finalState) == 0
     then exitSuccess
     else exitFailure

@@ -1,20 +1,20 @@
 import Relude
 import Prelude ()
 
-import Data.Attoparsec.Text.Lazy ( parse, Parser, Result(Done) )
+import Data.Attoparsec.Text ( parse, Parser, IResult(Done) )
 import Data.Maybe ( fromJust )
 import Data.Set ( singleton )
 import Test.HUnit
 
 import Parser
 
-assertParse :: Parser a -> LText -> IO (LText, a)
+assertParse :: Parser (a, Text) -> Text -> IO (Text, a)
 assertParse parser' input = do
   let res = p $ parse parser' input
   assertBool "parsing succeeds" (isJust res)
   pure (fromJust res)
  where
-  p (Done x a) = Just (x, a)
+  p (Done x (a,_)) = Just (x, a)
   p _ = Nothing
 
 main :: IO ()

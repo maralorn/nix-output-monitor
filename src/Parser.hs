@@ -6,7 +6,7 @@ module Parser where
 import Relude hiding (take, takeWhile)
 import Prelude ()
 
-import Data.Attoparsec.Text.Lazy (
+import Data.Attoparsec.Text (
   Parser,
   char,
   choice,
@@ -18,7 +18,7 @@ import Data.Attoparsec.Text.Lazy (
   string,
   take,
   takeTill,
-  takeWhile,
+  takeWhile, match
  )
 import Data.Text (stripSuffix)
 
@@ -34,8 +34,11 @@ data ParseResult
   | Failed Derivation Int
   deriving (Show, Eq, Read)
 
-parser :: Parser ParseResult
-parser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking <|> noMatch
+parser :: Parser (ParseResult, Text)
+parser = swap <$> match updateParser
+
+updateParser :: Parser ParseResult
+updateParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking <|> noMatch
 
 data StorePath = StorePath
   { hash :: Text
