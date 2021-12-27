@@ -1,6 +1,3 @@
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
-
 module Parser where
 
 import Relude hiding (take, takeWhile)
@@ -15,10 +12,11 @@ import Data.Attoparsec.Text (
   endOfLine,
   inClass,
   isEndOfLine,
+  match,
   string,
   take,
   takeTill,
-  takeWhile, match
+  takeWhile,
  )
 import Data.Text (stripSuffix)
 

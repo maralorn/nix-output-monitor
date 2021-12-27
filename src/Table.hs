@@ -29,12 +29,13 @@ displayWidth :: Text -> Int
 displayWidth = fst . Text.foldl' widthFold (0, False)
 
 truncate :: Int -> Text -> Text
-truncate cut = either id (\(x,_,_) -> x) . Text.foldl' (truncateFold cut) (Right ("",  0, False))
+truncate cut = either id (\(x, _, _) -> x) . Text.foldl' (truncateFold cut) (Right ("", 0, False))
 
 truncateFold :: Int -> Either Text (Text, Int, Bool) -> Char -> Either Text (Text, Int, Bool)
 truncateFold _ (Left x) _ = Left x
 truncateFold cut (Right (l, x, e)) c = if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
- where (newX, newE) = widthFold (x, e) c
+ where
+  (newX, newE) = widthFold (x, e) c
 widthFold :: (Int, Bool) -> Char -> (Int, Bool)
 widthFold (x, True) 'm' = (x, False)
 widthFold (x, True) _ = (x, True)

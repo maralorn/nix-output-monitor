@@ -1,9 +1,9 @@
 import Relude
 import Prelude ()
 
-import Data.Attoparsec.Text ( parse, Parser, IResult(Done) )
-import Data.Maybe ( fromJust )
-import Data.Set ( singleton )
+import Data.Attoparsec.Text (IResult (Done), Parser, parse)
+import Data.Maybe (fromJust)
+import Data.Set (singleton)
 import Test.HUnit
 
 import Parser
@@ -14,7 +14,7 @@ assertParse parser' input = do
   assertBool "parsing succeeds" (isJust res)
   pure (fromJust res)
  where
-  p (Done x (a,_)) = Just (x, a)
+  p (Done x (a, _)) = Just (x, a)
   p _ = Nothing
 
 main :: IO ()

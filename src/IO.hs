@@ -25,11 +25,11 @@ import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
 
 import Table (displayWidth, truncate)
+import Update.Monad (UpdateMonad)
 
-type UpdateMonad = IO
 type Stream = S.SerialT IO
 type Output = Text
-type UpdateFunc update state output = (update -> state -> UpdateMonad (state, output))
+type UpdateFunc update state output = forall (m :: Type -> Type). UpdateMonad m => (update -> state -> m (state, output))
 type OutputFunc state = UTCTime -> state -> Output
 
 parseStream :: forall update. Parser update -> Stream Text -> Stream update

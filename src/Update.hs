@@ -1,96 +1,23 @@
-{-# LANGUAGE TupleSections #-}
-
 module Update where
 
 import Relude
 import Prelude ()
 
-import Control.Exception (IOException, catch)
 import Control.Monad (foldM)
-import Data.Attoparsec.Text.Lazy (maybeResult, parse)
-import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
-import Data.Default (def)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy.IO as LTextIO
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
+
+import Data.Attoparsec.Text (endOfInput, parseOnly)
 import qualified Nix.Derivation as Nix
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesPathExist, getXdgDirectory, removeFile)
-import System.FilePath ((</>))
-import System.IO.LockFile (
-  LockingException (CaughtIOException, UnableToAcquireLockFile),
-  LockingParameters (retryToAcquireLock, sleepBetweenRetries),
-  RetryStrategy (NumberOfTimes),
-  withLockExt,
-  withLockFile,
- )
 
 import Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified Parser
-
-data BuildReport = BuildReport {reportHost :: !Text, reportName :: !Text, reportSeconds :: !Int}
-  deriving (Generic, Show, Read, Eq, FromRecord, ToRecord)
+import Update.Monad
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
-
-buildReportsDir :: IO FilePath
-buildReportsDir = getXdgDirectory XdgCache "nix-output-monitor"
-buildReportsFilename :: FilePath
-buildReportsFilename = "build-reports.csv"
-
-saveBuildReports :: FilePath -> BuildReportMap -> IO ()
-saveBuildReports dir reports = catch trySave (\(_ :: IOException) -> pass)
- where
-  trySave =
-    do
-      createDirectoryIfMissing True dir
-      writeFileLBS (dir </> buildReportsFilename) (encode . toCSV $ reports)
-
-maybeUpdateBuildReportsIO :: Host -> [(Derivation, UTCTime)] -> BuildReportMap -> IO BuildReportMap
-maybeUpdateBuildReportsIO name updates reports =
-  nonEmpty updates & maybe (pure reports) (updateBuildReportsIO name)
-
-updateBuildReportsIO :: Host -> NonEmpty (Derivation, UTCTime) -> IO BuildReportMap
-updateBuildReportsIO name updates = catch tryUpdate handleLockFail
- where
-  handleLockFail (UnableToAcquireLockFile file) = do
-    removeFile file
-    pure mempty
-  handleLockFail (CaughtIOException _) = pure mempty
-  tryUpdate = do
-    dir <- buildReportsDir
-    withLockFile
-      def{retryToAcquireLock = NumberOfTimes 10, sleepBetweenRetries = 500000}
-      (dir </> withLockExt buildReportsFilename)
-      do
-        !currentReports <- loadBuildReports dir
-        now <- getCurrentTime
-        let !reports = updateBuildReports now name updates currentReports
-        saveBuildReports dir reports
-        pure reports
-
-loadBuildReports :: FilePath -> IO BuildReportMap
-loadBuildReports dir = catch tryLoad (\(_ :: IOException) -> pure mempty)
- where
-  !tryLoad = readFileLBS (dir </> buildReportsFilename) <&> either (const mempty) (fromCSV . toList) . decode NoHeader
-
-type BuildReportMap = Map (Host, Text) Int
-
-toCSV :: BuildReportMap -> [BuildReport]
-toCSV = fmap (\((fromHost -> reportHost, reportName), reportSeconds) -> BuildReport{..}) . Map.assocs
- where
-  fromHost = \case
-    Localhost -> ""
-    Host x -> x
-
-fromCSV :: [BuildReport] -> BuildReportMap
-fromCSV = fromList . fmap (\BuildReport{..} -> ((toHost reportHost, reportName), reportSeconds))
- where
-  toHost = \case
-    "" -> Localhost
-    x -> Host x
 
 data BuildState = BuildState
   { outstandingBuilds :: Set Derivation
@@ -111,18 +38,18 @@ data BuildState = BuildState
   }
   deriving stock (Show, Eq, Read)
 
-updateState :: (ParseResult, Text) -> BuildState -> IO (BuildState, Text)
+updateState :: UpdateMonad m => (ParseResult, Text) -> BuildState -> m (BuildState, Text)
 updateState (update, buffer) = fmap (,buffer) <$> updateState' update
 
-updateState' :: ParseResult -> BuildState -> IO BuildState
+updateState' :: UpdateMonad m => ParseResult -> BuildState -> m BuildState
 updateState' result oldState = do
-  now <- getCurrentTime
+  now <- getNow
   newState <-
     case result of
       Uploading path host -> pure . uploading host path
       Downloading path host -> \s -> do
         let (done, newS) = downloading host path s
-        newBuildReports <- maybeUpdateBuildReportsIO host (maybeToList done) (buildReports newS)
+        newBuildReports <- reportFinishingBuildsIfAny host (maybeToList done) (buildReports newS)
         pure newS{buildReports = newBuildReports}
       PlanCopies number -> pure . planCopy number
       Build path host ->
@@ -140,12 +67,12 @@ updateState' result oldState = do
   let runningLocalBuilds = fromMaybe mempty $ Map.lookup Localhost (runningBuilds newState)
   newCompletedOutputs <-
     filterM
-      (maybe (pure False) (doesPathExist . toString) . drv2out newState . fst)
+      (maybe (pure False) storePathExists . drv2out newState . fst)
       (toList runningLocalBuilds)
   let newCompletedDrvs = fromList (fst <$> newCompletedOutputs)
       newCompletedReports = second fst <$> newCompletedOutputs
   newBuildReports <-
-    maybeUpdateBuildReportsIO Localhost newCompletedReports (buildReports newState)
+    reportFinishingBuildsIfAny Localhost newCompletedReports (buildReports newState)
   pure $
     newState
       { runningBuilds = Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) Localhost (runningBuilds newState)
@@ -157,14 +84,24 @@ updateState' result oldState = do
 movingAverage :: Double
 movingAverage = 0.5
 
-updateBuildReports :: UTCTime -> Host -> NonEmpty (Derivation, UTCTime) -> BuildReportMap -> BuildReportMap
-updateBuildReports now host builds = foldr (.) id (insertBuildReport <$> builds)
+reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> NonEmpty (Derivation, UTCTime) -> m BuildReportMap
+reportFinishingBuilds host builds = do
+  now <- getNow
+  let timeDiffedBuilds = floor . diffUTCTime now <<$>> builds
+  updateBuildReports (modifyBuildReports host timeDiffedBuilds)
+
+reportFinishingBuildsIfAny :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(Derivation, UTCTime)] -> BuildReportMap -> m BuildReportMap
+reportFinishingBuildsIfAny host builds oldReports =
+  nonEmpty builds & maybe (pure oldReports) (reportFinishingBuilds host)
+
+modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
+modifyBuildReports host builds = foldr (.) id (insertBuildReport <$> builds)
  where
   insertBuildReport (n, t) =
     Map.insertWith
       (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
       (host, getReportName n)
-      (floor (diffUTCTime now t))
+      t
 
 drv2out :: BuildState -> Derivation -> Maybe StorePath
 drv2out s = flip Map.lookup (derivationToOutput s)
@@ -180,32 +117,32 @@ failedBuild now drv code bs@BuildState{runningBuilds, failedBuilds} =
  where
   buildHost = fmap (second (fst . snd)) $ find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningBuilds)
 
-lookupDerivation :: BuildState -> Derivation -> IO BuildState
+note :: a -> Maybe b -> Either a b
+note a = maybe (Left a) Right
+
+lookupDerivation :: MonadReadDerivation m => BuildState -> Derivation -> m BuildState
 lookupDerivation bs@BuildState{outputToDerivation, derivationToOutput, errors} drv =
-  do
-    text <- LTextIO.readFile (toString drv)
-    pure $
-      ( do
-          derivation <- maybeResult $ parse Nix.parseDerivation text
-          path <- Nix.path <$> Map.lookup "out" (Nix.outputs derivation)
-          maybeResult $ parse Parser.storePath (fromString path)
-      )
-        & \case
-          Just path ->
-            bs
-              { outputToDerivation = Map.insert path drv outputToDerivation
-              , derivationToOutput = Map.insert drv path derivationToOutput
-              }
-          Nothing ->
-            bs
-              { errors = "Could not determine output path for derivation" <> toText drv : errors
-              }
+  handleEither . getPath <$> getDerivation drv
+ where
+  getPath = \derivationEither -> do
+    derivation <- first (("during parsing the derivation: " <>) . toText) derivationEither
+    path <- note "No outpath 'out' found." $ Nix.path <$> Map.lookup "out" (Nix.outputs derivation)
+    first (toText . (("during parsing the outpath '" <> path <> "' ") <>)) $ parseOnly (Parser.storePath <* endOfInput) (fromString path)
+  handleEither = \case
+    Right path ->
+      bs
+        { outputToDerivation = Map.insert path drv outputToDerivation
+        , derivationToOutput = Map.insert drv path derivationToOutput
+        }
+    Left err ->
+      bs
+        { errors = "Could not determine output path for derivation " <> toText drv <> " Error: " <> err : errors
+        }
 
 initalState :: IO BuildState
 initalState = do
   now <- getCurrentTime
-  dir <- buildReportsDir
-  buildReports <- loadBuildReports dir
+  buildReports <- getCachedBuildReports
   pure $
     BuildState
       mempty
