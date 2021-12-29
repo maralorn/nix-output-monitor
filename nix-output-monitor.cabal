@@ -66,14 +66,15 @@ library
   import:          common-config
   hs-source-dirs:  src
   exposed-modules:
-    Debug
-    IO
-    Parser
-    Print
-    Table
-    Update
-    Update.Monad
-    Update.Monad.CacheBuildReports
+    NOM.Debug
+    NOM.IO
+    NOM.Parser
+    NOM.Print
+    NOM.Print.Table
+    NOM.Print.Tree
+    NOM.Update
+    NOM.Update.Monad
+    NOM.Update.Monad.CacheBuildReports
 
 common exes
   import:      common-config

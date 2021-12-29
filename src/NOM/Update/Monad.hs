@@ -1,9 +1,9 @@
-module Update.Monad (
+module NOM.Update.Monad (
   UpdateMonad,
   MonadNow (..),
   MonadReadDerivation (..),
   MonadCheckStorePath (..),
-  module Update.Monad.CacheBuildReports,
+  module NOM.Update.Monad.CacheBuildReports,
 ) where
 
 import Relude
@@ -16,8 +16,8 @@ import Data.Time (UTCTime, getCurrentTime)
 import qualified Nix.Derivation as Nix
 import System.Directory (doesPathExist)
 
-import Parser (Derivation, StorePath)
-import Update.Monad.CacheBuildReports
+import NOM.Parser (Derivation, StorePath)
+import NOM.Update.Monad.CacheBuildReports
 
 type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 

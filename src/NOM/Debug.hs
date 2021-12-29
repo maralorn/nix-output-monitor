@@ -1,4 +1,4 @@
-module Debug where
+module NOM.Debug where
 
 import Relude
 import Prelude ()
@@ -7,7 +7,7 @@ import Data.Set (union)
 import Relude.Unsafe as Unsafe (fromJust)
 import System.Directory (doesPathExist)
 
-import Update (
+import NOM.Update (
   BuildState (completedBuilds, outstandingBuilds, runningBuilds),
   drv2out,
  )

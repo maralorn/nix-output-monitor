@@ -1,4 +1,4 @@
-module Update where
+module NOM.Update where
 
 import Relude
 import Prelude ()
@@ -12,9 +12,9 @@ import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Attoparsec.Text (endOfInput, parseOnly)
 import qualified Nix.Derivation as Nix
 
-import Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
-import qualified Parser
-import Update.Monad
+import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
+import qualified NOM.Parser as Parser
+import NOM.Update.Monad
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -29,7 +29,8 @@ data BuildState = BuildState
   , completedDownloads :: Map Host (Set StorePath)
   , completedUploads :: Map Host (Set StorePath)
   , outputToDerivation :: Map StorePath Derivation
-  , derivationToOutput :: Map Derivation StorePath
+  , derivationInfos :: Map Derivation DerivationInfo
+  , derivationParents :: Map Derivation (Set Derivation)
   , lastPlannedBuild :: Maybe Derivation
   , buildReports :: BuildReportMap
   , startTime :: UTCTime
@@ -37,6 +38,33 @@ data BuildState = BuildState
   , inputReceived :: Bool
   }
   deriving stock (Show, Eq, Read)
+
+{-
+data BuildState2 = BuildState2
+  { startTime :: UTCTime
+  , errors :: [Text]
+  , inputReceived :: Bool
+  , derivations :: Map Derivation DerivationState
+  , storePaths :: Map StorePath StorePathState
+  }
+  deriving stock (Show, Eq, Read)
+-}
+
+data DerivationInfo = MkDerivationInfo
+  { outputs :: Map Text StorePath
+  , inputDrvs :: Map Derivation (Set Text)
+  , inputSrcs :: Set StorePath
+  }
+  deriving stock (Show, Eq, Read)
+
+{-
+data StorePathState = MkStorePathState
+  { downloadPlanned :: Bool
+  , downloaded :: [Host]
+  , uploaded :: [Host]
+  , present :: Bool
+  }
+-}
 
 updateState :: UpdateMonad m => (ParseResult, Text) -> BuildState -> m (BuildState, Text)
 updateState (update, buffer) = fmap (,buffer) <$> updateState' update
@@ -104,7 +132,8 @@ modifyBuildReports host builds = foldr (.) id (insertBuildReport <$> builds)
       t
 
 drv2out :: BuildState -> Derivation -> Maybe StorePath
-drv2out s = flip Map.lookup (derivationToOutput s)
+drv2out s = Map.lookup "out" . outputs <=< flip Map.lookup (derivationInfos s)
+
 out2drv :: BuildState -> StorePath -> Maybe Derivation
 out2drv s = flip Map.lookup (outputToDerivation s)
 
@@ -121,23 +150,40 @@ note :: a -> Maybe b -> Either a b
 note a = maybe (Left a) Right
 
 lookupDerivation :: MonadReadDerivation m => BuildState -> Derivation -> m BuildState
-lookupDerivation bs@BuildState{outputToDerivation, derivationToOutput, errors} drv =
-  handleEither . getPath <$> getDerivation drv
+lookupDerivation bs@BuildState{outputToDerivation, derivationInfos, derivationParents, errors} drv =
+  handleEither . mkDerivationInfo <$> getDerivation drv
  where
-  getPath = \derivationEither -> do
+  mkDerivationInfo = \derivationEither -> do
     derivation <- first (("during parsing the derivation: " <>) . toText) derivationEither
-    path <- note "No outpath 'out' found." $ Nix.path <$> Map.lookup "out" (Nix.outputs derivation)
-    first (toText . (("during parsing the outpath '" <> path <> "' ") <>)) $ parseOnly (Parser.storePath <* endOfInput) (fromString path)
+    -- first (toText . (("during parsing the outpath '" <> path <> "' ") <>)) $
+    pure $
+      MkDerivationInfo
+        { outputs = Nix.outputs derivation & Map.mapMaybe (parseStorePath . Nix.path)
+        , inputSrcs = fromList . mapMaybe parseStorePath . toList . Nix.inputSrcs $ derivation
+        , inputDrvs = Map.fromList . mapMaybe (\(x, y) -> (,y) <$> parseDerivation x) . Map.toList . Nix.inputDrvs $ derivation
+        }
   handleEither = \case
-    Right path ->
+    Right infos ->
       bs
-        { outputToDerivation = Map.insert path drv outputToDerivation
-        , derivationToOutput = Map.insert drv path derivationToOutput
+        { outputToDerivation = foldl' (.) id ((`Map.insert` drv) <$> outputs infos) outputToDerivation
+        , derivationInfos = Map.insert drv infos derivationInfos
+        , derivationParents = foldl' (.) id ((`insertMultiMapOne` drv) <$> Map.keys ( inputDrvs infos)) derivationParents
         }
     Left err ->
       bs
         { errors = "Could not determine output path for derivation " <> toText drv <> " Error: " <> err : errors
         }
+
+invertMap :: Ord b => Map a b -> Map b a
+invertMap = Map.fromList . fmap swap . Map.toList
+
+parseStorePath :: FilePath -> Maybe StorePath
+parseStorePath = hush . parseOnly (Parser.storePath <* endOfInput) . fromString
+parseDerivation :: FilePath -> Maybe Derivation
+parseDerivation = hush . parseOnly (Parser.derivation <* endOfInput) . fromString
+
+hush :: Either a b -> Maybe b
+hush = either (const Nothing) Just
 
 initalState :: IO BuildState
 initalState = do
@@ -148,6 +194,7 @@ initalState = do
       mempty
       mempty
       0
+      mempty
       mempty
       mempty
       mempty

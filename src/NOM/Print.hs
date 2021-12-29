@@ -1,4 +1,4 @@
-module Print where
+module NOM.Print where
 
 import Relude
 import Prelude ()
@@ -7,9 +7,10 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
-import Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
-import Table
-import Update
+import qualified Data.Text as Text
+import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
+import NOM.Print.Table
+import NOM.Update
 
 vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, cellBorder, tablePadding, average, emptyCell, skipCell :: Text
 vertical = "┃"
@@ -38,9 +39,13 @@ showCond = memptyIfFalse
 
 stateToText :: UTCTime -> BuildState -> Text
 stateToText now buildState@BuildState{..}
-  | not inputReceived = clock <> " " <> timeDiff now startTime <> showCond (diffUTCTime now startTime > 15) " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
-  | totalBuilds + plannedCopies + numFailedBuilds == 0 = ""
-  | otherwise = runningBuildsDisplay <> failedBuildsDisplay <> table
+  | not inputReceived = time <> showCond (diffUTCTime now startTime > 15) " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
+  | totalBuilds + plannedCopies + numFailedBuilds == 0 = time
+  | otherwise =
+    runningBuildsDisplay
+      <> failedBuildsDisplay
+      <> table
+      <> Text.intercalate "\n" errors
  where
   runningBuildsDisplay =
     showCond
@@ -49,7 +54,7 @@ stateToText now buildState@BuildState{..}
         (upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds now runningBuilds)
+        (printBuilds now runningBuilds derivationParents)
         <> "\n"
   failedBuildsDisplay =
     showCond
@@ -91,7 +96,7 @@ stateToText now buildState@BuildState{..}
         , nonZeroBold numOutstandingDownloads . blue . label todo . disp $ numOutstandingDownloads
         ]
       <> showCond showUploads [text ""]
-      <> (one . bold . lastBuildColor . header $ lastBuildText <> clock <> " " <> timeDiff now startTime)
+      <> (one . bold . lastBuildColor . header $ lastBuildText <> time)
   lastBuildIcon drv
     | drv `Set.member` outstandingBuilds = (id, todo)
   lastBuildIcon drv
@@ -119,6 +124,7 @@ stateToText now buildState@BuildState{..}
   numOutstandingBuilds = length outstandingBuilds
   totalBuilds = numOutstandingBuilds + numRunningBuilds + numCompletedBuilds
   downloadsDone = countPaths completedDownloads
+  time = clock <> " " <> timeDiff now startTime
 
 setAny :: (a -> Bool) -> Set a -> Bool
 setAny pred' = Set.foldl' (\y x -> pred' x || y) False
@@ -163,19 +169,23 @@ nonZeroBold num = if num > 0 then bold else id
 printBuilds ::
   UTCTime ->
   Map Host (Set (Derivation, (UTCTime, Maybe Int))) ->
+  Map Derivation (Set Derivation) ->
   NonEmpty Text
-printBuilds now builds =
+printBuilds now builds derivationParents =
   printAligned . (one (cells 3 (bold (header " Currently building:"))) :|)
     . fmap printBuild
     . reverse
     . sortOn snd
     $ Map.foldMapWithKey
-      (\host hostBuilds -> first (hostLabel host) <$> toList hostBuilds)
+      (\host hostBuilds -> first (\x -> (x, hostLabel host x)) <$> toList hostBuilds)
       builds
  where
-  printBuild (toList -> p, (t, l)) =
+  printBuild ((drv, toList -> p), (t, l)) =
     yellow (text running)
-      :| (p <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)])
+      :| (p <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)] <> parentList drv)
+  parentList drv =
+    (Set.lookupMin <=< Map.lookup drv) derivationParents
+      & maybe mempty \x -> label "->" (text (name $ toStorePath x)) : parentList x
 
 printFailedBuilds ::
   Map Host (Set (Derivation, Int, Int)) ->

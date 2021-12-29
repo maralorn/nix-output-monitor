@@ -1,4 +1,4 @@
-module Update.Monad.CacheBuildReports (
+module NOM.Update.Monad.CacheBuildReports (
   MonadCacheBuildReports (..),
   BuildReport (..),
   BuildReportMap,
@@ -21,7 +21,7 @@ import System.IO.LockFile (
   withLockFile,
  )
 
-import Parser (Host (..))
+import NOM.Parser (Host (..))
 
 -- Exposed functions
 

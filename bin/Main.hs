@@ -5,12 +5,14 @@ import Prelude ()
 
 import Data.Text.IO (hPutStrLn)
 import Data.Version (showVersion)
-import IO (interact)
-import Parser (parser)
-import Paths_nix_output_monitor (version)
-import Print (stateToText)
 import System.Environment (getArgs)
-import Update (countPaths, failedBuilds, initalState, updateState)
+
+import Paths_nix_output_monitor (version)
+
+import NOM.IO (interact)
+import NOM.Parser (parser)
+import NOM.Print (stateToText)
+import NOM.Update (countPaths, failedBuilds, initalState, updateState)
 
 main :: IO ()
 main = do

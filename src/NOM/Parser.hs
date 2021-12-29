@@ -1,4 +1,4 @@
-module Parser where
+module NOM.Parser where
 
 import Relude hiding (take, takeWhile)
 import Prelude ()

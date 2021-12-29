@@ -1,4 +1,4 @@
-module Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, red, disp, dummy, header, displayWidth, Table.truncate) where
+module NOM.Print.Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, red, disp, dummy, header, displayWidth, NOM.Print.Table.truncate) where
 
 import Relude
 import Prelude ()

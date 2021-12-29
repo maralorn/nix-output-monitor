@@ -1,4 +1,4 @@
-module IO where
+module NOM.IO where
 
 import Relude
 import Prelude ()
@@ -24,8 +24,8 @@ import Data.Attoparsec.Text (IResult (..), Parser, Result, feed, parse)
 import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
 
-import Table (displayWidth, truncate)
-import Update.Monad (UpdateMonad)
+import NOM.Print.Table as Table (displayWidth, truncate)
+import NOM.Update.Monad (UpdateMonad)
 
 type Stream = S.SerialT IO
 type Output = Text

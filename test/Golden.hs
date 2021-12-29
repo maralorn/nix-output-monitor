@@ -1,16 +1,17 @@
 module Main where
 
-import Data.Text.IO as TextIO
-import IO
-import Parser
+import Prelude ()
 import Relude
+
+import Data.Text.IO as TextIO
 import Relude.Unsafe
 import System.Directory
 import System.Process
 import Test.HUnit
 
-import Update
-import Prelude ()
+import NOM.Update
+import NOM.IO
+import NOM.Parser
 
 main :: IO ()
 main = do
@@ -19,8 +20,8 @@ main = do
       test
         [ "Golden 1" ~: do
             -- First we ensure that the necessary derivations exist in the store
-            pathForced <- doesFileExist "/nix/store/5gki8h3p9g63mp9q6xy9z7hlq1haqq6j-remote-build"
-            unless pathForced $ callProcess "nix-build" ["test/golden1.nix", "--no-out-link"]
+            --pathForced <- doesFileExist "/nix/store/5gki8h3p9g63mp9q6xy9z7hlq1haqq6j-remote-build"
+            --callProcess "nix-build" ["test/golden1.nix", "--no-out-link"]
             firstState <- initalState
             endState <-
               liftIO (TextIO.readFile "test/golden1.nix-build-output")

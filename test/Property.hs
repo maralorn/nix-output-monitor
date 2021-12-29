@@ -6,7 +6,7 @@ import Data.Maybe (fromJust)
 import Data.Set (singleton)
 import Test.HUnit
 
-import Parser
+import NOM.Parser
 
 assertParse :: Parser (a, Text) -> Text -> IO (Text, a)
 assertParse parser' input = do
