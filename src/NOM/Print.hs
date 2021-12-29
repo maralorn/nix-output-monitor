@@ -10,6 +10,7 @@ import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, form
 import qualified Data.Text as Text
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table
+import NOM.Print.Tree
 import NOM.Update
 
 vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, cellBorder, tablePadding, average, emptyCell, skipCell :: Text
@@ -171,21 +172,25 @@ printBuilds ::
   Map Host (Set (Derivation, (UTCTime, Maybe Int))) ->
   Map Derivation (Set Derivation) ->
   NonEmpty Text
-printBuilds now builds derivationParents =
-  printAligned . (one (cells 3 (bold (header " Currently building:"))) :|)
-    . fmap printBuild
-    . reverse
-    . sortOn snd
-    $ Map.foldMapWithKey
-      (\host hostBuilds -> first (\x -> (x, hostLabel host x)) <$> toList hostBuilds)
-      builds
+printBuilds now builds derivationParents = let
+     bs = nonEmpty (foldMap toList builds)
+     forest = filterDoubles fst . reverseForest fst derivationParents <$> bs
+     textForest = mapTree (toText . name . toStorePath) printBuild <<$>> forest
+    in (" Currently building: " :| ) $ maybe [] (toList . showForest) textForest
+  --printAligned . (one (cells 3 (bold (header " Currently building:"))) :|)
+    -- . fmap printBuild
+    -- . reverse
+    -- . sortOn snd
+    -- $ Map.foldMapWithKey
+      --(\host hostBuilds -> first (\x -> (x, hostLabel host x)) <$> toList hostBuilds)
+      --builds
  where
-  printBuild ((drv, toList -> p), (t, l)) =
-    yellow (text running)
-      :| (p <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)] <> parentList drv)
-  parentList drv =
-    (Set.lookupMin <=< Map.lookup drv) derivationParents
-      & maybe mempty \x -> label "->" (text (name $ toStorePath x)) : parentList x
+  printBuild (drv, (t, l)) = running <> " " <> toText (name (toStorePath drv)) <> " " <> clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l
+  --  yellow (text running)
+  --    :| (drv <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)])
+  --parentList drv =
+    --(Set.lookupMin <=< Map.lookup drv) derivationParents
+      -- & maybe mempty \x -> label "->" (text (name $ toStorePath x)) : parentList x
 
 printFailedBuilds ::
   Map Host (Set (Derivation, Int, Int)) ->
