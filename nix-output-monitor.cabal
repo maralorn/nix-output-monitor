@@ -73,6 +73,8 @@ library
     NOM.Print
     NOM.Print.Table
     NOM.Print.Tree
+    NOM.State
+    NOM.State.Tree
     NOM.Update
     NOM.Update.Monad
     NOM.Update.Monad.CacheBuildReports
