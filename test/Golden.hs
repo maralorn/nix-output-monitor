@@ -4,13 +4,12 @@ import Relude
 
 import Data.Text.IO as TextIO
 import Relude.Unsafe
-import System.Directory
-import System.Process
 import Test.HUnit
 
 import NOM.Update
 import NOM.IO
 import NOM.Parser
+import NOM.State
 
 main :: IO ()
 main = do
