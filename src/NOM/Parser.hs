@@ -137,7 +137,7 @@ planDownloadLine = indent *> storePath <* endOfLine
 
 -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed :: Parser ParseResult
-failed = Failed <$> (string "builder for " *> inTicks derivation <* string " failed with exit code ") <*> (decimal <* endOfLine)
+failed = Failed <$> (choice [string "error: ", pure ""] *> string "builder for " *> inTicks derivation <* string " failed with exit code ") <*> (decimal <* choice [endOfLine, char ';' *> endOfLine])
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser ParseResult
