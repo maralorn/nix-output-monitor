@@ -6,10 +6,8 @@ import Data.Set (union)
 import Relude.Unsafe as Unsafe (fromJust)
 import System.Directory (doesPathExist)
 
-import NOM.Update (
-  BuildState (completedBuilds, outstandingBuilds, runningBuilds),
-  drv2out,
- )
+import NOM.State (BuildState (completedBuilds, outstandingBuilds, runningBuilds))
+import NOM.Update (drv2out)
 
 printState :: BuildState -> IO ()
 printState endState = do

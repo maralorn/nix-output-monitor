@@ -6,64 +6,32 @@ import Control.Monad (foldM)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
+import Data.Time (UTCTime, diffUTCTime)
 
 import Data.Attoparsec.Text (endOfInput, parseOnly)
 import qualified Nix.Derivation as Nix
 
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.Update.Monad
+import NOM.State (Build (..), BuildState (..), BuildStatus (..), DerivationInfo (..))
+import qualified NOM.State as State
+import NOM.State.Tree (Tree, filterDoubles, reverseForest)
+import NOM.Update.Monad (
+  BuildReportMap,
+  MonadCacheBuildReports (..),
+  MonadCheckStorePath (..),
+  MonadNow (..),
+  MonadReadDerivation (..),
+  UpdateMonad,
+ )
+import NOM.Util (hush, (.>), (<.>>), (<|>>), (|>))
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
 
-data BuildState = BuildState
-  { outstandingBuilds :: Set Derivation
-  , outstandingDownloads :: Set StorePath
-  , plannedCopies :: Int
-  , runningBuilds :: Map Host (Set (Derivation, (UTCTime, Maybe Int)))
-  , completedBuilds :: Map Host (Set Derivation)
-  , failedBuilds :: Map Host (Set (Derivation, Int, Int))
-  , completedDownloads :: Map Host (Set StorePath)
-  , completedUploads :: Map Host (Set StorePath)
-  , outputToDerivation :: Map StorePath Derivation
-  , derivationInfos :: Map Derivation DerivationInfo
-  , derivationParents :: Map Derivation (Set Derivation)
-  , lastPlannedBuild :: Maybe Derivation
-  , buildReports :: BuildReportMap
-  , startTime :: UTCTime
-  , errors :: [Text]
-  , inputReceived :: Bool
-  }
-  deriving stock (Show, Eq, Read)
+makeBuildForest ::
+  Map Derivation (Set Derivation) ->
 
-{-
-data BuildState2 = BuildState2
-  { startTime :: UTCTime
-  , errors :: [Text]
-  , inputReceived :: Bool
-  , derivations :: Map Derivation DerivationState
-  , storePaths :: Map StorePath StorePathState
-  }
-  deriving stock (Show, Eq, Read)
--}
-
-data DerivationInfo = MkDerivationInfo
-  { outputs :: Map Text StorePath
-  , inputDrvs :: Map Derivation (Set Text)
-  , inputSrcs :: Set StorePath
-  }
-  deriving stock (Show, Eq, Read)
-
-{-
-data StorePathState = MkStorePathState
-  { downloadPlanned :: Bool
-  , downloaded :: [Host]
-  , uploaded :: [Host]
-  , present :: Bool
-  }
--}
 
 updateState :: UpdateMonad m => (ParseResult, Text) -> BuildState -> m (BuildState, Text)
 updateState (update, buffer) = fmap (,buffer) <$> updateState' update
@@ -180,32 +148,6 @@ parseStorePath :: FilePath -> Maybe StorePath
 parseStorePath = hush . parseOnly (Parser.storePath <* endOfInput) . fromString
 parseDerivation :: FilePath -> Maybe Derivation
 parseDerivation = hush . parseOnly (Parser.derivation <* endOfInput) . fromString
-
-hush :: Either a b -> Maybe b
-hush = either (const Nothing) Just
-
-initalState :: IO BuildState
-initalState = do
-  now <- getCurrentTime
-  buildReports <- getCachedBuildReports
-  pure $
-    BuildState
-      mempty
-      mempty
-      0
-      mempty
-      mempty
-      mempty
-      mempty
-      mempty
-      mempty
-      mempty
-      mempty
-      Nothing
-      buildReports
-      now
-      mempty
-      False
 
 planBuilds :: Set Derivation -> BuildState -> BuildState
 planBuilds storePath s@BuildState{outstandingBuilds} =

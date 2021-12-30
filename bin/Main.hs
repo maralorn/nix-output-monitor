@@ -11,7 +11,8 @@ import Paths_nix_output_monitor (version)
 import NOM.IO (interact)
 import NOM.Parser (parser)
 import NOM.Print (stateToText)
-import NOM.Update (countPaths, failedBuilds, initalState, updateState)
+import NOM.Update (countPaths, updateState)
+import NOM.State (initalState, failedBuilds)
 
 main :: IO ()
 main = do
