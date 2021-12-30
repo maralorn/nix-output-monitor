@@ -76,6 +76,7 @@ library
     NOM.Update
     NOM.Update.Monad
     NOM.Update.Monad.CacheBuildReports
+    NOM.Util
 
 common exes
   import:      common-config
