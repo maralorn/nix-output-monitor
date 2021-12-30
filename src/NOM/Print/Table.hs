@@ -1,4 +1,25 @@
-module NOM.Print.Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, red, disp, dummy, header, displayWidth, NOM.Print.Table.truncate) where
+module NOM.Print.Table (
+  Entry,
+  cells,
+  printAligned,
+  printAlignedSep,
+  prependLines,
+  text,
+  label,
+  bold,
+  green,
+  yellow,
+  blue,
+  cyan,
+  magenta,
+  red,
+  disp,
+  dummy,
+  header,
+  displayWidth,
+  NOM.Print.Table.truncate,
+  markup, markups
+) where
 
 import Relude
 
@@ -120,8 +141,8 @@ printRow sep colWidths entries = Text.intercalate sep $ snd (foldl' foldFun (col
   foldFun (colsLeft, line) entry@Entry{width} =
     (drop width colsLeft, line . (printEntry sep entry (take width colsLeft) :))
 
--- >>> printEntry (cells 2 (label ">" (text "<"))) [5,5]
--- ">           <"
+-- >>> printEntry "" (cells 2 (label ">" (text "<"))) []
+-- "><"
 
 printEntry :: Text -> Entry -> [Int] -> Text
 printEntry sep Entry{codes, lcontent, rcontent} entryWidths = whenCodes codes <> lcontent <> spacing <> rcontent <> whenCodes [Reset]

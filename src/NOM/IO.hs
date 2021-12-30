@@ -35,7 +35,7 @@ parseStream :: forall update. Parser update -> Stream Text -> Stream update
 parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, mempty)
  where
   step :: (Maybe (Text -> Result update), Stream update) -> Text -> (Maybe (Text -> Result update), Stream update)
-  step (maybe parseFresh feed . fmap Partial . fst -> parse') = fix process mempty . parse'
+  step (maybe parseFresh (feed . Partial) . fst -> parse') = fix process mempty . parse'
   process = \parseRest acc -> \case
     Done "" result -> (Nothing, acc <> pure result)
     Done rest result -> parseRest (acc <> pure result) (parseFresh rest)
