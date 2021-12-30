@@ -1,4 +1,4 @@
-module NOM.Print where
+module NOM.Print (stateToText) where
 
 import Relude
 
@@ -6,15 +6,16 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
-import qualified Data.Text as Text
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
-import NOM.Print.Table
-import NOM.Print.Tree
-import NOM.Update
+import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
+import NOM.Print.Tree (showForest)
+import NOM.State (Build (MkBuild), BuildState (..), BuildStatus (Building, Failed))
+import NOM.Update (collapseMultimap, countPaths)
+import NOM.Util ((.>), (<.>>))
+import NOM.State.Tree (Tree)
 
-vertical, verticalSlim, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, cellBorder, tablePadding, average, emptyCell, skipCell :: Text
+vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, average :: Text
 vertical = "┃"
-verticalSlim = "│"
 lowerleft = "┗"
 upperleft = "┏"
 leftT = "┣"
@@ -29,10 +30,6 @@ warning = "⚠"
 goal = "🏁"
 average = "∅"
 bigsum = "∑"
-cellBorder = " " <> verticalSlim <> " "
-tablePadding = vertical <> "    "
-emptyCell = "     "
-skipCell = emptyCell <> cellBorder
 
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
@@ -42,28 +39,18 @@ stateToText now buildState@BuildState{..}
   | not inputReceived = time <> showCond (diffUTCTime now startTime > 15) " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
   | totalBuilds + plannedCopies + numFailedBuilds == 0 = time
   | otherwise =
-    runningBuildsDisplay
-      <> failedBuildsDisplay
+    buildsDisplay
       <> table
-      <> Text.intercalate "\n" errors
+      <> unlines errors
  where
-  runningBuildsDisplay =
+  buildsDisplay =
     showCond
-      (numRunningBuilds > 0)
+      (numRunningBuilds + numFailedBuilds > 0)
       $ prependLines
         (upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds now runningBuilds derivationParents)
-        <> "\n"
-  failedBuildsDisplay =
-    showCond
-      (numFailedBuilds > 0)
-      $ prependLines
-        ((if numRunningBuilds > 0 then leftT else upperleft) <> horizontal)
-        (vertical <> " ")
-        (vertical <> " ")
-        (printFailedBuilds failedBuilds)
+        (printBuilds now buildForest)
         <> "\n"
   table =
     prependLines
@@ -168,50 +155,42 @@ nonZeroBold num = if num > 0 then bold else id
 
 printBuilds ::
   UTCTime ->
-  Map Host (Set (Derivation, (UTCTime, Maybe Int))) ->
-  Map Derivation (Set Derivation) ->
+  [Tree Derivation Build] -> 
   NonEmpty Text
-printBuilds now builds derivationParents = let
-     bs = nonEmpty (foldMap toList builds)
-     forest = filterDoubles fst . reverseForest fst derivationParents <$> bs
-     textForest = mapTree (toText . name . toStorePath) printBuild <<$>> forest
-    in (" Currently building: " :| ) $ maybe [] (toList . showForest) textForest
-  --printAligned . (one (cells 3 (bold (header " Currently building:"))) :|)
-    -- . fmap printBuild
-    -- . reverse
-    -- . sortOn snd
-    -- $ Map.foldMapWithKey
-      --(\host hostBuilds -> first (\x -> (x, hostLabel host x)) <$> toList hostBuilds)
-      --builds
+printBuilds now forest = markup bold " Build Graph: " :| maybe [] (toList . showForest) (nonEmpty textForest)
  where
-  printBuild (drv, (t, l)) = running <> " " <> toText (name (toStorePath drv)) <> " " <> clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l
-  --  yellow (text running)
-  --    :| (drv <> [header (clock <> " " <> timeDiff now t <> maybe "" (\x -> " (" <> average <> timeDiffSeconds x <> ")") l)])
-  --parentList drv =
-    --(Set.lookupMin <=< Map.lookup drv) derivationParents
-      -- & maybe mempty \x -> label "->" (text (name $ toStorePath x)) : parentList x
+  textForest = bimap (name . toStorePath) printBuild <$> forest
+  printBuild = \case
+    MkBuild host drv (Building t l) ->
+      unwords $
+        [ markup yellow running
+        , hostMarkup host drv
+        , clock
+        , timeDiff now t
+        ]
+          <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) l
+    MkBuild host drv (Failed dur code) ->
+      unwords
+        [ markup yellow warning
+        , hostMarkup host drv
+        , markups [red, bold] (unwords ["failed with exit code", show code, "after", clock, timeDiffSeconds dur])
+        ]
 
-printFailedBuilds ::
-  Map Host (Set (Derivation, Int, Int)) ->
-  NonEmpty Text
-printFailedBuilds builds =
-  printAligned . (one (cells 3 (bold (header " Failed builds:"))) :|)
-    . fmap printBuild
-    $ Map.foldMapWithKey
-      (\host hostBuilds -> (\(a, b, c) -> (hostLabel host a, b, c)) <$> toList hostBuilds)
-      builds
- where
-  printBuild (toList -> p, diff, code) = yellow (text warning) :| p <> [red (text ("failed with exit code " <> show code)), text ("after " <> clock <> " " <> timeDiffSeconds diff)]
+hostMarkup :: Host -> Derivation -> Text
+hostMarkup Localhost build = markups [cyan, bold] (name . toStorePath $ build)
+hostMarkup host build = hostMarkup Localhost build <> " on " <> markup magenta (toText host)
 
-hostLabel :: Host -> Derivation -> NonEmpty Entry
-hostLabel Localhost build = one . cyan . text . name . toStorePath $ build
-hostLabel host build = (cyan . text . name . toStorePath $ build) :| [text "on", magenta . text . toText $ host]
+timeFormat :: String
+timeFormat = "%02H:%02M:%02S"
 
 timeDiff :: UTCTime -> UTCTime -> Text
-timeDiff larger smaller =
-  toText $
-    formatTime defaultTimeLocale "%02H:%02M:%02S" (diffUTCTime larger smaller)
+timeDiff =
+  diffUTCTime
+    <.>> formatTime defaultTimeLocale timeFormat
+    .> toText
 
 timeDiffSeconds :: Int -> Text
-timeDiffSeconds seconds =
-  toText $ formatTime defaultTimeLocale "%02H:%02M:%02S" (fromIntegral seconds :: NominalDiffTime)
+timeDiffSeconds =
+  fromIntegral
+    .> formatTime @NominalDiffTime defaultTimeLocale timeFormat
+    .> toText

@@ -31,7 +31,24 @@ getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name 
 
 makeBuildForest ::
   Map Derivation (Set Derivation) ->
+  Map Host (Set (Derivation, (UTCTime, Maybe Int))) ->
+  Map Host (Set (Derivation, Int, Int)) ->
+  [Tree Derivation Build]
+makeBuildForest derivationParents runningBuilds failedBuilds =
+  treeFromTupleMap toBuilding runningBuilds <> treeFromTupleMap toFailed failedBuilds
+    |> nonEmpty
+    <.>> reverseForest buildDerivation derivationParents
+    .> filterDoubles buildDerivation
+    |> maybe [] toList
+ where
+  treeFromTupleMap tupleToBuild =
+    Map.toList
+      .> foldMap (uncurry (\host -> toList <.>> tupleToBuild .> uncurry (MkBuild host)))
+  toBuilding = second (uncurry Building)
+  toFailed (derivation, duration, exitCode) = (derivation, State.Failed duration exitCode)
 
+updateBuildForest :: BuildState -> BuildState
+updateBuildForest bs@BuildState{..} = bs{buildForest = makeBuildForest derivationParents runningBuilds failedBuilds}
 
 updateState :: UpdateMonad m => (ParseResult, Text) -> BuildState -> m (BuildState, Text)
 updateState (update, buffer) = fmap (,buffer) <$> updateState' update
@@ -56,7 +73,7 @@ updateState' result oldState = do
       PlanDownloads _download _unpacked plannedDownloads ->
         pure . planDownloads plannedDownloads
       Checking drv -> pure . building Localhost drv now
-      Failed drv code -> pure . failedBuild now drv code
+      Parser.Failed drv code -> pure . failedBuild now drv code
       NotRecognized -> pure
     oldState
   let runningLocalBuilds = fromMaybe mempty $ Map.lookup Localhost (runningBuilds newState)
@@ -69,12 +86,13 @@ updateState' result oldState = do
   newBuildReports <-
     reportFinishingBuildsIfAny Localhost newCompletedReports (buildReports newState)
   pure $
-    newState
-      { runningBuilds = Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) Localhost (runningBuilds newState)
-      , completedBuilds = insertMultiMap Localhost newCompletedDrvs (completedBuilds newState)
-      , buildReports = newBuildReports
-      , inputReceived = True
-      }
+    updateBuildForest
+      newState
+        { runningBuilds = Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) Localhost (runningBuilds newState)
+        , completedBuilds = insertMultiMap Localhost newCompletedDrvs (completedBuilds newState)
+        , buildReports = newBuildReports
+        , inputReceived = True
+        }
 
 movingAverage :: Double
 movingAverage = 0.5
@@ -111,7 +129,9 @@ failedBuild now drv code bs@BuildState{runningBuilds, failedBuilds} =
     , runningBuilds = maybe id (Map.adjust (Set.filter ((drv /=) . fst)) . fst) buildHost runningBuilds
     }
  where
-  buildHost = fmap (second (fst . snd)) $ find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningBuilds)
+  buildHost =
+    find ((== drv) . fst . snd) (mapM toList =<< Map.assocs runningBuilds)
+      <|>> second (fst . snd)
 
 note :: a -> Maybe b -> Either a b
 note a = maybe (Left a) Right
@@ -134,7 +154,7 @@ lookupDerivation bs@BuildState{outputToDerivation, derivationInfos, derivationPa
       bs
         { outputToDerivation = foldl' (.) id ((`Map.insert` drv) <$> outputs infos) outputToDerivation
         , derivationInfos = Map.insert drv infos derivationInfos
-        , derivationParents = foldl' (.) id ((`insertMultiMapOne` drv) <$> Map.keys ( inputDrvs infos)) derivationParents
+        , derivationParents = foldl' (.) id ((`insertMultiMapOne` drv) <$> Map.keys (inputDrvs infos)) derivationParents
         }
     Left err ->
       bs

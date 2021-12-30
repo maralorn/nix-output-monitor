@@ -144,6 +144,15 @@ printRow sep colWidths entries = Text.intercalate sep $ snd (foldl' foldFun (col
 -- >>> printEntry "" (cells 2 (label ">" (text "<"))) []
 -- "><"
 
+markups :: [Entry -> Entry] -> Text -> Text
+markups fs = foldl' (.) id (markup <$> fs)
+
+markup :: (Entry -> Entry) -> Text -> Text
+markup f = showEntry . f . text
+
+showEntry :: Entry -> Text
+showEntry = flip (printEntry "") []
+
 printEntry :: Text -> Entry -> [Int] -> Text
 printEntry sep Entry{codes, lcontent, rcontent} entryWidths = whenCodes codes <> lcontent <> spacing <> rcontent <> whenCodes [Reset]
  where
