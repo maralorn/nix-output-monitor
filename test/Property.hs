@@ -103,5 +103,16 @@ main = do
               (Failed (Derivation $ StorePath "fbpdwqrfwr18nn504kb5jqx7s06l1mar" "regex-base-0.94.0.1") 1)
               result
             assertEqual "no rest" "" rest
+        , "Parse faild build for nix 2.4" ~: do
+            (rest, result) <-
+              assertParse
+                parser
+                "error: builder for '/nix/store/dylih0mw8yisn6nrjc3qlf51knmdkrq1-local-build-3.drv' failed with exit code 1;\n"
+            assertEqual
+              "result matches"
+              (Failed (Derivation $ StorePath "dylih0mw8yisn6nrjc3qlf51knmdkrq1" "local-build-3") 1)
+              result
+            assertEqual "no rest" "" rest
+
         ]
   if errors counts + failures counts == 0 then exitSuccess else exitFailure
