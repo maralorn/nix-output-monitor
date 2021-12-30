@@ -1,7 +1,6 @@
 module NOM.Print.Table (Entry, cells, printAligned, printAlignedSep, prependLines, text, label, bold, green, yellow, blue, cyan, magenta, red, disp, dummy, header, displayWidth, NOM.Print.Table.truncate) where
 
 import Relude
-import Prelude ()
 
 import Control.Exception (assert)
 import Data.Char.WCWidth (wcwidth)

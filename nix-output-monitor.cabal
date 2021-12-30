@@ -28,6 +28,7 @@ common common-config
     KindSignatures
     LambdaCase
     NamedFieldPuns
+    NoImplicitPrelude
     OverloadedStrings
     PartialTypeSignatures
     RankNTypes

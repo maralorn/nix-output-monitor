@@ -7,7 +7,6 @@ module NOM.Update.Monad (
 ) where
 
 import Relude
-import Prelude ()
 
 import Control.Exception (IOException, try)
 import Data.Attoparsec.Text (eitherResult, parse)

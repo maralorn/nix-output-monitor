@@ -1,5 +1,5 @@
+
 import Relude
-import Prelude ()
 
 import Data.Attoparsec.Text (IResult (Done), Parser, parse)
 import Data.Maybe (fromJust)

@@ -1,7 +1,6 @@
 module NOM.IO where
 
 import Relude
-import Prelude ()
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)

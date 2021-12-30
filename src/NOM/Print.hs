@@ -1,7 +1,6 @@
 module NOM.Print where
 
 import Relude
-import Prelude ()
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set

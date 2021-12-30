@@ -1,6 +1,5 @@
 module Main where
 
-import Prelude ()
 import Relude
 
 import Data.Text.IO as TextIO

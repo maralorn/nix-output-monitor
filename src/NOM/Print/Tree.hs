@@ -5,7 +5,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Relude
-import Prelude ()
 
 data Tree a b = Node a (NonEmpty (Tree a b)) | Leaf b | Link a deriving (Eq, Show, Ord)
 

@@ -1,7 +1,6 @@
 module Main where
 
 import Relude
-import Prelude ()
 
 import Data.Text.IO (hPutStrLn)
 import Data.Version (showVersion)

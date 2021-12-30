@@ -5,7 +5,6 @@ module NOM.Update.Monad.CacheBuildReports (
 ) where
 
 import Relude
-import Prelude ()
 
 import Control.Exception (IOException, catch)
 import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)

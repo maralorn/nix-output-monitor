@@ -1,7 +1,6 @@
 module NOM.Parser where
 
 import Relude hiding (take, takeWhile)
-import Prelude ()
 
 import Data.Attoparsec.Text (
   Parser,

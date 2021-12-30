@@ -1,7 +1,6 @@
 module NOM.Update where
 
 import Relude
-import Prelude ()
 
 import Control.Monad (foldM)
 import qualified Data.Map.Strict as Map
