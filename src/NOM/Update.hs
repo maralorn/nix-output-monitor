@@ -3,6 +3,7 @@ module NOM.Update where
 import Relude
 
 import Control.Monad (foldM)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -15,7 +16,7 @@ import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
 import NOM.State (Build (..), BuildState (..), BuildStatus (..), DerivationInfo (..))
 import qualified NOM.State as State
-import NOM.State.Tree (Tree, filterDoubles, reverseForest)
+import NOM.State.Tree (Tree (Leaf, Link, Node), filterDoubles, mergeForest, reverseForest, sortForest)
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (..),
@@ -38,7 +39,10 @@ makeBuildForest derivationParents runningBuilds failedBuilds =
   treeFromTupleMap toBuilding runningBuilds <> treeFromTupleMap toFailed failedBuilds
     |> nonEmpty
     <.>> reverseForest buildDerivation derivationParents
+    .> sortForest order
+    .> mergeForest
     .> filterDoubles buildDerivation
+    .> sortForest order
     |> maybe [] toList
  where
   treeFromTupleMap tupleToBuild =
@@ -46,6 +50,13 @@ makeBuildForest derivationParents runningBuilds failedBuilds =
       .> foldMap (uncurry (\host -> toList <.>> tupleToBuild .> uncurry (MkBuild host)))
   toBuilding = second (uncurry Building)
   toFailed (derivation, duration, exitCode) = (derivation, State.Failed duration exitCode)
+  order = \case
+    Leaf MkBuild{buildStatus = Building{buildStart}} -> pure (SBuilding buildStart)
+    Leaf MkBuild{buildStatus = State.Failed{}} -> pure SFailed
+    Node _ content -> NonEmpty.reverse $ NonEmpty.sort $ order =<< content
+    Link _ -> pure SLink
+
+data SortOrder = SFailed | SBuilding UTCTime | SLink deriving (Eq, Show, Ord)
 
 updateBuildForest :: BuildState -> BuildState
 updateBuildForest bs@BuildState{..} = bs{buildForest = makeBuildForest derivationParents runningBuilds failedBuilds}

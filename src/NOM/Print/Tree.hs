@@ -2,18 +2,20 @@ module NOM.Print.Tree where
 
 import Relude
 
-import NOM.Print.Table ( blue, bold, markup )
-import NOM.State.Tree ( Tree(..) )
+import qualified Data.List.NonEmpty as NonEmpty
+import NOM.Print.Table (blue, bold, markup)
+import NOM.State.Tree (Tree (..))
 
 showForest :: NonEmpty (Tree Text Text) -> NonEmpty Text
-showForest = go False
+showForest = NonEmpty.reverse . go False
  where
-  go indent = join . (if indent then onLastAndRest (onFirstAndRest (markup blue "└─ " <>) (markup blue "   " <>)) (onFirstAndRest (markup blue "├─ " <>) (markup blue "│  " <>)) else id) . fmap showTree
+  go :: Bool -> NonEmpty (Tree Text Text) -> NonEmpty Text
+  go indent = join . (if indent then onLastAndRest (onFirstAndRest (markup blue "┌─ "<>) ("   "<>)) (onFirstAndRest (markup blue "├─ "<>) (markup blue "│  "<>)) else id) . fmap showTree
+  showTree :: Tree Text Text -> NonEmpty Text
   showTree = \case
     Leaf text' -> pure text'
-    Node label' (single :| []) -> onFirstAndRest ((label' <> markup blue " ── ") <>) id (showTree single)
     Node label' content -> label' :| toList (go True content)
-    Link text' -> pure (markup blue (text' <> markup bold " ⤴"))
+    Link text' -> pure (markup blue ( text' <> markup bold " ↴"))
   onFirstAndRest f g (x :| xs) = f x :| (g <$> xs)
   onLastAndRest f _ (x :| []) = f x :| []
   onLastAndRest f g (x :| (y : ys)) = g x :| toList (onLastAndRest f g (y :| ys))

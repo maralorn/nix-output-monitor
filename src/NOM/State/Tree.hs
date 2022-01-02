@@ -1,4 +1,4 @@
-module NOM.State.Tree (Tree (..), mergeForest, reverseForest, filterDoubles) where
+module NOM.State.Tree (Tree (..), mergeForest, reverseForest, filterDoubles, sortForest) where
 
 import Relude
 
@@ -18,14 +18,23 @@ instance Bifunctor Tree where
     Leaf x -> Leaf (g x)
     Link x -> Link (f x)
 
-mergeForest :: (Ord a, Ord b) => NonEmpty (Tree a b) -> NonEmpty (Tree a b)
-mergeForest (x :| xs) = NonEmpty.sort $ foldl' (flip mergeIntoForest . toList) (pure x) xs
+sortForest :: Ord c => (Tree a b -> c) -> NonEmpty (Tree a b) -> NonEmpty (Tree a b)
+sortForest order = go
+ where
+  go = fmap sortTree . sort'
+  sortTree = \case
+    Node x c -> Node x (go c)
+    a -> a
+  sort' = NonEmpty.sortBy (on compare order)
 
-mergeIntoForest :: (Ord a, Ord b) => Tree a b -> [Tree a b] -> NonEmpty (Tree a b)
+mergeForest :: Eq a => NonEmpty (Tree a b) -> NonEmpty (Tree a b)
+mergeForest (x :| xs) = foldl' (flip mergeIntoForest . toList) (pure x) xs
+
+mergeIntoForest :: Eq a => Tree a b -> [Tree a b] -> NonEmpty (Tree a b)
 mergeIntoForest x [] = pure x
 mergeIntoForest x (y : ys) = maybe (y :| toList (mergeIntoForest x ys)) (:| ys) (mergeTrees x y)
 
-mergeTrees :: (Ord a, Ord b) => Tree a b -> Tree a b -> Maybe (Tree a b)
+mergeTrees :: Eq a => Tree a b -> Tree a b -> Maybe (Tree a b)
 mergeTrees (Node x xs) (Node y ys) | x == y = Just (Node x (mergeForest (xs <> ys)))
 mergeTrees _ _ = Nothing
 
@@ -33,7 +42,7 @@ mergeTrees _ _ = Nothing
 -- Node 1 (Leaf "a" :| []) :| [Node 3 (Leaf "b" :| [Leaf "c"])]
 
 reverseForest :: forall a b. (Ord a, Ord b) => (a -> b) -> Map b (Set b) -> NonEmpty a -> NonEmpty (Tree b a)
-reverseForest f parents = mergeForest . (start =<<)
+reverseForest f parents = (start =<<)
  where
   start :: a -> NonEmpty (Tree b a)
   start x = reverseTree (f x) (pure (Leaf x))

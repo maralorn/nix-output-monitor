@@ -10,9 +10,9 @@ import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (Build (MkBuild), BuildState (..), BuildStatus (Building, Failed))
+import NOM.State.Tree (Tree)
 import NOM.Update (collapseMultimap, countPaths)
 import NOM.Util ((.>), (<.>>))
-import NOM.State.Tree (Tree)
 
 vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, average :: Text
 vertical = "┃"
@@ -155,7 +155,7 @@ nonZeroBold num = if num > 0 then bold else id
 
 printBuilds ::
   UTCTime ->
-  [Tree Derivation Build] -> 
+  [Tree Derivation Build] ->
   NonEmpty Text
 printBuilds now forest = markup bold " Build Graph: " :| maybe [] (toList . showForest) (nonEmpty textForest)
  where
