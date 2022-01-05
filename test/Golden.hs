@@ -13,12 +13,38 @@ import NOM.IO
 import NOM.Parser
 import NOM.State
 import NOM.Update
+import System.Environment (lookupEnv)
 
-golden1 :: Test
-golden1 =
-  "Golden 1" ~: do
+tests :: [Bool -> Test]
+tests = [golden1]
+
+label :: (Semigroup a, IsString a) => Bool -> a -> a
+label withNix name = name <> if withNix then " with nix" else " with log from file"
+
+main :: IO ()
+main = do
+  withNix <- isNothing <$> lookupEnv "TESTS_FROM_FILE"
+  counts <- runTestTT $
+    test $ do
+      test' <- tests
+      if withNix
+        then do
+          test' <$> [True, False]
+        else pure (test' False)
+  if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
+
+golden1 :: Bool -> Test
+golden1 withNix =
+  label withNix "golden1" ~: do
     seed <- randomIO @Int
-    (_, output, errors) <- readProcessWithExitCode "nix-build" ["test/golden1.nix", "--no-out-link", "--argstr", "seed", show seed] ""
+    let callNix =
+          readProcessWithExitCode
+            "nix-build"
+            ["test/golden1.nix", "--no-out-link", "--argstr", "seed", show seed]
+            ""
+            <&> (\(_, a, b) -> (a, b))
+        readFiles = (,) <$> readFile "test/golden1.stdout" <*> readFile "test/golden1.stderr"
+    (output, errors) <- if withNix then callNix else readFiles
     let noOfBuilds = 4
     firstState <- initalState
     endState <- processTextStream parser updateState Nothing firstState (pure $ toText errors)
@@ -31,8 +57,3 @@ golden1 =
     let outputDerivations = mapMaybe (`Map.lookup` outputToDerivation endState) outputStorePaths
     assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
     assertBool "All found derivations have successfully been built" (all (`Set.member` (fold $ completedBuilds endState)) outputDerivations)
-
-main :: IO ()
-main = do
-  counts <- runTestTT $ test [golden1]
-  if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
