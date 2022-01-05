@@ -36,8 +36,8 @@ main = do
 golden1 :: Bool -> Test
 golden1 withNix =
   label withNix "golden1" ~: do
-    seed <- randomIO @Int
-    let callNix =
+    let callNix = do
+          seed <- randomIO @Int
           readProcessWithExitCode
             "nix-build"
             ["test/golden1.nix", "--no-out-link", "--argstr", "seed", show seed]
@@ -48,7 +48,6 @@ golden1 withNix =
     let noOfBuilds = 4
     firstState <- initalState
     endState <- processTextStream parser updateState Nothing firstState (pure $ toText errors)
-    print endState
     assertBool "Everything built" (Set.null $ outstandingBuilds endState)
     assertBool "No running builds" (Set.null $ fold $ runningBuilds endState)
     assertEqual "Builds completed" noOfBuilds (Set.size $ fold $ completedBuilds endState)
