@@ -1,29 +1,14 @@
+{ seed }:
+let
+  mkBuild = name: deps: derivation {
+    system = builtins.currentSystem;
+    inherit name deps seed;
+    builder = ./golden1-builder.sh;
+  };
+in
 rec {
-  remote = derivation {
-    system = builtins.currentSystem;
-    name = "remote-build";
-    builder = ./golden1-builder.sh;
-  };
-  local = derivation {
-    system = builtins.currentSystem;
-    input = remote;
-    name = "local-build";
-    builder = ./golden1-builder.sh;
-    preferLocalBuild = true;
-  };
-  local2 = derivation {
-    system = builtins.currentSystem;
-    input = local;
-    input2 = remote;
-    imput3 = local3;
-    name = "local-build-2";
-    builder = ./golden1-builder.sh;
-    preferLocalBuild = true;
-  };
-  local3 = derivation {
-    system = builtins.currentSystem;
-    name = "local-build-3";
-    builder = ./golden1-builder.sh;
-    preferLocalBuild = true;
-  };
+  build1 = mkBuild "build1" [ ];
+  build2 = mkBuild "build2" [ build1 ];
+  build3 = mkBuild "build3" [ build1 build2 ];
+  build4 = mkBuild "build4" [ build2 build3 ];
 }
