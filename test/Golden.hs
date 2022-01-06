@@ -33,21 +33,25 @@ main = do
         else pure (test' False)
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
-golden1 :: Bool -> Test
-golden1 withNix =
-  label withNix "golden1" ~: do
+testBuild :: String -> (String -> BuildState -> IO ()) -> Bool -> Test
+testBuild name asserts withNix =
+  label withNix name ~: do
     let callNix = do
           seed <- randomIO @Int
           readProcessWithExitCode
             "nix-build"
-            ["test/golden1.nix", "--no-out-link", "--argstr", "seed", show seed]
+            ["test/" <> name <> ".nix", "--no-out-link", "--argstr", "seed", show seed]
             ""
             <&> (\(_, a, b) -> (a, b))
-        readFiles = (,) <$> readFile "test/golden1.stdout" <*> readFile "test/golden1.stderr"
+        readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
-    let noOfBuilds = 4
     firstState <- initalState
     endState <- processTextStream parser updateState Nothing firstState (pure $ toText errors)
+    asserts output endState
+
+golden1 :: Bool -> Test
+golden1 = testBuild "golden1" $ \output endState -> do
+    let noOfBuilds = 4
     assertBool "Everything built" (Set.null $ outstandingBuilds endState)
     assertBool "No running builds" (Set.null $ fold $ runningBuilds endState)
     assertEqual "Builds completed" noOfBuilds (Set.size $ fold $ completedBuilds endState)
