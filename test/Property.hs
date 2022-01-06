@@ -2,17 +2,19 @@
 import Relude
 
 import Data.Attoparsec.Text (IResult (Done), Parser, parse)
-import Data.Maybe (fromJust)
 import Data.Set (singleton)
 import Test.HUnit
 
 import NOM.Parser
+import qualified Relude.Unsafe as Unsafe
 
-assertParse :: Parser (a, Text) -> Text -> IO (Text, a)
+assertParse :: Parser (Maybe a, Text) -> Text -> IO (Text, a)
 assertParse parser' input = do
   let res = p $ parse parser' input
   assertBool "parsing succeeds" (isJust res)
-  pure (fromJust res)
+  let (t, res') = Unsafe.fromJust res
+  assertBool "parsing succeeds with an actual match" (isJust res')
+  pure (t, Unsafe.fromJust res')
  where
   p (Done x (a, _)) = Just (x, a)
   p _ = Nothing

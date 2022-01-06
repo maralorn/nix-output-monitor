@@ -45,24 +45,26 @@ common common-config
     , base
     , cassava
     , containers
+    , data-default
     , directory
     , filepath
+    , generic-optics
     , lock-file
-    , data-default
     , mtl
     , nix-derivation
+    , optics
+    , random
     , relude
     , stm
+    , streamly < 0.8
     , terminal-size
     , text
     , time
     , unix
     , wcwidth
-    , random
-    , streamly < 0.8
 
   default-language:   Haskell2010
-  ghc-options:        -Wall -Wno-partial-type-signatures
+  ghc-options:        -Wall
 
 library
   import:          common-config

@@ -29,7 +29,7 @@ import NOM.Update.Monad (UpdateMonad)
 type Stream = S.SerialT IO
 type Output = Text
 type UpdateFunc update state output = forall (m :: Type -> Type). UpdateMonad m => (update -> state -> m (state, output))
-type OutputFunc state = UTCTime -> state -> Output
+type OutputFunc state = Maybe (Window Int) -> UTCTime -> state -> Output
 
 parseStream :: forall update. Parser update -> Stream Text -> Stream update
 parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, mempty)
@@ -69,18 +69,17 @@ writeStateToScreen linesVar stateVar bufferVar printer = do
   terminalSize <- size
   (writtenLines, buffer, linesToWrite, output) <- atomically $ do
     buildState <- readTVar stateVar
-    let output = truncateOutput terminalSize (printer now buildState)
+    let output = truncateOutput terminalSize (printer terminalSize now buildState)
         linesToWrite = length (Text.lines output)
     writtenLines <- swapTVar linesVar linesToWrite
     buffer <- swapTVar bufferVar mempty
     pure (writtenLines, buffer, linesToWrite, output)
-  liftIO $ do
-    replicateM_ writtenLines $ do
-      cursorUpLine 1
-      clearLine
-    putText buffer
-    when (linesToWrite > 0) $ putTextLn output
-    hFlush stdout
+  replicateM_ writtenLines $ do
+    cursorUpLine 1
+    clearLine
+  putText buffer
+  when (linesToWrite > 0) $ putTextLn output
+  hFlush stdout
 
 interact ::
   forall update state.

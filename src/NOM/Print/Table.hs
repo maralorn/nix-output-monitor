@@ -18,7 +18,8 @@ module NOM.Print.Table (
   header,
   displayWidth,
   NOM.Print.Table.truncate,
-  markup, markups
+  markup,
+  markups,
 ) where
 
 import Relude
@@ -94,8 +95,16 @@ cyan = addColor Cyan
 magenta = addColor Magenta
 
 prependLines :: Text -> Text -> Text -> NonEmpty Text -> Text
-prependLines top mid bot rows = assert matching (top <> Text.intercalate ("\n" <> mid) (init rows) <> "\n" <> bot <> last rows)
+prependLines top mid bot rows =
+  assert
+    matching
+    ( top
+        <> Text.intercalate ("\n" <> mid) allButLast
+        <> memptyIfTrue (null allButLast) ("\n" <> bot)
+        <> last rows
+    )
  where
+  allButLast = init rows
   matching = Text.length top == Text.length mid && Text.length mid == Text.length bot
 
 verticalSlim, hsep :: Text

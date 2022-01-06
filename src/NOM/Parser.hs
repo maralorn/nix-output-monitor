@@ -20,26 +20,25 @@ import Data.Attoparsec.Text (
 import Data.Text (stripSuffix)
 
 data ParseResult
-  = Uploading StorePath Host
-  | Downloading StorePath Host
-  | PlanCopies Int
-  | Build Derivation Host
-  | NotRecognized
-  | PlanBuilds (Set Derivation) Derivation
-  | PlanDownloads Double Double (Set StorePath)
-  | Checking Derivation
-  | Failed Derivation Int
+  = Uploading !StorePath !Host
+  | Downloading !StorePath !Host
+  | PlanCopies !Int
+  | Build Derivation !Host
+  | PlanBuilds (Set Derivation) !Derivation
+  | PlanDownloads !Double !Double (Set StorePath)
+  | Checking !Derivation
+  | Failed !Derivation !Int
   deriving (Show, Eq, Read)
 
-parser :: Parser (ParseResult, Text)
-parser = swap <$> match updateParser
+parser :: Parser (Maybe ParseResult, Text)
+parser = swap <$> match (Just <$> updateParser <|> Nothing <$ noMatch)
 
 updateParser :: Parser ParseResult
-updateParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking <|> noMatch
+updateParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
 data StorePath = StorePath
-  { hash :: Text
-  , name :: Text
+  { hash :: !Text
+  , name :: !Text
   }
   deriving stock (Show, Ord, Eq, Read)
 
@@ -59,7 +58,7 @@ instance ToText StorePath where
 instance ToString StorePath where
   toString = toString . toText
 
-data Host = Localhost | Host Text
+data Host = Localhost | Host !Text
   deriving stock (Ord, Eq)
   deriving stock (Show, Read)
 instance ToText Host where
@@ -68,8 +67,8 @@ instance ToText Host where
 instance ToString Host where
   toString = toString . toText
 
-noMatch :: Parser ParseResult
-noMatch = NotRecognized <$ takeTill isEndOfLine <* endOfLine
+noMatch :: Parser ()
+noMatch = () <$ takeTill isEndOfLine <* endOfLine
 
 storePath :: Parser StorePath
 storePath =
@@ -109,7 +108,7 @@ planBuilds =
     =<< ( choice
             [ string "these derivations will be built:"
             , string "this derivation will be built:"
-            , string "these " *> (decimal :: _ Int) *> string " derivations will be built:"
+            , string "these " *> (decimal :: Parser Int) *> string " derivations will be built:"
             ]
             *> endOfLine
             *> many planBuildLine
@@ -124,7 +123,7 @@ planDownloads =
     <$> ( choice
             [ string "these paths"
             , string "this path"
-            , string "these " *> (decimal :: _ Int) *> string " paths"
+            , string "these " *> (decimal :: Parser Int) *> string " paths"
             ]
             *> string " will be fetched ("
             *> double

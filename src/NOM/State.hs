@@ -5,16 +5,35 @@ import Relude
 import Data.Time (UTCTime, getCurrentTime)
 
 import NOM.Parser (Derivation (..), Host (..), StorePath (..))
-import NOM.State.Tree ( Tree )
 import NOM.Update.Monad
     ( BuildReportMap, MonadCacheBuildReports(getCachedBuildReports) )
+import Data.Tree (Forest)
+
+data DerivationNode = DerivationNode
+  { derivation :: Derivation
+  , state :: Maybe (Host, BuildStatus)
+  }
+  deriving stock (Show, Eq, Ord, Read, Generic)
+data StorePathNode
+  = StorePathNode
+      { path :: StorePath
+      , derivation :: Maybe (Derivation, Text)
+      , state :: NonEmpty StorePathState
+      }
+  deriving stock (Show, Eq, Ord, Read, Generic)
+
+data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
+  deriving stock (Show, Eq, Ord, Read, Generic)
 
 data DerivationInfo = MkDerivationInfo
   { outputs :: Map Text StorePath
   , inputDrvs :: Map Derivation (Set Text)
   , inputSrcs :: Set StorePath
   }
-  deriving stock (Show, Eq, Ord, Read)
+  deriving stock (Show, Eq, Ord, Read, Generic)
+
+type BuildForest = Forest (Either DerivationNode StorePathNode)
+type LinkedBuildTree = Forest (Either (Either DerivationNode StorePathNode) (Either Derivation StorePath))
 
 data BuildState = BuildState
   { outstandingBuilds :: Set Derivation
@@ -30,20 +49,21 @@ data BuildState = BuildState
   , derivationParents :: Map Derivation (Set Derivation)
   , lastPlannedBuild :: Maybe Derivation
   , buildReports :: BuildReportMap
-  , buildForest :: [Tree Derivation Build]
+  , buildForest :: BuildForest
   , startTime :: UTCTime
   , errors :: [Text]
   , inputReceived :: Bool
   }
-  deriving stock (Show, Eq, Ord, Read)
+  deriving stock (Show, Eq, Ord, Read, Generic)
 
+   {-
 data Build = MkBuild
   { buildHost :: Host
   , buildDerivation :: Derivation
   , buildStatus :: BuildStatus
   }
   deriving (Show, Eq, Ord, Read)
-
+-}
 data BuildStatus
   = Building
       { buildStart :: UTCTime
@@ -52,6 +72,11 @@ data BuildStatus
   | Failed
       { buildDuration :: Int
       , buildExitCode :: Int
+      , buildEnd :: UTCTime
+      }
+  | Built
+      { buildDuration :: Int
+      , buildEnd :: UTCTime
       }
   deriving (Show, Eq, Ord, Read)
 

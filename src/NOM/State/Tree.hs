@@ -1,32 +1,78 @@
-module NOM.State.Tree (Tree (..), mergeForest, reverseForest, filterDoubles, sortForest) where
+module NOM.State.Tree (
+  ForestUpdate (..),
+  trimForest,
+  replaceDuplicates,
+  updateForest,
+  sortForest,
+  aggregateTree,
+) where
 
+import qualified Data.Set as Set
+import Data.Tree (Forest, Tree (Node, subForest), rootLabel)
 import Relude
 
-import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
+subTrees :: Ord a => Tree a -> Set (Tree a)
+subTrees t = Set.insert t (foldMap subTrees (subForest t))
 
-data Tree a b
-  = Node !a !(NonEmpty (Tree a b))
-  | Leaf !b
-  | Link !a
-  deriving (Eq, Show, Ord, Read)
+data ForestUpdate a = ForestUpdate
+  { match :: a -> Bool
+  , isChild :: a -> Bool
+  , isParent :: a -> Bool
+  , update :: a -> a
+  , def :: a
+   }
 
-instance Bifunctor Tree where
-  bimap f g = \case
-    Node x xs -> Node (f x) (bimap f g <$> xs)
-    Leaf x -> Leaf (g x)
-    Link x -> Link (f x)
+updateForest :: forall a. Ord a => ForestUpdate a -> Forest a -> Forest a
+updateForest ForestUpdate{..} forest =
+  if updated
+    then forest'
+    else insertedIntoForest
+ where
+  (updated, forest') = updateIfPresent forest
+  updateIfPresent :: Forest a -> (Bool, Forest a)
+  updateIfPresent f = (or $ fst <$> f', snd <$> f')
+   where
+    f' = updateTree <$> f
+    updateTree (Node label (updateIfPresent -> (subMatch, subForest))) =
+      (match label || subMatch, Node (if match label then update label else label) subForest)
 
-sortForest :: Ord c => (Tree a b -> c) -> NonEmpty (Tree a b) -> NonEmpty (Tree a b)
+  insertedIntoForest :: Forest a
+  insertedIntoForest = appendWhereMatching (Node def children) noChildren
+   where
+    noChildren = filter (not . isChild . rootLabel) forest
+    children = filter (isChild . rootLabel) (toList (foldMap subTrees forest))
+
+  appendWhereMatching :: Tree a -> Forest a -> Forest a
+  appendWhereMatching treeToInsert = uncurry prependIfNoMatch . go
+   where
+    prependIfNoMatch :: Bool -> Forest a -> Forest a
+    prependIfNoMatch found = if found then id else (treeToInsert :)
+    go :: Forest a -> (Bool, Forest a)
+    go (fmap goTree -> f) = (or $ fst <$> f, snd <$> f)
+    goTree :: Tree a -> (Bool, Tree a)
+    goTree (Node label subForest) =
+      let matches = isParent label
+          (subMatch, subForest') = go subForest
+       in (matches || subMatch, Node label ((if matches then (treeToInsert :) else id) subForest'))
+
+aggregateTree :: Monoid b => (a -> b) -> Tree a -> Tree (a, b)
+aggregateTree summary (Node x (fmap (aggregateTree summary) -> xs)) =
+  Node (x, summary x <> foldMap (snd . rootLabel) xs) xs
+
+trimForest :: (a -> Bool) -> Forest a -> Forest a
+trimForest keep = go
+ where
+    go = mapMaybe keepTree
+    keepTree (Node label (go -> subForest)) = if keep label || not (null subForest) then Just (Node label subForest) else Nothing
+
+sortForest :: Ord c => (Tree a -> c) -> Forest a -> Forest a
 sortForest order = go
  where
   go = fmap sortTree . sort'
-  sortTree = \case
-    Node x c -> Node x (go c)
-    a -> a
-  sort' = NonEmpty.sortBy (on compare order)
+  sortTree (Node x c) = Node x (go c)
+  sort' = sortOn order
 
+{-
 mergeForest :: Eq a => NonEmpty (Tree a b) -> NonEmpty (Tree a b)
 mergeForest (x :| xs) = foldl' (flip mergeIntoForest . toList) (pure x) xs
 
@@ -51,20 +97,18 @@ reverseForest f parents = (start =<<)
     Nothing -> t
     Just pars -> (\y -> reverseTree y (pure $ Node y t)) =<< pars
   lookup x = nonEmpty . toList =<< Map.lookup x parents
+-}
 
-filterDoubles :: (Ord a, Ord b) => (b -> a) -> NonEmpty (Tree a b) -> NonEmpty (Tree a b)
-filterDoubles f = snd . filterNonEmpty mempty
+replaceDuplicates :: forall a b. Ord a => (a -> b) -> Forest a -> Forest (Either a b)
+replaceDuplicates link = snd . filterList mempty
  where
-  filterNonEmpty seen (x :| xs) =
+  filterList :: Set (Tree a) -> Forest a -> (Set (Tree a), Forest (Either a b))
+  filterList seen [] = (seen, [])
+  filterList seen (x : xs) =
     let (seen', x') = if Set.member x seen then (seen, substitute x) else filterTree seen x
         (seen'', xs') = filterList (Set.insert x seen') xs
-     in (seen'', x' :| xs')
-  filterList seen [] = (seen, [])
-  filterList seen (x : xs) = second toList (filterNonEmpty seen (x :| xs))
-  filterTree seen = \case
-    Node x t -> second (Node x) (filterNonEmpty seen t)
-    x -> (seen, x)
-  substitute = \case
-    Leaf x -> Link (f x)
-    Node x _ -> Link x
-    x -> x
+     in (seen'', x' : xs')
+  filterTree :: Set (Tree a) -> Tree a -> (Set (Tree a), Tree (Either a b))
+  filterTree seen (Node x t) = second (Node (Left x)) (filterList seen t)
+  substitute :: Tree a -> Tree (Either a b)
+  substitute (Node x _) = Node (Right (link x)) []

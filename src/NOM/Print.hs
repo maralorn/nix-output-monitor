@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 module NOM.Print (stateToText) where
 
 import Relude
@@ -6,13 +7,17 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
+import Data.Tree (Forest)
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (Build (MkBuild), BuildState (..), BuildStatus (Building, Failed))
-import NOM.State.Tree (Tree)
+import NOM.State (BuildForest, BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode, derivation), StorePathNode (StorePathNode, path))
+import NOM.State.Tree (replaceDuplicates, trimForest)
 import NOM.Update (collapseMultimap, countPaths)
 import NOM.Util ((.>), (<.>>))
+import System.Console.Terminal.Size (Window)
+import qualified Data.Tree as Tree
+import qualified System.Console.Terminal.Size as Window
 
 vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, average :: Text
 vertical = "┃"
@@ -34,27 +39,28 @@ bigsum = "∑"
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
-stateToText :: UTCTime -> BuildState -> Text
-stateToText now buildState@BuildState{..}
+stateToText :: Maybe (Window Int) -> UTCTime -> BuildState -> Text
+stateToText maybeWindow now buildState@BuildState{..}
   | not inputReceived = time <> showCond (diffUTCTime now startTime > 15) " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
-  | totalBuilds + plannedCopies + numFailedBuilds == 0 = time
+  | not anythingGoingOn = time
   | otherwise =
     buildsDisplay
       <> table
       <> unlines errors
  where
+  anythingGoingOn = totalBuilds + downloadsDone + numOutstandingDownloads + numFailedBuilds > 0
   buildsDisplay =
     showCond
-      (numRunningBuilds + numFailedBuilds > 0)
+      anythingGoingOn
       $ prependLines
         (upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds now buildForest)
+        (printBuilds maybeWindow now buildForest)
         <> "\n"
   table =
     prependLines
-      ((if numFailedBuilds + numRunningBuilds > 0 then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
+      (leftT <> stimes (3 :: Int) horizontal <> " ")
       (vertical <> "    ")
       (lowerleft <> horizontal <> " " <> bigsum <> " ")
       $ printAlignedSep innerTable
@@ -154,27 +160,49 @@ nonZeroBold :: Int -> Entry -> Entry
 nonZeroBold num = if num > 0 then bold else id
 
 printBuilds ::
+  Maybe (Window Int) ->
   UTCTime ->
-  [Tree Derivation Build] ->
+  BuildForest ->
   NonEmpty Text
-printBuilds now forest = markup bold " Build Graph: " :| maybe [] (toList . showForest) (nonEmpty textForest)
+printBuilds maybeWindow now forest = markup bold " Build Graph: " :| showForest textForest
  where
-  textForest = bimap (name . toStorePath) printBuild <$> forest
-  printBuild = \case
-    MkBuild host drv (Building t l) ->
-      unwords $
-        [ markup yellow running
-        , hostMarkup host drv
-        , clock
-        , timeDiff now t
-        ]
-          <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) l
-    MkBuild host drv (Failed dur code) ->
-      unwords
-        [ markup yellow warning
-        , hostMarkup host drv
-        , markups [red, bold] (unwords ["failed with exit code", show code, "after", clock, timeDiffSeconds dur])
-        ]
+  maxRows = maybe maxBound Window.height maybeWindow
+  withLinks = replaceDuplicates mkLink forest
+  forestToPrint = if length (foldMap Tree.flatten withLinks) > maxRows `div` 2 then trimForest isLeft withLinks else withLinks
+  textForest :: Forest Text
+  textForest = fmap (either (either printDerivation printStorePath) printLink) <$> forestToPrint
+  mkLink = bimap derivation path
+  printLink :: Either Derivation StorePath -> Text
+  printLink = (markup blue . (<> markup bold " ↴")) . name . either toStorePath id
+  printDerivation :: DerivationNode -> Text
+  printDerivation (DerivationNode derivation status) = case status of
+    Nothing -> markup blue . (todo <>) . name . toStorePath $ derivation
+    Just (host, buildStatus) -> case buildStatus of
+      Building t l ->
+        unwords $
+          [ markup yellow running
+          , hostMarkup host derivation
+          , clock
+          , timeDiff now t
+          ]
+            <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) l
+      Failed dur code _at ->
+        unwords
+          [ markup yellow warning
+          , hostMarkup host derivation
+          , markups [red, bold] (unwords ["failed with exit code", show code, "after", clock, timeDiffSeconds dur])
+          ]
+      Built dur _at ->
+        unwords
+          [ markup green done
+          , hostMarkup host derivation
+          , clock
+          , timeDiffSeconds dur
+          ]
+  printStorePath :: StorePathNode -> Text
+  printStorePath (StorePathNode path _ _) = name path
+
+--printBuild = \case
 
 hostMarkup :: Host -> Derivation -> Text
 hostMarkup Localhost build = markups [cyan, bold] (name . toStorePath $ build)
