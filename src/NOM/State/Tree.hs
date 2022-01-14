@@ -132,7 +132,7 @@ reverseForest f parents = (start =<<)
   lookup x = nonEmpty . toList =<< Map.lookup x parents
 -}
 
-replaceDuplicates :: forall a b. Ord a => (a -> b) -> Forest a -> Forest (Either a b)
+replaceDuplicates :: forall a b. Ord a => (Tree a -> b) -> Forest a -> Forest (Either a b)
 replaceDuplicates link = snd . filterList mempty
  where
   filterList :: Set (Tree a) -> Forest a -> (Set (Tree a), Forest (Either a b))
@@ -144,4 +144,4 @@ replaceDuplicates link = snd . filterList mempty
   filterTree :: Set (Tree a) -> Tree a -> (Set (Tree a), Tree (Either a b))
   filterTree seen (Node x t) = second (Node (Left x)) (filterList seen t)
   substitute :: Tree a -> Tree (Either a b)
-  substitute (Node x _) = Node (Right (link x)) []
+  substitute t = pure (Right (link t))

@@ -8,18 +8,18 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
-import Data.Tree (Forest)
+import Data.These (These (These, This), these)
+import Data.Tree (Forest, Tree (Node))
 import qualified Data.Tree as Tree
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
-import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow, grey)
+import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildForest, BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode, derivation), StorePathNode (StorePathNode, path))
 import NOM.State.Tree (collapseForestN, replaceDuplicates)
 import NOM.Update (collapseMultimap, countPaths)
-import NOM.Util ((.>), (<.>>), (<<|>>>), (<|>>))
+import NOM.Util ((.>), (<.>>), (<<|>>>), (<|>>), (|>))
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
-import Data.These (These (This), these)
 
 vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, average :: Text
 vertical = "┃"
@@ -164,26 +164,24 @@ nonZeroBold num = if num > 0 then bold else id
 targetRatio :: Int
 targetRatio = 3
 
-data Elision = ElidedBuild | ElidedStorePath deriving (Show, Eq, Ord)
-
 type LinkTreeNode = Either (Either DerivationNode StorePathNode) (Either Derivation StorePath)
-type ElisionTreeNode = These LinkTreeNode (NonEmpty Elision)
+type ElisionTreeNode = These LinkTreeNode (Sum Int)
 
-possibleElisions :: [LinkTreeNode -> Maybe (NonEmpty Elision)]
-possibleElisions = [
-   \case
-      Right (Right _) -> Just (pure ElidedStorePath)
-      _ -> Nothing,
-   \case
-      Right (Left _) -> Just (pure ElidedBuild)
-      _ -> Nothing,
-   \case
-      Left (Left (DerivationNode _ (Just (_, Built{})))) -> Just (pure ElidedBuild)
-      _ -> Nothing,
-   \case
-      Left (Left (DerivationNode _ Nothing)) -> Just (pure ElidedBuild)
+possibleElisions :: [LinkTreeNode -> Maybe (Sum Int)]
+possibleElisions =
+  [ \case
+      Right (Right _) -> Just 1
       _ -> Nothing
- ]
+  , \case
+      Right (Left _) -> Just 1
+      _ -> Nothing
+  , \case
+      Left (Left (DerivationNode _ (Just (_, Built{})))) -> Just 1
+      _ -> Nothing
+  , \case
+      Left (Left (DerivationNode _ Nothing)) -> Just 1
+      _ -> Nothing
+  ]
 
 printBuilds ::
   Maybe (Window Int) ->
@@ -192,13 +190,14 @@ printBuilds ::
   NonEmpty Text
 printBuilds maybeWindow now forest = markup bold " Dependency Graph: " :| showForest textForest
  where
+  maxRows :: Int
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
   withLinks :: Forest ElisionTreeNode
-  withLinks = replaceDuplicates mkLink forest <<|>>> This
+  withLinks = replaceDuplicates mkLink forest <<|>>> either (This . Left) (\(x, y) -> These (Right x) y)
   applyElisions :: Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
   applyElisions = go possibleElisions
    where
-    go :: [LinkTreeNode -> Maybe (NonEmpty Elision)] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
+    go :: [LinkTreeNode -> Maybe (Sum Int)] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
     go [] _ f = f
     go (nextElision : moreElisions) n f
       | n <= 0 = f
@@ -206,13 +205,19 @@ printBuilds maybeWindow now forest = markup bold " Dependency Graph: " :| showFo
      where
       (nAfter, forest'') = collapseForestN nextElision n f
       moreElisions' = moreElisions <|>> \e x -> e x <|> nextElision x
+  forestToPrint :: Forest ElisionTreeNode
   forestToPrint = applyElisions (length (foldMap Tree.flatten withLinks) - maxRows) withLinks
+  printNode :: LinkTreeNode -> Text
   printNode = either (either printDerivation printStorePath) printLink
   textForest :: Forest Text
-  textForest = fmap (these printNode showElision (\x y -> printNode x <> markup grey (" and " <> show (length y) <> " more"))) <$> forestToPrint
-  mkLink = bimap derivation path
-  showElision :: NonEmpty Elision -> Text
-  showElision es = markup grey (show (length es) <> " more")
+  textForest = fmap (these printNode showElision (\x y -> printNode x <> markup grey (" and " <> show (getSum y) <> " more"))) <$> forestToPrint
+  mkLink :: Tree (Either DerivationNode StorePathNode) -> (Either Derivation StorePath, Sum Int)
+  mkLink (Node label' forest') =
+    ( label' |> bimap derivation path
+    , forest' |> foldMap (Sum . length . Tree.flatten)
+    )
+  showElision :: Sum Int -> Text
+  showElision es = markup grey (show (getSum es) <> " more")
   printLink :: Either Derivation StorePath -> Text
   printLink = (<> markup bold " ↴") . name . either toStorePath id
   printDerivation :: DerivationNode -> Text
