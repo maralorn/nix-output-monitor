@@ -27,7 +27,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (hush, (.>), (<.>>), (<|>>), (|>))
+import NOM.Util (hush, (.>), (<.>>), (<<|>>>), (<|>>), (|>))
 import Optics ((%~), (.~))
 
 getReportName :: Derivation -> Text
@@ -66,39 +66,46 @@ updateBuildForest bs@BuildState{..} = bs{buildForest = makeBuildForest derivatio
 -}
 
 updateState :: UpdateMonad m => (Maybe ParseResult, Text) -> BuildState -> m (BuildState, Text)
-updateState (update, buffer) = fmap (,buffer) <$> maybe pure updateState' update
+updateState (update, buffer) = fmap (,buffer) <$> updateState' update
 
-updateState' :: UpdateMonad m => ParseResult -> BuildState -> m BuildState
-updateState' result oldState = do
-  now <- getNow
-  newState <-
-    oldState
-      |> case result of
-        Uploading path host -> uploading host path .> pure
-        Downloading path host ->
-          downloading host path
-            .> first toList
-            .> uncurry (finishBuilds host)
-        PlanCopies _ -> pure
-        Build path host ->
-          flip lookupDerivation path <.>> building host path now
-        PlanBuilds plannedBuilds lastBuild ->
-          (field @"lastPlannedBuild" .~ Just lastBuild)
-            .> flip (foldM lookupDerivation) plannedBuilds
-            <.>> planBuilds plannedBuilds
-        PlanDownloads _download _unpacked plannedDownloads ->
-          planDownloads plannedDownloads .> pure
-        Checking drv -> building Localhost drv now .> pure
-        Parser.Failed drv code -> failedBuild now drv code .> pure
-  let runningLocalBuilds = Map.lookup Localhost (runningBuilds newState) |> maybe mempty toList
+updateState' :: UpdateMonad m => Maybe ParseResult -> BuildState -> m BuildState
+updateState' result oldState =
+  maybe (pure oldState) (processResult oldState) result
+  -- We run these update steps everytime because we simply can‘t know when a build is finished.
+    >>= detectLocalFinishedBuilds
+
+detectLocalFinishedBuilds :: UpdateMonad m => BuildState -> m BuildState
+detectLocalFinishedBuilds oldState = do
+  let runningLocalBuilds = Map.lookup Localhost (runningBuilds oldState) |> maybe mempty toList
   newCompletedOutputs <-
-    second fst
-      <<$>> filterM
-        (maybe (pure False) storePathExists . drv2out newState . fst)
-        runningLocalBuilds
-  newState
+    filterM
+      (maybe (pure False) storePathExists . drv2out oldState . fst)
+      runningLocalBuilds
+      <<|>>> second fst
+  oldState
     |> (field @"inputReceived" .~ True)
     .> finishBuilds Localhost newCompletedOutputs
+
+processResult :: UpdateMonad m => BuildState -> ParseResult -> m BuildState
+processResult oldState result = do
+  now <- getNow
+  oldState |> case result of
+    Uploading path host -> uploading host path .> pure
+    Downloading path host ->
+      downloading host path
+        .> first toList
+        .> uncurry (finishBuilds host)
+    PlanCopies _ -> pure
+    Build path host ->
+      flip lookupDerivation path <.>> building host path now
+    PlanBuilds plannedBuilds lastBuild ->
+      (field @"lastPlannedBuild" .~ Just lastBuild)
+        .> flip (foldM lookupDerivation) plannedBuilds
+        <.>> planBuilds plannedBuilds
+    PlanDownloads _download _unpacked plannedDownloads ->
+      planDownloads plannedDownloads .> pure
+    Checking drv -> building Localhost drv now .> pure
+    Parser.Failed drv code -> failedBuild now drv code .> pure
 
 movingAverage :: Double
 movingAverage = 0.5
