@@ -21,7 +21,17 @@ infixl 8 <.>>
 (<.>>) :: Functor f => (a -> f b) -> (b -> c) -> a -> f c
 f <.>> g = f .> fmap g
 
+-- Double functorial version of .>
+infixl 8 <<.>>>
+(<<.>>>) :: (Functor f, Functor g) => (a -> f (g b)) -> (b -> c) -> a -> f (g c)
+f <<.>>> g = f <.>> fmap g
+
 -- Functorial version of |>
 infixl 8 <|>>
 (<|>>) :: Functor f => f a -> (a -> b) -> f b
 f <|>> g = f |> fmap g
+
+-- Functorial version of |>
+infixl 8 <<|>>>
+(<<|>>>) :: (Functor f, Functor g)  => f (g a) -> (a -> b) -> f (g b)
+f <<|>>> g = f <|>> fmap g

@@ -96,7 +96,9 @@ updateState' result oldState = do
       <<$>> filterM
         (maybe (pure False) storePathExists . drv2out newState . fst)
         runningLocalBuilds
-  finishBuilds Localhost newCompletedOutputs $ (field @"inputReceived" .~ True) newState
+  newState
+    |> (field @"inputReceived" .~ True)
+    .> finishBuilds Localhost newCompletedOutputs
 
 movingAverage :: Double
 movingAverage = 0.5
@@ -107,7 +109,7 @@ reportFinishingBuilds host builds = do
   updateBuildReports (modifyBuildReports host (timeDiffInt now <<$>> builds))
 
 timeDiffInt :: UTCTime -> UTCTime -> Int
-timeDiffInt = (floor .) . diffUTCTime
+timeDiffInt = diffUTCTime <.>> floor
 
 finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(Derivation, UTCTime)] -> BuildState -> m BuildState
 finishBuilds host builds' oldState = do
@@ -117,12 +119,11 @@ finishBuilds host builds' oldState = do
   nonEmpty builds' |> maybe (pure oldState) \builds -> do
     let newCompletedDrvs = builds |> toList <.>> fst |> fromList
     newBuildReports <- reportFinishingBuilds host builds
-    pure
-      . (field @"runningBuilds" %~ Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) host)
-      . (field @"completedBuilds" %~ insertMultiMap host newCompletedDrvs)
-      . (field @"buildReports" .~ newBuildReports)
-      . (field @"buildForest" %~ derivationUpdates)
-      $ oldState
+    pure oldState
+      <|>> (field @"buildForest" %~ derivationUpdates)
+      .> (field @"buildReports" .~ newBuildReports)
+      .> (field @"completedBuilds" %~ insertMultiMap host newCompletedDrvs)
+      .> (field @"runningBuilds" %~ Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) host)
 
 modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
 modifyBuildReports host builds = foldr (.) id (insertBuildReport <$> builds)

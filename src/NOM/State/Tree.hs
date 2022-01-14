@@ -5,11 +5,14 @@ module NOM.State.Tree (
   updateForest,
   sortForest,
   aggregateTree,
+  collapseForestN,
 ) where
+
+import Relude
 
 import qualified Data.Set as Set
 import Data.Tree (Forest, Tree (Node, subForest), rootLabel)
-import Relude
+import Data.These (These (This, That, These))
 
 subTrees :: Ord a => Tree a -> Set (Tree a)
 subTrees t = Set.insert t (foldMap subTrees (subForest t))
@@ -20,7 +23,7 @@ data ForestUpdate a = ForestUpdate
   , isParent :: a -> Bool
   , update :: a -> a
   , def :: a
-   }
+  }
 
 updateForest :: forall a. Ord a => ForestUpdate a -> Forest a -> Forest a
 updateForest ForestUpdate{..} forest =
@@ -62,8 +65,38 @@ aggregateTree summary (Node x (fmap (aggregateTree summary) -> xs)) =
 trimForest :: (a -> Bool) -> Forest a -> Forest a
 trimForest keep = go
  where
-    go = mapMaybe keepTree
-    keepTree (Node label (go -> subForest)) = if keep label || not (null subForest) then Just (Node label subForest) else Nothing
+  go = mapMaybe keepTree
+  keepTree (Node label (go -> subForest)) = if keep label || not (null subForest) then Just (Node label subForest) else Nothing
+
+collapseForestN :: forall a b. Semigroup b => (a -> Maybe b) -> Int -> Forest (These a b) -> (Int, Forest (These a b))
+collapseForestN elider = go
+ where
+  canElideEither :: These a b -> Maybe b
+  canElideEither = \case
+   This x -> elider x
+   That x -> Just x
+   These x y -> (<> y) <$> elider x
+  canElide :: Tree (These a b) -> Maybe b
+  canElide = \case
+    Node x [] -> canElideEither x
+    _ -> Nothing
+  go :: Int -> Forest (These a b) -> (Int, Forest (These a b))
+  go n forest | n <= 0 = (n, forest)
+  go n [] = (n, [])
+  go n (x : (go n -> (nAfterXs, xs)))
+    | nAfterXs <= 0 = (nAfterXs, x : xs)
+    | Just b <- canElide x', ((canElide -> Just b') : rest) <- xs = (nAfterX - 1, pure (That (b <> b')) : rest)
+    | otherwise = (nAfterX, x' : xs)
+   where
+    (nAfterX, x') = collapseNTree nAfterXs x
+  collapseNTree :: Int -> Tree (These a b) -> (Int, Tree (These a b))
+  collapseNTree n tree
+    | n <= 0 = (n, tree)
+  collapseNTree n (Node label (go n -> (nAfterForest, subForest)))
+    | nAfterForest > 0, Just b <- canElideEither label, [canElide -> Just b'] <- subForest = (nAfterForest - 1, pure (That (b <> b')))
+    | nAfterForest > 0, This a <- label, [canElide -> Just b'] <- subForest = (nAfterForest - 1, pure (These a b'))
+    | nAfterForest > 0, These a b <- label, [canElide -> Just b'] <- subForest = (nAfterForest - 1, pure (These a (b <> b')))
+    | otherwise = (nAfterForest, Node label subForest)
 
 sortForest :: Ord c => (Tree a -> c) -> Forest a -> Forest a
 sortForest order = go

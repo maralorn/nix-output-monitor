@@ -20,7 +20,7 @@ module NOM.Print.Table (
   NOM.Print.Table.truncate,
   markup,
   markups,
-) where
+grey) where
 
 import Relude
 
@@ -28,13 +28,14 @@ import Control.Exception (assert)
 import Data.Char.WCWidth (wcwidth)
 import qualified Data.Text as Text
 import System.Console.ANSI (
-  Color (Blue, Cyan, Green, Magenta, Red, Yellow),
-  ColorIntensity (Dull),
+  Color (Blue, Cyan, Green, Magenta, Red, Yellow, Black),
+  ColorIntensity (Dull, Vivid),
   ConsoleIntensity (BoldIntensity),
   ConsoleLayer (Foreground),
   SGR (Reset, SetColor, SetConsoleIntensity),
   setSGRCode,
  )
+import NOM.Util ((|>))
 
 data Entry = Entry
   { codes :: [SGR]
@@ -85,7 +86,7 @@ addCode code e = e{codes = code : codes e}
 addColor :: Color -> Entry -> Entry
 addColor = addCode . SetColor Foreground Dull
 
-bold, red, green, yellow, blue, cyan, magenta :: Entry -> Entry
+bold, red, green, yellow, blue, cyan, magenta, grey :: Entry -> Entry
 bold = addCode (SetConsoleIntensity BoldIntensity)
 green = addColor Green
 red = addColor Red
@@ -93,6 +94,7 @@ yellow = addColor Yellow
 blue = addColor Blue
 cyan = addColor Cyan
 magenta = addColor Magenta
+grey = SetColor Foreground Vivid Black |> addCode
 
 prependLines :: Text -> Text -> Text -> NonEmpty Text -> Text
 prependLines top mid bot rows =

@@ -59,6 +59,7 @@ common common-config
     , streamly < 0.8
     , terminal-size
     , text
+    , these
     , time
     , unix
     , wcwidth
