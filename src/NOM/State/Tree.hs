@@ -12,7 +12,7 @@ import Relude
 
 import qualified Data.Set as Set
 import Data.Tree (Forest, Tree (Node, subForest), rootLabel)
-import Data.These (These (This, That, These))
+import NOM.Util ((.>), (|>))
 
 subTrees :: Ord a => Tree a -> Set (Tree a)
 subTrees t = Set.insert t (foldMap subTrees (subForest t))
@@ -59,8 +59,9 @@ updateForest ForestUpdate{..} forest =
        in (matches || subMatch, Node label ((if matches then (treeToInsert :) else id) subForest'))
 
 aggregateTree :: Monoid b => (a -> b) -> Tree a -> Tree (a, b)
-aggregateTree summary (Node x (fmap (aggregateTree summary) -> xs)) =
-  Node (x, summary x <> foldMap (snd . rootLabel) xs) xs
+aggregateTree summary = go
+ where
+  go (Node x (fmap go -> xs)) = Node (x, foldMap (uncurry (<>) . first summary . rootLabel) xs) xs
 
 trimForest :: (a -> Bool) -> Forest a -> Forest a
 trimForest keep = go
@@ -68,34 +69,27 @@ trimForest keep = go
   go = mapMaybe keepTree
   keepTree (Node label (go -> subForest)) = if keep label || not (null subForest) then Just (Node label subForest) else Nothing
 
-collapseForestN :: forall a b. Semigroup b => (a -> Maybe b) -> Int -> Forest (These a b) -> (Int, Forest (These a b))
+collapseForestN :: forall a b. Semigroup b => (a -> Bool) -> Int -> Forest (Maybe a, b) -> (Int, Forest (Maybe a, b))
 collapseForestN elider = go
  where
-  canElideEither :: These a b -> Maybe b
-  canElideEither = \case
-   This x -> elider x
-   That x -> Just x
-   These x y -> (<> y) <$> elider x
-  canElide :: Tree (These a b) -> Maybe b
+  canElide :: Tree (Maybe a, b) -> Maybe b
   canElide = \case
-    Node x [] -> canElideEither x
+    Node (a, b) [] -> a |> maybe True elider .> bool Nothing (Just b)
     _ -> Nothing
-  go :: Int -> Forest (These a b) -> (Int, Forest (These a b))
+  go :: Int -> Forest (Maybe a, b) -> (Int, Forest (Maybe a, b))
   go n forest | n <= 0 = (n, forest)
   go n [] = (n, [])
   go n (x : (go n -> (nAfterXs, xs)))
     | nAfterXs <= 0 = (nAfterXs, x : xs)
-    | Just b <- canElide x', ((canElide -> Just b') : rest) <- xs = (nAfterX - 1, pure (That (b <> b')) : rest)
+    | Just b <- canElide x', ((canElide -> Just b') : rest) <- xs = (nAfterX - 1, pure (Nothing, b <> b') : rest)
     | otherwise = (nAfterX, x' : xs)
    where
     (nAfterX, x') = collapseNTree nAfterXs x
-  collapseNTree :: Int -> Tree (These a b) -> (Int, Tree (These a b))
+  collapseNTree :: Int -> Tree (Maybe a, b) -> (Int, Tree (Maybe a, b))
   collapseNTree n tree
     | n <= 0 = (n, tree)
   collapseNTree n (Node label (go n -> (nAfterForest, subForest)))
-    | nAfterForest > 0, Just b <- canElideEither label, [canElide -> Just b'] <- subForest = (nAfterForest - 1, pure (That (b <> b')))
-    | nAfterForest > 0, This a <- label, [canElide -> Just b'] <- subForest = (nAfterForest - 1, pure (These a b'))
-    | nAfterForest > 0, These a b <- label, [canElide -> Just b'] <- subForest = (nAfterForest - 1, pure (These a (b <> b')))
+    | nAfterForest > 0, (a, b) <- label, [canElide -> Just b'] <- subForest = (nAfterForest - 1, pure (a, b <> b'))
     | otherwise = (nAfterForest, Node label subForest)
 
 sortForest :: Ord c => (Tree a -> c) -> Forest a -> Forest a
@@ -132,7 +126,7 @@ reverseForest f parents = (start =<<)
   lookup x = nonEmpty . toList =<< Map.lookup x parents
 -}
 
-replaceDuplicates :: forall a b. Ord a => (Tree a -> b) -> Forest a -> Forest (Either a b)
+replaceDuplicates :: forall a b. Ord a => (a -> b) -> Forest a -> Forest (Either a b)
 replaceDuplicates link = snd . filterList mempty
  where
   filterList :: Set (Tree a) -> Forest a -> (Set (Tree a), Forest (Either a b))
@@ -144,4 +138,4 @@ replaceDuplicates link = snd . filterList mempty
   filterTree :: Set (Tree a) -> Tree a -> (Set (Tree a), Tree (Either a b))
   filterTree seen (Node x t) = second (Node (Left x)) (filterList seen t)
   substitute :: Tree a -> Tree (Either a b)
-  substitute t = pure (Right (link t))
+  substitute (Node a _) = pure (Right (link a))

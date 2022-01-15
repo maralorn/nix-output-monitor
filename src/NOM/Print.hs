@@ -8,16 +8,17 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
-import Data.These (These (These, This), these)
-import Data.Tree (Forest, Tree (Node))
+import Data.Generics.Sum (_Ctor)
+import Data.Tree (Forest)
 import qualified Data.Tree as Tree
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildForest, BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode, derivation), StorePathNode (StorePathNode, path))
-import NOM.State.Tree (collapseForestN, replaceDuplicates)
+import NOM.State.Tree (aggregateTree, collapseForestN, replaceDuplicates)
 import NOM.Update (collapseMultimap, countPaths)
-import NOM.Util ((.>), (<.>>), (<<|>>>), (<|>>), (|>))
+import NOM.Util ((.>), (<.>>), (<<|>>>), (<|>>))
+import Optics (has)
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
 
@@ -43,7 +44,7 @@ showCond = memptyIfFalse
 
 stateToText :: Maybe (Window Int) -> UTCTime -> BuildState -> Text
 stateToText maybeWindow now buildState@BuildState{..}
-  | not inputReceived = time <> showCond (diffUTCTime now startTime > 15) " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)"
+  | not inputReceived = time <> showCond (diffUTCTime now startTime > 30) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
   | not anythingGoingOn = time
   | otherwise =
     buildsDisplay
@@ -165,23 +166,48 @@ targetRatio :: Int
 targetRatio = 3
 
 type LinkTreeNode = Either (Either DerivationNode StorePathNode) (Either Derivation StorePath)
-type ElisionTreeNode = These LinkTreeNode (Sum Int)
+type ElisionTreeNode = (Maybe LinkTreeNode, Elision)
+type Elision = Set Summary
 
-possibleElisions :: [LinkTreeNode -> Maybe (Sum Int)]
+data Summary
+  = SummaryBuildDone Derivation
+  | SummaryBuildWaiting Derivation
+  | SummaryBuildRunning Derivation
+  | SummaryBuildFailed Derivation
+  | SummaryDownloadWaiting StorePath
+  | SummaryDownloadRunning StorePath
+  | SummaryDownloadDone StorePath
+  | SummaryUploadRunning StorePath
+  | SummaryUploadDone StorePath
+  deriving (Eq, Ord, Show, Generic)
+
+possibleElisions :: [LinkTreeNode -> Bool]
 possibleElisions =
   [ \case
-      Right (Right _) -> Just 1
-      _ -> Nothing
+      Right (Right _) -> True
+      _ -> False
   , \case
-      Right (Left _) -> Just 1
-      _ -> Nothing
+      Right (Left _) -> True
+      _ -> False
   , \case
-      Left (Left (DerivationNode _ (Just (_, Built{})))) -> Just 1
-      _ -> Nothing
+      Left (Left (DerivationNode _ (Just (_, Built{})))) -> True
+      _ -> False
   , \case
-      Left (Left (DerivationNode _ Nothing)) -> Just 1
-      _ -> Nothing
+      Left (Left (DerivationNode _ Nothing)) -> True
+      _ -> False
   ]
+
+summarize :: Either DerivationNode StorePathNode -> Elision
+summarize =
+  \case
+    Left (DerivationNode d (Just (_, Built{}))) -> one (SummaryBuildDone d)
+    Left (DerivationNode d (Just (_, Building{}))) -> one (SummaryBuildRunning d)
+    Left (DerivationNode d (Just (_, Failed{}))) -> one (SummaryBuildFailed d)
+    Left (DerivationNode d Nothing) -> one (SummaryBuildWaiting d)
+    _ -> mempty
+
+lb :: Text
+lb = "▓"
 
 printBuilds ::
   Maybe (Window Int) ->
@@ -192,32 +218,43 @@ printBuilds maybeWindow now forest = markup bold " Dependency Graph: " :| showFo
  where
   maxRows :: Int
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
+  withSummaries :: Forest (Either DerivationNode StorePathNode, Elision)
+  withSummaries = forest <|>> aggregateTree summarize
   withLinks :: Forest ElisionTreeNode
-  withLinks = replaceDuplicates mkLink forest <<|>>> either (This . Left) (\(x, y) -> These (Right x) y)
+  withLinks = replaceDuplicates mkLink withSummaries <<|>>> either (first Left) (first Right) .> first Just
   applyElisions :: Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
   applyElisions = go possibleElisions
    where
-    go :: [LinkTreeNode -> Maybe (Sum Int)] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
+    go :: [LinkTreeNode -> Bool] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
     go [] _ f = f
     go (nextElision : moreElisions) n f
       | n <= 0 = f
-      | otherwise = if nAfter <= 0 then forest'' else go moreElisions' nAfter forest''
+      | nAfter <= 0 = forest''
+      | otherwise = go moreElisions' nAfter forest''
      where
       (nAfter, forest'') = collapseForestN nextElision n f
-      moreElisions' = moreElisions <|>> \e x -> e x <|> nextElision x
+      moreElisions' = moreElisions <|>> \e x -> e x || nextElision x
   forestToPrint :: Forest ElisionTreeNode
   forestToPrint = applyElisions (length (foldMap Tree.flatten withLinks) - maxRows) withLinks
   printNode :: LinkTreeNode -> Text
   printNode = either (either printDerivation printStorePath) printLink
   textForest :: Forest Text
-  textForest = fmap (these printNode showElision (\x y -> printNode x <> markup grey (" and " <> show (getSum y) <> " more"))) <$> forestToPrint
-  mkLink :: Tree (Either DerivationNode StorePathNode) -> (Either Derivation StorePath, Sum Int)
-  mkLink (Node label' forest') =
-    ( label' |> bimap derivation path
-    , forest' |> foldMap (Sum . length . Tree.flatten)
-    )
-  showElision :: Sum Int -> Text
-  showElision es = markup grey (show (getSum es) <> " more")
+  textForest = fmap (\(x, y) -> maybe (markup grey (show (length y) <> " more")) printNode x <> " " <> showElision y) <$> forestToPrint
+  showElision y =
+    bar red (has (_Ctor @"SummaryBuildFailed"))
+      <> bar green (has (_Ctor @"SummaryBuildDone"))
+      <> bar yellow (has (_Ctor @"SummaryBuildRunning"))
+      <> bar blue (has (_Ctor @"SummaryBuildWaiting"))
+   where
+    bar color p = markup color $ stimesMonoid count lb
+    --bar color p = markup color $ case () of
+      --_ | count <= 2 -> stimesMonoid count lb
+      --_ | count > 2, count < 10 -> lb <> show count <> stimesMonoid (count - 2) lb
+      --_ -> lb <> show count <> stimesMonoid (count - 3) lb
+     where
+      count = length (filter p (toList y))
+  mkLink :: (Either DerivationNode StorePathNode, Elision) -> (Either Derivation StorePath, Elision)
+  mkLink = first (bimap derivation path)
   printLink :: Either Derivation StorePath -> Text
   printLink = (<> markup bold " ↴") . name . either toStorePath id
   printDerivation :: DerivationNode -> Text
