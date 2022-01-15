@@ -56,14 +56,6 @@ data BuildState = BuildState
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
 
-   {-
-data Build = MkBuild
-  { buildHost :: Host
-  , buildDerivation :: Derivation
-  , buildStatus :: BuildStatus
-  }
-  deriving (Show, Eq, Ord, Read)
--}
 data BuildStatus
   = Building
       { buildStart :: UTCTime
@@ -78,7 +70,7 @@ data BuildStatus
       { buildDuration :: Int
       , buildEnd :: UTCTime
       }
-  deriving (Show, Eq, Ord, Read)
+  deriving (Show, Eq, Ord, Read, Generic)
 
 initalState :: IO BuildState
 initalState = do

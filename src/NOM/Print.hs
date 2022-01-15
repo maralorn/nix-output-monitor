@@ -8,6 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 
+import Data.Generics.Product (typed)
 import Data.Generics.Sum (_Ctor)
 import Data.Tree (Forest)
 import qualified Data.Tree as Tree
@@ -17,8 +18,8 @@ import NOM.Print.Tree (showForest)
 import NOM.State (BuildForest, BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode, derivation), StorePathNode (StorePathNode, path))
 import NOM.State.Tree (aggregateTree, collapseForestN, replaceDuplicates)
 import NOM.Update (collapseMultimap, countPaths)
-import NOM.Util ((.>), (<.>>), (<<|>>>), (<|>>))
-import Optics (has)
+import NOM.Util ((.>), (<.>>), (<<.>>>), (<|>>), (|>))
+import Optics (has, (%), _2, _Just, _Left, _Nothing, _Right)
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
 
@@ -166,8 +167,8 @@ targetRatio :: Int
 targetRatio = 3
 
 type LinkTreeNode = Either (Either DerivationNode StorePathNode) (Either Derivation StorePath)
-type ElisionTreeNode = (Maybe LinkTreeNode, Elision)
-type Elision = Set Summary
+type SummariesTreeNode = (Maybe LinkTreeNode, Summaries)
+type Summaries = Set Summary
 
 data Summary
   = SummaryBuildDone Derivation
@@ -183,21 +184,13 @@ data Summary
 
 possibleElisions :: [LinkTreeNode -> Bool]
 possibleElisions =
-  [ \case
-      Right (Right _) -> True
-      _ -> False
-  , \case
-      Right (Left _) -> True
-      _ -> False
-  , \case
-      Left (Left (DerivationNode _ (Just (_, Built{})))) -> True
-      _ -> False
-  , \case
-      Left (Left (DerivationNode _ Nothing)) -> True
-      _ -> False
+  [ has (_Right % _Right)
+  , has (_Right % _Left)
+  , has (_Left % _Left % typed % _Just % _2 % _Ctor @"Built")
+  , has (_Left % _Left % typed % _Nothing)
   ]
 
-summarize :: Either DerivationNode StorePathNode -> Elision
+summarize :: Either DerivationNode StorePathNode -> Summaries
 summarize =
   \case
     Left (DerivationNode d (Just (_, Built{}))) -> one (SummaryBuildDone d)
@@ -209,54 +202,67 @@ summarize =
 lb :: Text
 lb = "▓"
 
+addSummariesToForest :: BuildForest -> Forest (Either DerivationNode StorePathNode, Summaries)
+addSummariesToForest = fmap (aggregateTree summarize)
+replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summaries) -> Forest (LinkTreeNode, Summaries)
+replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
+shrinkForestBy :: Int -> Forest (LinkTreeNode, Summaries) -> Forest SummariesTreeNode
+shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions linesToElide
+ where
+  go :: [LinkTreeNode -> Bool] -> Int -> Forest SummariesTreeNode -> Forest SummariesTreeNode
+  go [] _ f = f
+  go (nextElision : moreElisions) n f
+    | n <= 0 = f
+    | nAfter <= 0 = forest''
+    | otherwise = go moreElisions' nAfter forest''
+   where
+    (nAfter, forest'') = collapseForestN nextElision n f
+    moreElisions' = moreElisions <|>> \e x -> e x || nextElision x
+
 printBuilds ::
   Maybe (Window Int) ->
   UTCTime ->
   BuildForest ->
   NonEmpty Text
-printBuilds maybeWindow now forest = markup bold " Dependency Graph: " :| showForest textForest
+printBuilds maybeWindow now =
+  addSummariesToForest
+    .> replaceLinksInForest
+    .> shrinkForestToScreenSize
+    .> fmap (fmap printSummariesTreeNode)
+    .> showForest
+    .> (markup bold " Dependency Graph: " :|)
  where
   maxRows :: Int
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
-  withSummaries :: Forest (Either DerivationNode StorePathNode, Elision)
-  withSummaries = forest <|>> aggregateTree summarize
-  withLinks :: Forest ElisionTreeNode
-  withLinks = replaceDuplicates mkLink withSummaries <<|>>> either (first Left) (first Right) .> first Just
-  applyElisions :: Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
-  applyElisions = go possibleElisions
-   where
-    go :: [LinkTreeNode -> Bool] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
-    go [] _ f = f
-    go (nextElision : moreElisions) n f
-      | n <= 0 = f
-      | nAfter <= 0 = forest''
-      | otherwise = go moreElisions' nAfter forest''
-     where
-      (nAfter, forest'') = collapseForestN nextElision n f
-      moreElisions' = moreElisions <|>> \e x -> e x || nextElision x
-  forestToPrint :: Forest ElisionTreeNode
-  forestToPrint = applyElisions (length (foldMap Tree.flatten withLinks) - maxRows) withLinks
-  printNode :: LinkTreeNode -> Text
-  printNode = either (either printDerivation printStorePath) printLink
-  textForest :: Forest Text
-  textForest = fmap (\(x, y) -> maybe (markup grey (show (length y) <> " more")) printNode x <> " " <> showElision y) <$> forestToPrint
-  showElision y =
+  shrinkForestToScreenSize :: Forest (LinkTreeNode, Summaries) -> Forest SummariesTreeNode
+  shrinkForestToScreenSize forest = shrinkForestBy (length (foldMap Tree.flatten forest) - maxRows) forest
+  printSummariesTreeNode :: SummariesTreeNode -> Text
+  printSummariesTreeNode = (uncurry . flip) \summaries ->
+    maybe
+      (markup grey (show (length summaries) <> " more"))
+      ( either
+          (either printDerivation printStorePath)
+          (printLink (length summaries - 1))
+      )
+      .> (<> " " <> showSummaries summaries)
+  showSummaries :: Summaries -> Text
+  showSummaries summaries =
     bar red (has (_Ctor @"SummaryBuildFailed"))
       <> bar green (has (_Ctor @"SummaryBuildDone"))
       <> bar yellow (has (_Ctor @"SummaryBuildRunning"))
       <> bar blue (has (_Ctor @"SummaryBuildWaiting"))
    where
-    bar color p = markup color $ stimesMonoid count lb
-    --bar color p = markup color $ case () of
-      --_ | count <= 2 -> stimesMonoid count lb
-      --_ | count > 2, count < 10 -> lb <> show count <> stimesMonoid (count - 2) lb
-      --_ -> lb <> show count <> stimesMonoid (count - 3) lb
-     where
-      count = length (filter p (toList y))
-  mkLink :: (Either DerivationNode StorePathNode, Elision) -> (Either Derivation StorePath, Elision)
-  mkLink = first (bimap derivation path)
-  printLink :: Either Derivation StorePath -> Text
-  printLink = (<> markup bold " ↴") . name . either toStorePath id
+    bar color p =
+      summaries
+        |> toList
+        .> filter p
+        .> length
+        .> (`stimesMonoid` lb)
+        .> markup color
+  --bar color p = markup color $ case () of
+  --_ | count <= 2 -> stimesMonoid count lb
+  --_ | count > 2, count < 10 -> lb <> show count <> stimesMonoid (count - 2) lb
+  --_ -> lb <> show count <> stimesMonoid (count - 3) lb
   printDerivation :: DerivationNode -> Text
   printDerivation (DerivationNode derivation status) = case status of
     Nothing -> markup blue . (todo <>) . name . toStorePath $ derivation
@@ -282,8 +288,18 @@ printBuilds maybeWindow now forest = markup bold " Dependency Graph: " :| showFo
           , clock
           , timeDiffSeconds dur
           ]
-  printStorePath :: StorePathNode -> Text
-  printStorePath (StorePathNode path _ _) = name path
+
+printStorePath :: StorePathNode -> Text
+printStorePath (StorePathNode path _ _) = name path
+
+mkLink :: (Either DerivationNode StorePathNode, Summaries) -> (Either Derivation StorePath, Summaries)
+mkLink (node, summaries) = (bimap derivation path node, summaries <> summarize node)
+
+printLink :: Int -> Either Derivation StorePath -> Text
+printLink num =
+  either toStorePath id
+    .> name
+    .> (<> markup grey (showCond (num > 0) (" and " <> show num <> " more") <> " ↴"))
 
 hostMarkup :: Host -> Derivation -> Text
 hostMarkup Localhost build = markups [cyan, bold] (name . toStorePath $ build)
