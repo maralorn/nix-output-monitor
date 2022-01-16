@@ -17,6 +17,9 @@ collapseMultimap = Map.foldl' (<>) mempty
 countPaths :: Ord b => Map a (Set b) -> Int
 countPaths = Set.size . collapseMultimap
 
+(<||>) :: Applicative f => f Bool -> f Bool -> f Bool
+(<||>) = liftA2 (||)
+
 -- Like in  'errors'
 hush :: Either a b -> Maybe b
 hush = either (const Nothing) Just

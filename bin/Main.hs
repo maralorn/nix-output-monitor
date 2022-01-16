@@ -11,8 +11,9 @@ import Paths_nix_output_monitor (version)
 import NOM.IO (interact)
 import NOM.Parser (parser)
 import NOM.Print (stateToText)
-import NOM.Update (countPaths, updateState)
+import NOM.Update (updateState)
 import NOM.State (initalState, failedBuilds)
+import NOM.Util ( countPaths, (<||>) )
 
 main :: IO ()
 main = do
@@ -45,6 +46,3 @@ helpText =
     , "Please see the readme for more details:"
     , "https://github.com/maralorn/nix-output-monitor"
     ]
-
-(<||>) :: Applicative f => f Bool -> f Bool -> f Bool
-(<||>) = liftA2 (||)
