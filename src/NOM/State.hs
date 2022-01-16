@@ -53,7 +53,6 @@ data BuildState = BuildState
   , outputToDerivation :: Map StorePath Derivation
   , derivationInfos :: Map Derivation DerivationInfo
   , derivationParents :: Map Derivation (Set Derivation)
-  , lastPlannedBuild :: Maybe Derivation
   , buildReports :: BuildReportMap
   , buildForest :: BuildForest
   , cachedShowForest :: SummaryForest
@@ -96,7 +95,6 @@ initalState = do
       mempty
       mempty
       mempty
-      Nothing
       buildReports
       mempty
       mempty

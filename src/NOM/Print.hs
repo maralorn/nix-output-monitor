@@ -11,7 +11,8 @@ import Data.Tree (Forest)
 import qualified Data.Tree as Tree
 
 -- optics
-import Optics (has, (%), _2, _Just, _Left, _Nothing, _Right)
+import Optics (has, preview, (%), _2, _Just, _Left, _Nothing, _Right, summing, united)
+
 -- generic-optics
 import Data.Generics.Product (typed)
 import Data.Generics.Sum (_Ctor)
@@ -27,7 +28,7 @@ import NOM.State (BuildState (..), BuildStatus (Building, Built, Failed), Deriva
 import NOM.State.Tree (collapseForestN, mapTwigsAndLeafs)
 import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<|>>), (|>))
 
-vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, average :: Text
+lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 vertical = "┃"
 lowerleft = "┗"
 upperleft = "┏"
@@ -40,16 +41,16 @@ running = "▶"
 done = "✔"
 todo = "⏳"
 warning = "⚠"
-goal = "🏁"
 average = "∅"
 bigsum = "∑"
+lb = "▓"
 
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
 stateToText :: Maybe (Window Int) -> UTCTime -> BuildState -> Text
 stateToText maybeWindow now buildState@BuildState{..}
-  | not inputReceived = time <> showCond (diffUTCTime now startTime > 30) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
+  | not inputReceived = time <> showCond (diffUTCTime now startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
   | not anythingGoingOn = time
   | otherwise =
     buildsDisplay
@@ -97,17 +98,7 @@ stateToText maybeWindow now buildState@BuildState{..}
         , nonZeroBold numOutstandingDownloads . blue . label todo . disp $ numOutstandingDownloads
         ]
       <> showCond showUploads [text ""]
-      <> (one . bold . lastBuildColor . header $ lastBuildText <> time)
-  lastBuildIcon drv
-    | drv `Set.member` outstandingBuilds = (id, todo)
-  lastBuildIcon drv
-    | drv `Set.member` completedBuildsSet = (green, goal)
-  lastBuildIcon drv
-    | setAny ((== drv) . fst) runningBuildsSet = (id, running)
-  lastBuildIcon _ = (red, warning)
-  (lastBuildColor, lastBuildText) =
-    lastPlannedBuild & maybe (id, "") \build ->
-      let (c, i) = lastBuildIcon build in (c, i <> " " <> (name . toStorePath) build <> " ")
+      <> (one . bold . header $ time)
 
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
@@ -126,9 +117,6 @@ stateToText maybeWindow now buildState@BuildState{..}
   totalBuilds = numOutstandingBuilds + numRunningBuilds + numCompletedBuilds
   downloadsDone = countPaths completedDownloads
   time = clock <> " " <> timeDiff now startTime
-
-setAny :: (a -> Bool) -> Set a -> Bool
-setAny pred' = Set.foldl' (\y x -> pred' x || y) False
 
 printHosts :: BuildState -> Bool -> Bool -> Bool -> [NonEmpty Entry]
 printHosts BuildState{runningBuilds, completedBuilds, completedDownloads, completedUploads} showBuilds showDownloads showUploads =
@@ -180,9 +168,6 @@ possibleElisions =
   , has (_Left % _Left % typed % _Nothing)
   ]
 
-lb :: Text
-lb = "▓"
-
 shrinkForestBy :: Int -> SummaryForest -> Forest ElisionTreeNode
 shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions linesToElide
  where
@@ -223,17 +208,25 @@ printBuilds maybeWindow now =
           .> (<> " " <> showSummaries summaries)
   showSummaries :: Summary -> Text
   showSummaries summaries =
-    bar red (has (_Left % typed % _Just % _2 % _Ctor @"Failed"))
-      <> bar green (has (_Left % typed % _Just % _2 % _Ctor @"Built"))
-      <> bar yellow (has (_Left % typed % _Just % _2 % _Ctor @"Building"))
-      <> bar blue (has (_Left % typed % _Nothing))
+    bar red (has (_Just % _2 % _Ctor @"Failed"))
+      <> bar green (has (_Just % _2 % _Ctor @"Built"))
+      <> bar yellow (has (_Just % _2 % _Ctor @"Building"))
+      <> bar blue (has _Nothing) -- Waiting
+      <> memptyIfTrue
+        (null storePathStates)
+        ( "("
+            <> printNum (has (_Ctor @"Downloaded"))
+            <> "/"
+            <> printNum (has (summing (_Ctor @"DownloadPlanned") (_Ctor @"Downloaded" % united)))
+            <> ")"
+        )
    where
-    --  , has (_Left % _Left % typed % _Nothing)
-
+    buildStates = toList summaries |> mapMaybe (preview (_Left % typed))
+    storePathStates = toList summaries |> mapMaybe (preview (_Right % typed)) .> (fmap (toList @NonEmpty) .> join)
+    printNum p = storePathStates |> filter p .> length .> show
     bar color p =
-      summaries
-        |> toList
-        .> filter p
+      buildStates
+        |> filter p
         .> length
         .> (`stimesMonoid` lb)
         .> markup color

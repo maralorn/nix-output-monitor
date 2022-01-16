@@ -5,18 +5,20 @@ module NOM.Update where
 import Relude
 
 import Control.Monad (foldM)
-import Data.Generics.Product (field)
+import Data.Foldable (minimum)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
-import Data.Tree (Forest, Tree)
+import Data.Tree (Forest, Tree (Node))
+
+import Data.Generics.Product (field)
+import Optics ((%~), (.~))
 
 import Data.Attoparsec.Text (endOfInput, parseOnly)
+
 import qualified Nix.Derivation as Nix
 
-import Data.Foldable (minimum)
-import Data.Graph (Tree (Node))
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
 import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationInfo (..), DerivationNode (..), LinkTreeNode, StorePathNode, Summary, path)
@@ -30,8 +32,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (hush, (.>), (<.>>), (<<.>>>), (<<|>>>), (<|>>), (|>), insertMultiMap, insertMultiMapOne)
-import Optics ((%~), (.~))
+import NOM.Util (hush, insertMultiMap, insertMultiMapOne, (.>), (<.>>), (<<.>>>), (<<|>>>), (<|>>), (|>))
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -121,9 +122,8 @@ processResult oldState result = do
     PlanCopies _ -> pure
     Build path host ->
       flip lookupDerivation path <.>> building host path now
-    PlanBuilds plannedBuilds lastBuild ->
-      (field @"lastPlannedBuild" .~ Just lastBuild)
-        .> flip (foldM lookupDerivation) plannedBuilds
+    PlanBuilds plannedBuilds _lastBuild ->
+        flip (foldM lookupDerivation) plannedBuilds
         <.>> planBuilds plannedBuilds
     PlanDownloads _download _unpacked plannedDownloads ->
       planDownloads plannedDownloads .> pure
