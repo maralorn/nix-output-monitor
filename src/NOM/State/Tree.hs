@@ -6,6 +6,7 @@ module NOM.State.Tree (
   sortForest,
   aggregateTree,
   collapseForestN,
+  mapTwigsAndLeafs,
 ) where
 
 import Relude
@@ -57,6 +58,13 @@ updateForest ForestUpdate{..} forest =
       let matches = isParent label
           (subMatch, subForest') = go subForest
        in (matches || subMatch, Node label ((if matches then (treeToInsert :) else id) subForest'))
+
+mapTwigsAndLeafs :: (a -> b) -> (a -> b) -> Tree a -> Tree b
+mapTwigsAndLeafs mapTwig mapLeaf = go
+ where
+  go = \case
+    Node l [] -> Node (mapLeaf l) []
+    Node l rest -> Node (mapTwig l) (go <$> rest)
 
 aggregateTree :: Monoid b => (a -> b) -> Tree a -> Tree (a, b)
 aggregateTree summary = go

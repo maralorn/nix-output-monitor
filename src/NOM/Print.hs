@@ -16,7 +16,7 @@ import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildForest, BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode, derivation), StorePathNode (StorePathNode, path))
-import NOM.State.Tree (aggregateTree, collapseForestN, replaceDuplicates)
+import NOM.State.Tree (aggregateTree, collapseForestN, mapTwigsAndLeafs, replaceDuplicates)
 import NOM.Update (collapseMultimap, countPaths)
 import NOM.Util ((.>), (<.>>), (<<.>>>), (<|>>), (|>))
 import Optics (has, (%), _2, _Just, _Left, _Nothing, _Right)
@@ -228,7 +228,7 @@ printBuilds maybeWindow now =
   addSummariesToForest
     .> replaceLinksInForest
     .> shrinkForestToScreenSize
-    .> fmap (fmap printSummariesTreeNode)
+    .> fmap (mapTwigsAndLeafs (printSummariesTree False) (printSummariesTree True))
     .> showForest
     .> (markup bold " Dependency Graph: " :|)
  where
@@ -236,15 +236,16 @@ printBuilds maybeWindow now =
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
   shrinkForestToScreenSize :: Forest (LinkTreeNode, Summaries) -> Forest SummariesTreeNode
   shrinkForestToScreenSize forest = shrinkForestBy (length (foldMap Tree.flatten forest) - maxRows) forest
-  printSummariesTreeNode :: SummariesTreeNode -> Text
-  printSummariesTreeNode = (uncurry . flip) \summaries ->
-    maybe
-      (markup grey (show (length summaries) <> " more"))
-      ( either
-          (either printDerivation printStorePath)
-          (printLink (length summaries - 1))
-      )
-      .> (<> " " <> showSummaries summaries)
+  printSummariesTree :: Bool -> SummariesTreeNode -> Text
+  printSummariesTree isLeaf = (uncurry . flip) \summaries ->
+    let count = length summaries
+     in maybe
+          (markup grey (show count <> " more"))
+          ( either
+              (either printDerivation printStorePath .> (<> markup grey (showCond isLeaf printAndMore count)))
+              (printLink (count - 1))
+          )
+          .> (<> " " <> showSummaries summaries)
   showSummaries :: Summaries -> Text
   showSummaries summaries =
     bar red (has (_Ctor @"SummaryBuildFailed"))
@@ -299,7 +300,10 @@ printLink :: Int -> Either Derivation StorePath -> Text
 printLink num =
   either toStorePath id
     .> name
-    .> (<> markup grey (showCond (num > 0) (" and " <> show num <> " more") <> " ↴"))
+    .> (<> markup grey (printAndMore num <> " ↴"))
+
+printAndMore :: Int -> Text
+printAndMore num = showCond (num > 0) (" and " <> show num <> " more")
 
 hostMarkup :: Host -> Derivation -> Text
 hostMarkup Localhost build = markups [cyan, bold] (name . toStorePath $ build)
