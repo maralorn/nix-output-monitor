@@ -17,16 +17,20 @@ module NOM.Print.Table (
   dummy,
   header,
   displayWidth,
-  NOM.Print.Table.truncate,
+  truncate,
   markup,
   markups,
 grey) where
 
-import Relude
+import Relude hiding (truncate)
 
 import Control.Exception (assert)
-import Data.Char.WCWidth (wcwidth)
 import qualified Data.Text as Text
+
+-- wcwidth
+import Data.Char.WCWidth (wcwidth)
+
+-- ansi-terminal
 import System.Console.ANSI (
   Color (Blue, Cyan, Green, Magenta, Red, Yellow, Black),
   ColorIntensity (Dull, Vivid),
@@ -35,6 +39,7 @@ import System.Console.ANSI (
   SGR (Reset, SetColor, SetConsoleIntensity),
   setSGRCode,
  )
+
 import NOM.Util ((|>))
 
 data Entry = Entry

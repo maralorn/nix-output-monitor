@@ -3,6 +3,7 @@ module NOM.Print.Tree where
 import Relude
 
 import Data.Tree (Forest, Tree (..))
+
 import NOM.Print.Table (blue, markup)
 
 showForest :: Forest Text -> [Text]

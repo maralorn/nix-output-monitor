@@ -19,7 +19,7 @@ import Data.Foldable (minimum)
 import Data.Graph (Tree (Node))
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationInfo (..), DerivationNode (..), LinkTreeNode, StorePathNode, Summaries, Summary (..), path)
+import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationInfo (..), DerivationNode (..), LinkTreeNode, StorePathNode, Summary, path)
 import qualified NOM.State as State
 import NOM.State.Tree (ForestUpdate (..), aggregateTree, replaceDuplicates, sortForest, updateForest)
 import NOM.Update.Monad (
@@ -30,7 +30,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (hush, (.>), (<.>>), (<<.>>>), (<<|>>>), (<|>>), (|>))
+import NOM.Util (hush, (.>), (<.>>), (<<.>>>), (<<|>>>), (<|>>), (|>), insertMultiMap, insertMultiMapOne)
 import Optics ((%~), (.~))
 
 getReportName :: Derivation -> Text
@@ -90,7 +90,7 @@ updateCachedShowForest (field @"buildForest" %~ sortForest (mkOrder nodeOrder) -
   newState
     { cachedShowForest =
         newState |> buildForest
-          .> addSummariesToForest
+          .> addSummaryToForest
           .> replaceLinksInForest
           .> sortForest (fmap fst .> mkOrder linkNodeOrder)
     }
@@ -245,16 +245,7 @@ matchDerivation :: Derivation -> Either DerivationNode b -> Bool
 matchDerivation derivation' = either ((derivation' ==) . derivation) (const False)
 
 planDownloads :: Set StorePath -> BuildState -> BuildState
-planDownloads storePath s@BuildState{outstandingDownloads} =
-  s
-    { outstandingDownloads = Set.union storePath outstandingDownloads
-    }
-
-insertMultiMap :: (Ord k, Ord a) => k -> Set a -> Map k (Set a) -> Map k (Set a)
-insertMultiMap = Map.insertWith Set.union
-
-insertMultiMapOne :: (Ord k, Ord a) => k -> a -> Map k (Set a) -> Map k (Set a)
-insertMultiMapOne k v = Map.insertWith Set.union k (one v)
+planDownloads storePath = field @"outstandingDownloads" %~ Set.union storePath
 
 downloading :: Host -> StorePath -> BuildState -> (Maybe (Derivation, UTCTime), BuildState)
 downloading host storePath s@BuildState{outstandingDownloads, completedDownloads, runningBuilds} =
@@ -283,24 +274,11 @@ building host drv now oldState =
   buildStatus = Just (host, Building{buildStart = now, buildNeeded = lastNeeded})
   lastNeeded = Map.lookup (host, getReportName drv) (buildReports oldState)
 
-collapseMultimap :: Ord b => Map a (Set b) -> Set b
-collapseMultimap = Map.foldl' (<>) mempty
-countPaths :: Ord b => Map a (Set b) -> Int
-countPaths = Set.size . collapseMultimap
+addSummaryToForest :: BuildForest -> Forest (Either DerivationNode StorePathNode, Summary)
+addSummaryToForest = fmap (aggregateTree one)
 
-addSummariesToForest :: BuildForest -> Forest (Either DerivationNode StorePathNode, Summaries)
-addSummariesToForest = fmap (aggregateTree summarize)
-replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summaries) -> Forest (LinkTreeNode, Summaries)
+replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summary) -> Forest (LinkTreeNode, Summary)
 replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
 
-mkLink :: (Either DerivationNode StorePathNode, Summaries) -> (Either Derivation StorePath, Summaries)
-mkLink (node, summaries) = (bimap derivation path node, summaries <> summarize node)
-
-summarize :: Either DerivationNode StorePathNode -> Summaries
-summarize =
-  \case
-    Left (DerivationNode d (Just (_, Built{}))) -> one (SummaryBuildDone d)
-    Left (DerivationNode d (Just (_, Building{}))) -> one (SummaryBuildRunning d)
-    Left (DerivationNode d (Just (_, State.Failed{}))) -> one (SummaryBuildFailed d)
-    Left (DerivationNode d Nothing) -> one (SummaryBuildWaiting d)
-    _ -> mempty
+mkLink :: (Either DerivationNode StorePathNode, Summary) -> (Either Derivation StorePath, Summary)
+mkLink (node, summary) = (bimap derivation path node, Set.insert node summary)

@@ -7,21 +7,25 @@ import Relude
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
-
-import Data.Generics.Product (typed)
-import Data.Generics.Sum (_Ctor)
 import Data.Tree (Forest)
 import qualified Data.Tree as Tree
+
+-- optics
+import Optics (has, (%), _2, _Just, _Left, _Nothing, _Right)
+-- generic-optics
+import Data.Generics.Product (typed)
+import Data.Generics.Sum (_Ctor)
+
+-- terminal-size
+import System.Console.Terminal.Size (Window)
+import qualified System.Console.Terminal.Size as Window
+
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode), StorePathNode (StorePathNode), LinkTreeNode, Summaries, SummaryForest)
+import NOM.State (BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode), LinkTreeNode, StorePathNode (StorePathNode), Summary, SummaryForest)
 import NOM.State.Tree (collapseForestN, mapTwigsAndLeafs)
-import NOM.Update (collapseMultimap, countPaths)
-import NOM.Util ((.>), (<.>>), (<|>>), (|>))
-import Optics (has, (%), _2, _Just, _Left, _Nothing, _Right)
-import System.Console.Terminal.Size (Window)
-import qualified System.Console.Terminal.Size as Window
+import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<|>>), (|>))
 
 vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, goal, warning, todo, leftT, average :: Text
 vertical = "┃"
@@ -166,7 +170,7 @@ nonZeroBold num = if num > 0 then bold else id
 targetRatio :: Int
 targetRatio = 3
 
-type ElisionTreeNode = (Maybe LinkTreeNode, Summaries)
+type ElisionTreeNode = (Maybe LinkTreeNode, Summary)
 
 possibleElisions :: [LinkTreeNode -> Bool]
 possibleElisions =
@@ -176,11 +180,10 @@ possibleElisions =
   , has (_Left % _Left % typed % _Nothing)
   ]
 
-
 lb :: Text
 lb = "▓"
 
-shrinkForestBy :: Int -> Forest (LinkTreeNode, Summaries) -> Forest ElisionTreeNode
+shrinkForestBy :: Int -> SummaryForest -> Forest ElisionTreeNode
 shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions linesToElide
  where
   go :: [LinkTreeNode -> Bool] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
@@ -199,14 +202,14 @@ printBuilds ::
   SummaryForest ->
   NonEmpty Text
 printBuilds maybeWindow now =
-    shrinkForestToScreenSize
+  shrinkForestToScreenSize
     .> fmap (mapTwigsAndLeafs (printSummariesTree False) (printSummariesTree True))
     .> showForest
     .> (markup bold " Dependency Graph: " :|)
  where
   maxRows :: Int
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
-  shrinkForestToScreenSize :: Forest (LinkTreeNode, Summaries) -> Forest ElisionTreeNode
+  shrinkForestToScreenSize :: SummaryForest -> Forest ElisionTreeNode
   shrinkForestToScreenSize forest = shrinkForestBy (length (foldMap Tree.flatten forest) - maxRows) forest
   printSummariesTree :: Bool -> ElisionTreeNode -> Text
   printSummariesTree isLeaf = (uncurry . flip) \summaries ->
@@ -218,13 +221,15 @@ printBuilds maybeWindow now =
               (printLink (count - 1))
           )
           .> (<> " " <> showSummaries summaries)
-  showSummaries :: Summaries -> Text
+  showSummaries :: Summary -> Text
   showSummaries summaries =
-    bar red (has (_Ctor @"SummaryBuildFailed"))
-      <> bar green (has (_Ctor @"SummaryBuildDone"))
-      <> bar yellow (has (_Ctor @"SummaryBuildRunning"))
-      <> bar blue (has (_Ctor @"SummaryBuildWaiting"))
+    bar red (has (_Left % typed % _Just % _2 % _Ctor @"Failed"))
+      <> bar green (has (_Left % typed % _Just % _2 % _Ctor @"Built"))
+      <> bar yellow (has (_Left % typed % _Just % _2 % _Ctor @"Building"))
+      <> bar blue (has (_Left % typed % _Nothing))
    where
+    --  , has (_Left % _Left % typed % _Nothing)
+
     bar color p =
       summaries
         |> toList

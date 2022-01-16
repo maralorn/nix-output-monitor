@@ -7,11 +7,20 @@ module NOM.Update.Monad.CacheBuildReports (
 import Relude
 
 import Control.Exception (IOException, catch)
-import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
-import Data.Default (def)
 import qualified Data.Map.Strict as Map
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory, removeFile)
+
+-- cassava
+import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
+
+-- data-default
+import Data.Default (def)
+
+
+-- filepath
 import System.FilePath ((</>))
+
+-- lock-file
 import System.IO.LockFile (
   LockingException (CaughtIOException, UnableToAcquireLockFile),
   LockingParameters (retryToAcquireLock, sleepBetweenRetries),

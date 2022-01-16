@@ -9,11 +9,16 @@ module NOM.Update.Monad (
 import Relude
 
 import Control.Exception (IOException, try)
-import Data.Attoparsec.Text (eitherResult, parse)
 import qualified Data.Text.IO as TextIO
 import Data.Time (UTCTime, getCurrentTime)
-import qualified Nix.Derivation as Nix
 import System.Directory (doesPathExist)
+
+-- attoparsec
+import Data.Attoparsec.Text (eitherResult, parse)
+
+-- nix-derivation
+import qualified Nix.Derivation as Nix
+
 
 import NOM.Parser (Derivation, StorePath)
 import NOM.Update.Monad.CacheBuildReports

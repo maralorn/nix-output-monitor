@@ -13,6 +13,7 @@ import Relude
 
 import qualified Data.Set as Set
 import Data.Tree (Forest, Tree (Node, subForest), rootLabel)
+
 import NOM.Util ((.>), (|>))
 
 subTrees :: Ord a => Tree a -> Set (Tree a)
@@ -28,23 +29,22 @@ data ForestUpdate a = ForestUpdate
 
 updateForest :: forall a. Ord a => ForestUpdate a -> Forest a -> Forest a
 updateForest ForestUpdate{..} forest =
-  if updated
-    then forest'
-    else insertedIntoForest
+  updateIfPresent forest
+    |> fromMaybe
+      ( forest
+          |> filter (not . isChild . rootLabel)
+          .> appendWhereMatching (Node def children)
+      )
  where
-  (updated, forest') = updateIfPresent forest
-  updateIfPresent :: Forest a -> (Bool, Forest a)
-  updateIfPresent f = (or $ fst <$> f', snd <$> f')
-   where
-    f' = updateTree <$> f
-    updateTree (Node label (updateIfPresent -> (subMatch, subForest))) =
-      (match label || subMatch, Node (if match label then update label else label) subForest)
+  children :: [Tree a]
+  children = filter (isChild . rootLabel) (toList (foldMap subTrees forest))
 
-  insertedIntoForest :: Forest a
-  insertedIntoForest = appendWhereMatching (Node def children) noChildren
+  updateIfPresent :: Forest a -> Maybe (Forest a)
+  updateIfPresent = go .> \(found, result) -> if found then Just result else Nothing
    where
-    noChildren = filter (not . isChild . rootLabel) forest
-    children = filter (isChild . rootLabel) (toList (foldMap subTrees forest))
+    go f = let f' = updateTree <$> f in (or $ fst <$> f', snd <$> f')
+    updateTree (Node label (go -> (subMatch, subForest))) =
+      (match label || subMatch, Node (if match label then update label else label) subForest)
 
   appendWhereMatching :: Tree a -> Forest a -> Forest a
   appendWhereMatching treeToInsert = uncurry prependIfNoMatch . go
@@ -106,33 +106,6 @@ sortForest order = go
   go = fmap sortTree . sort'
   sortTree (Node x c) = Node x (go c)
   sort' = sortOn order
-
-{-
-mergeForest :: Eq a => NonEmpty (Tree a b) -> NonEmpty (Tree a b)
-mergeForest (x :| xs) = foldl' (flip mergeIntoForest . toList) (pure x) xs
-
-mergeIntoForest :: Eq a => Tree a b -> [Tree a b] -> NonEmpty (Tree a b)
-mergeIntoForest x [] = pure x
-mergeIntoForest x (y : ys) = maybe (y :| toList (mergeIntoForest x ys)) (:| ys) (mergeTrees x y)
-
-mergeTrees :: Eq a => Tree a b -> Tree a b -> Maybe (Tree a b)
-mergeTrees (Node x xs) (Node y ys) | x == y = Just (Node x (mergeForest (xs <> ys)))
-mergeTrees _ _ = Nothing
-
--- >>> mergeForest $ (Node 1 (pure (Leaf "a"))) :| [Node 3 (pure (Leaf "b")), Node 3 (pure (Leaf "c"))]
--- Node 1 (Leaf "a" :| []) :| [Node 3 (Leaf "b" :| [Leaf "c"])]
-
-reverseForest :: forall a b. (Ord a, Ord b) => (a -> b) -> Map b (Set b) -> NonEmpty a -> NonEmpty (Tree b a)
-reverseForest f parents = (start =<<)
- where
-  start :: a -> NonEmpty (Tree b a)
-  start x = reverseTree (f x) (pure (Leaf x))
-  reverseTree :: b -> NonEmpty (Tree b a) -> NonEmpty (Tree b a)
-  reverseTree x t = case lookup x of
-    Nothing -> t
-    Just pars -> (\y -> reverseTree y (pure $ Node y t)) =<< pars
-  lookup x = nonEmpty . toList =<< Map.lookup x parents
--}
 
 replaceDuplicates :: forall a b. Ord a => (a -> b) -> Forest a -> Forest (Either a b)
 replaceDuplicates link = snd . filterList mempty

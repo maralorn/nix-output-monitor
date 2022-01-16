@@ -3,11 +3,11 @@ module NOM.State where
 import Relude
 
 import Data.Time (UTCTime, getCurrentTime)
+import Data.Tree (Forest)
 
 import NOM.Parser (Derivation (..), Host (..), StorePath (..))
 import NOM.Update.Monad
     ( BuildReportMap, MonadCacheBuildReports(getCachedBuildReports) )
-import Data.Tree (Forest)
 
 data DerivationNode = DerivationNode
   { derivation :: Derivation
@@ -32,24 +32,14 @@ data DerivationInfo = MkDerivationInfo
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
 
-type BuildForest = Forest (Either DerivationNode StorePathNode)
-type LinkedBuildTree = Forest (Either (Either DerivationNode StorePathNode) (Either Derivation StorePath))
-type LinkTreeNode = Either (Either DerivationNode StorePathNode) (Either Derivation StorePath)
-type SummariesTreeNode = (LinkTreeNode, Summaries)
-type Summaries = Set Summary
-
-data Summary
-  = SummaryBuildDone Derivation
-  | SummaryBuildWaiting Derivation
-  | SummaryBuildRunning Derivation
-  | SummaryBuildFailed Derivation
-  | SummaryDownloadWaiting StorePath
-  | SummaryDownloadRunning StorePath
-  | SummaryDownloadDone StorePath
-  | SummaryUploadRunning StorePath
-  | SummaryUploadDone StorePath
-  deriving (Eq, Ord, Show, Read, Generic)
-type SummaryForest = Forest SummariesTreeNode
+type Node = Either DerivationNode StorePathNode
+type Link = Either Derivation StorePath
+type BuildForest = Forest Node
+type LinkTreeNode = Either Node Link
+type LinkedBuildTree = Forest LinkTreeNode
+type SummaryTreeNode = (LinkTreeNode, Summary)
+type SummaryForest = Forest SummaryTreeNode
+type Summary = Set Node
 
 data BuildState = BuildState
   { outstandingBuilds :: Set Derivation

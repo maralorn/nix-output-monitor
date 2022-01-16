@@ -2,6 +2,21 @@ module NOM.Util where
 
 import Relude
 
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+
+insertMultiMap :: (Ord k, Ord a) => k -> Set a -> Map k (Set a) -> Map k (Set a)
+insertMultiMap = Map.insertWith Set.union
+
+insertMultiMapOne :: (Ord k, Ord a) => k -> a -> Map k (Set a) -> Map k (Set a)
+insertMultiMapOne k v = Map.insertWith Set.union k (one v)
+
+collapseMultimap :: Ord b => Map a (Set b) -> Set b
+collapseMultimap = Map.foldl' (<>) mempty
+
+countPaths :: Ord b => Map a (Set b) -> Int
+countPaths = Set.size . collapseMultimap
+
 -- Like in  'errors'
 hush :: Either a b -> Maybe b
 hush = either (const Nothing) Just
