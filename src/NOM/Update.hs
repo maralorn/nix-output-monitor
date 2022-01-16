@@ -156,13 +156,12 @@ finishBuilds host builds' oldState = do
       .> (field @"runningBuilds" %~ Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) host)
 
 modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
-modifyBuildReports host builds = foldr (.) id (insertBuildReport <$> builds)
+modifyBuildReports host = fmap (uncurry insertBuildReport) .> foldr (.) id
  where
-  insertBuildReport (n, t) =
+  insertBuildReport name =
     Map.insertWith
       (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
-      (host, getReportName n)
-      t
+      (host, getReportName name)
 
 drv2out :: BuildState -> Derivation -> Maybe StorePath
 drv2out s = Map.lookup "out" . outputs <=< flip Map.lookup (derivationInfos s)

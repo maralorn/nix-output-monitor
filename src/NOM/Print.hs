@@ -11,7 +11,7 @@ import Data.Tree (Forest)
 import qualified Data.Tree as Tree
 
 -- optics
-import Optics (has, preview, (%), _2, _Just, _Left, _Nothing, _Right, summing, united)
+import Optics (has, preview, summing, united, (%), _2, _Just, _Left, _Nothing, _Right)
 
 -- generic-optics
 import Data.Generics.Product (typed)
@@ -215,6 +215,7 @@ printBuilds maybeWindow now =
       <> memptyIfTrue
         (null storePathStates)
         ( "("
+            <> down
             <> printNum (has (_Ctor @"Downloaded"))
             <> "/"
             <> printNum (has (summing (_Ctor @"DownloadPlanned") (_Ctor @"Downloaded" % united)))
