@@ -15,10 +15,10 @@ import qualified Data.Tree as Tree
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildForest, BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode, derivation), StorePathNode (StorePathNode, path))
-import NOM.State.Tree (aggregateTree, collapseForestN, mapTwigsAndLeafs, replaceDuplicates)
+import NOM.State (BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode), StorePathNode (StorePathNode), LinkTreeNode, Summaries, SummaryForest)
+import NOM.State.Tree (collapseForestN, mapTwigsAndLeafs)
 import NOM.Update (collapseMultimap, countPaths)
-import NOM.Util ((.>), (<.>>), (<<.>>>), (<|>>), (|>))
+import NOM.Util ((.>), (<.>>), (<|>>), (|>))
 import Optics (has, (%), _2, _Just, _Left, _Nothing, _Right)
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
@@ -60,7 +60,7 @@ stateToText maybeWindow now buildState@BuildState{..}
         (upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds maybeWindow now buildForest)
+        (printBuilds maybeWindow now cachedShowForest)
         <> "\n"
   table =
     prependLines
@@ -166,21 +166,7 @@ nonZeroBold num = if num > 0 then bold else id
 targetRatio :: Int
 targetRatio = 3
 
-type LinkTreeNode = Either (Either DerivationNode StorePathNode) (Either Derivation StorePath)
-type SummariesTreeNode = (Maybe LinkTreeNode, Summaries)
-type Summaries = Set Summary
-
-data Summary
-  = SummaryBuildDone Derivation
-  | SummaryBuildWaiting Derivation
-  | SummaryBuildRunning Derivation
-  | SummaryBuildFailed Derivation
-  | SummaryDownloadWaiting StorePath
-  | SummaryDownloadRunning StorePath
-  | SummaryDownloadDone StorePath
-  | SummaryUploadRunning StorePath
-  | SummaryUploadDone StorePath
-  deriving (Eq, Ord, Show, Generic)
+type ElisionTreeNode = (Maybe LinkTreeNode, Summaries)
 
 possibleElisions :: [LinkTreeNode -> Bool]
 possibleElisions =
@@ -190,26 +176,14 @@ possibleElisions =
   , has (_Left % _Left % typed % _Nothing)
   ]
 
-summarize :: Either DerivationNode StorePathNode -> Summaries
-summarize =
-  \case
-    Left (DerivationNode d (Just (_, Built{}))) -> one (SummaryBuildDone d)
-    Left (DerivationNode d (Just (_, Building{}))) -> one (SummaryBuildRunning d)
-    Left (DerivationNode d (Just (_, Failed{}))) -> one (SummaryBuildFailed d)
-    Left (DerivationNode d Nothing) -> one (SummaryBuildWaiting d)
-    _ -> mempty
 
 lb :: Text
 lb = "▓"
 
-addSummariesToForest :: BuildForest -> Forest (Either DerivationNode StorePathNode, Summaries)
-addSummariesToForest = fmap (aggregateTree summarize)
-replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summaries) -> Forest (LinkTreeNode, Summaries)
-replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
-shrinkForestBy :: Int -> Forest (LinkTreeNode, Summaries) -> Forest SummariesTreeNode
+shrinkForestBy :: Int -> Forest (LinkTreeNode, Summaries) -> Forest ElisionTreeNode
 shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions linesToElide
  where
-  go :: [LinkTreeNode -> Bool] -> Int -> Forest SummariesTreeNode -> Forest SummariesTreeNode
+  go :: [LinkTreeNode -> Bool] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
   go [] _ f = f
   go (nextElision : moreElisions) n f
     | n <= 0 = f
@@ -222,21 +196,19 @@ shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions li
 printBuilds ::
   Maybe (Window Int) ->
   UTCTime ->
-  BuildForest ->
+  SummaryForest ->
   NonEmpty Text
 printBuilds maybeWindow now =
-  addSummariesToForest
-    .> replaceLinksInForest
-    .> shrinkForestToScreenSize
+    shrinkForestToScreenSize
     .> fmap (mapTwigsAndLeafs (printSummariesTree False) (printSummariesTree True))
     .> showForest
     .> (markup bold " Dependency Graph: " :|)
  where
   maxRows :: Int
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
-  shrinkForestToScreenSize :: Forest (LinkTreeNode, Summaries) -> Forest SummariesTreeNode
+  shrinkForestToScreenSize :: Forest (LinkTreeNode, Summaries) -> Forest ElisionTreeNode
   shrinkForestToScreenSize forest = shrinkForestBy (length (foldMap Tree.flatten forest) - maxRows) forest
-  printSummariesTree :: Bool -> SummariesTreeNode -> Text
+  printSummariesTree :: Bool -> ElisionTreeNode -> Text
   printSummariesTree isLeaf = (uncurry . flip) \summaries ->
     let count = length summaries
      in maybe
@@ -292,9 +264,6 @@ printBuilds maybeWindow now =
 
 printStorePath :: StorePathNode -> Text
 printStorePath (StorePathNode path _ _) = name path
-
-mkLink :: (Either DerivationNode StorePathNode, Summaries) -> (Either Derivation StorePath, Summaries)
-mkLink (node, summaries) = (bimap derivation path node, summaries <> summarize node)
 
 printLink :: Int -> Either Derivation StorePath -> Text
 printLink num =

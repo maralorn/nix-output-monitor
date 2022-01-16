@@ -10,15 +10,18 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
+import Data.Tree (Forest, Tree)
 
 import Data.Attoparsec.Text (endOfInput, parseOnly)
 import qualified Nix.Derivation as Nix
 
+import Data.Foldable (minimum)
+import Data.Graph (Tree (Node))
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationInfo (..), DerivationNode (..), StorePathNode)
+import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationInfo (..), DerivationNode (..), LinkTreeNode, StorePathNode, Summaries, Summary (..), path)
 import qualified NOM.State as State
-import NOM.State.Tree (ForestUpdate (..), updateForest)
+import NOM.State.Tree (ForestUpdate (..), aggregateTree, replaceDuplicates, sortForest, updateForest)
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (..),
@@ -27,54 +30,72 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (hush, (.>), (<.>>), (<<|>>>), (<|>>), (|>))
+import NOM.Util (hush, (.>), (<.>>), (<<.>>>), (<<|>>>), (<|>>), (|>))
 import Optics ((%~), (.~))
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
 
-{-
-makeBuildForest ::
-  Map Derivation (Set Derivation) ->
-  Map Host (Set (Derivation, (UTCTime, Maybe Int))) ->
-  Map Host (Set (Derivation, Int, Int)) ->
-  [Tree Derivation Build]
-makeBuildForest derivationParents runningBuilds failedBuilds =
-  treeFromTupleMap toBuilding runningBuilds <> treeFromTupleMap toFailed failedBuilds
-    |> nonEmpty
-    <.>> reverseForest buildDerivation derivationParents
-    .> sortForest order
-    .> mergeForest
-    .> filterDoubles buildDerivation
-    .> sortForest order
-    |> maybe [] toList
- where
-  treeFromTupleMap tupleToBuild =
-    Map.toList
-      .> foldMap (uncurry (\host -> toList <.>> tupleToBuild .> uncurry (MkBuild host)))
-  toBuilding = second (uncurry Building)
-  toFailed (derivation, duration, exitCode) = (derivation, State.Failed duration exitCode)
-  order = \case
-    Leaf MkBuild{buildStatus = Building{buildStart}} -> pure (SBuilding buildStart)
-    Leaf MkBuild{buildStatus = State.Failed{}} -> pure SFailed
-    Node _ content -> NonEmpty.reverse $ NonEmpty.sort $ order =<< content
-    Link _ -> pure SLink
+data SortOrder
+  = -- First the failed builds starting with the earliest failures
+    SFailed UTCTime
+  | -- Second the running builds starting with longest running
+    -- For one build prefer the tree with the longest prefix for the highest probability of few permutations over time
+    SBuilding UTCTime (Down Int)
+  | SWhatever
+  | -- The longer a build is completed the less it matters
+    SDone (Down UTCTime)
+  | -- Links are really not that interesting
+    SLink
+  deriving (Eq, Show, Ord)
 
-data SortOrder = SFailed | SBuilding UTCTime | SLink deriving (Eq, Show, Ord)
-updateBuildForest :: BuildState -> BuildState
-updateBuildForest bs@BuildState{..} = bs{buildForest = makeBuildForest derivationParents runningBuilds failedBuilds}
--}
+mkOrder :: (a -> SortOrder) -> Tree a -> SortOrder
+mkOrder order = go
+ where
+  go (Node label subForest) = minimum (order label : (increaseLevel . go <$> subForest))
+
+increaseLevel :: SortOrder -> SortOrder
+increaseLevel = \case
+  SBuilding t i -> SBuilding t (i + 1)
+  s -> s
+
+nodeOrder :: Either DerivationNode b -> SortOrder
+nodeOrder = \case
+  Left (DerivationNode _ (Just (_, Building start _))) -> SBuilding start 0
+  Left (DerivationNode _ (Just (_, State.Failed _ _ at))) -> SFailed at
+  Left (DerivationNode _ (Just (_, Built _ at))) -> SDone (Down at)
+  _ -> SWhatever
+
+linkNodeOrder :: LinkTreeNode -> SortOrder
+linkNodeOrder = either nodeOrder (const SLink)
 
 updateState :: UpdateMonad m => (Maybe ParseResult, Text) -> BuildState -> m (BuildState, Text)
 updateState (update, buffer) = fmap (,buffer) <$> updateState' update
 
-updateState' :: UpdateMonad m => Maybe ParseResult -> BuildState -> m BuildState
-updateState' result oldState =
-  maybe (pure oldState) (processResult oldState) result
-  -- We run these update steps everytime because we simply can‘t know when a build is finished.
-    >>= detectLocalFinishedBuilds
+setInputReceived :: BuildState -> BuildState
+setInputReceived s = if inputReceived s then s else s{inputReceived = True}
 
-detectLocalFinishedBuilds :: UpdateMonad m => BuildState -> m BuildState
+updateState' :: UpdateMonad m => Maybe ParseResult -> BuildState -> m BuildState
+updateState' result (setInputReceived -> state1) = do
+  -- Update the state if any changes where parsed.
+  state2Maybe <- mapM (processResult state1) result
+  let state2 = fromMaybe state1 state2Maybe
+  -- Check if any local builds have finished, because nix-build would not tell us.
+  state3Maybe <- detectLocalFinishedBuilds state2
+  -- If any changes happened calculate a new cachedForest
+  fromMaybe state2 state3Maybe |> (if isJust state2Maybe || isJust state3Maybe then updateCachedShowForest else id) .> pure
+
+updateCachedShowForest :: BuildState -> BuildState
+updateCachedShowForest (field @"buildForest" %~ sortForest (mkOrder nodeOrder) -> newState) =
+  newState
+    { cachedShowForest =
+        newState |> buildForest
+          .> addSummariesToForest
+          .> replaceLinksInForest
+          .> sortForest (fmap fst .> mkOrder linkNodeOrder)
+    }
+
+detectLocalFinishedBuilds :: UpdateMonad m => BuildState -> m (Maybe BuildState)
 detectLocalFinishedBuilds oldState = do
   let runningLocalBuilds = Map.lookup Localhost (runningBuilds oldState) |> maybe mempty toList
   newCompletedOutputs <-
@@ -82,9 +103,11 @@ detectLocalFinishedBuilds oldState = do
       (maybe (pure False) storePathExists . drv2out oldState . fst)
       runningLocalBuilds
       <<|>>> second fst
-  oldState
-    |> (field @"inputReceived" .~ True)
-    .> finishBuilds Localhost newCompletedOutputs
+  if null newCompletedOutputs
+    then pure Nothing
+    else
+      oldState
+        |> finishBuilds Localhost newCompletedOutputs <.>> Just
 
 processResult :: UpdateMonad m => BuildState -> ParseResult -> m BuildState
 processResult oldState result = do
@@ -264,3 +287,20 @@ collapseMultimap :: Ord b => Map a (Set b) -> Set b
 collapseMultimap = Map.foldl' (<>) mempty
 countPaths :: Ord b => Map a (Set b) -> Int
 countPaths = Set.size . collapseMultimap
+
+addSummariesToForest :: BuildForest -> Forest (Either DerivationNode StorePathNode, Summaries)
+addSummariesToForest = fmap (aggregateTree summarize)
+replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summaries) -> Forest (LinkTreeNode, Summaries)
+replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
+
+mkLink :: (Either DerivationNode StorePathNode, Summaries) -> (Either Derivation StorePath, Summaries)
+mkLink (node, summaries) = (bimap derivation path node, summaries <> summarize node)
+
+summarize :: Either DerivationNode StorePathNode -> Summaries
+summarize =
+  \case
+    Left (DerivationNode d (Just (_, Built{}))) -> one (SummaryBuildDone d)
+    Left (DerivationNode d (Just (_, Building{}))) -> one (SummaryBuildRunning d)
+    Left (DerivationNode d (Just (_, State.Failed{}))) -> one (SummaryBuildFailed d)
+    Left (DerivationNode d Nothing) -> one (SummaryBuildWaiting d)
+    _ -> mempty

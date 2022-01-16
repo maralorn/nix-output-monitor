@@ -34,6 +34,22 @@ data DerivationInfo = MkDerivationInfo
 
 type BuildForest = Forest (Either DerivationNode StorePathNode)
 type LinkedBuildTree = Forest (Either (Either DerivationNode StorePathNode) (Either Derivation StorePath))
+type LinkTreeNode = Either (Either DerivationNode StorePathNode) (Either Derivation StorePath)
+type SummariesTreeNode = (LinkTreeNode, Summaries)
+type Summaries = Set Summary
+
+data Summary
+  = SummaryBuildDone Derivation
+  | SummaryBuildWaiting Derivation
+  | SummaryBuildRunning Derivation
+  | SummaryBuildFailed Derivation
+  | SummaryDownloadWaiting StorePath
+  | SummaryDownloadRunning StorePath
+  | SummaryDownloadDone StorePath
+  | SummaryUploadRunning StorePath
+  | SummaryUploadDone StorePath
+  deriving (Eq, Ord, Show, Read, Generic)
+type SummaryForest = Forest SummariesTreeNode
 
 data BuildState = BuildState
   { outstandingBuilds :: Set Derivation
@@ -50,6 +66,7 @@ data BuildState = BuildState
   , lastPlannedBuild :: Maybe Derivation
   , buildReports :: BuildReportMap
   , buildForest :: BuildForest
+  , cachedShowForest :: SummaryForest
   , startTime :: UTCTime
   , errors :: [Text]
   , inputReceived :: Bool
@@ -91,6 +108,7 @@ initalState = do
       mempty
       Nothing
       buildReports
+      mempty
       mempty
       now
       mempty
