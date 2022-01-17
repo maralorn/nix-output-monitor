@@ -12,7 +12,7 @@ import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
 import Data.Tree (Forest, Tree (Node))
 
-import Data.Generics.Product (field)
+import Data.Generics.Product (HasType (typed), field)
 import Optics ((%~), (.~))
 
 import Data.Attoparsec.Text (endOfInput, parseOnly)
@@ -21,7 +21,7 @@ import qualified Nix.Derivation as Nix
 
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationInfo (..), DerivationNode (..), LinkTreeNode, StorePathNode, Summary, path)
+import NOM.State (BuildForest, BuildState (..), BuildStatus (..), BuildTreeNode, DerivationInfo (..), DerivationNode (..), LinkTreeNode, StorePathNode (StorePathNode), StorePathState (DownloadPlanned, Downloaded, Uploaded), Summary, path)
 import qualified NOM.State as State
 import NOM.State.Tree (ForestUpdate (..), aggregateTree, replaceDuplicates, sortForest, updateForest)
 import NOM.Update.Monad (
@@ -43,9 +43,14 @@ data SortOrder
   | -- Second the running builds starting with longest running
     -- For one build prefer the tree with the longest prefix for the highest probability of few permutations over time
     SBuilding UTCTime (Down Int)
-  | SWhatever
+  | SDownloading
+  | SUploading
+  | SWaiting
+  | SDownloadWaiting
   | -- The longer a build is completed the less it matters
     SDone (Down UTCTime)
+  | SDownloaded
+  | SUploaded
   | -- Links are really not that interesting
     SLink
   deriving (Eq, Show, Ord)
@@ -60,12 +65,21 @@ increaseLevel = \case
   SBuilding t i -> SBuilding t (i + 1)
   s -> s
 
-nodeOrder :: Either DerivationNode b -> SortOrder
+nodeOrder :: BuildTreeNode -> SortOrder
 nodeOrder = \case
   Left (DerivationNode _ (Just (_, Building start _))) -> SBuilding start 0
   Left (DerivationNode _ (Just (_, State.Failed _ _ at))) -> SFailed at
   Left (DerivationNode _ (Just (_, Built _ at))) -> SDone (Down at)
-  _ -> SWhatever
+  Left (DerivationNode _ Nothing) -> SWaiting
+  Right (StorePathNode _ _ state') -> state' |> fmap storePathOrder .> minimum
+
+storePathOrder :: StorePathState -> SortOrder
+storePathOrder = \case
+   State.Downloaded _ -> SDownloaded
+   State.Downloading _ -> SDownloading
+   State.Uploaded _ -> SUploaded
+   State.Uploading _ -> SUploading
+   State.DownloadPlanned -> SDownloadWaiting
 
 linkNodeOrder :: LinkTreeNode -> SortOrder
 linkNodeOrder = either nodeOrder (const SLink)
@@ -114,16 +128,16 @@ processResult :: UpdateMonad m => BuildState -> ParseResult -> m BuildState
 processResult oldState result = do
   now <- getNow
   oldState |> case result of
-    Uploading path host -> uploading host path .> pure
+    Uploading path host -> uploaded host path .> pure
     Downloading path host ->
-      downloading host path
+      downloaded host path
         .> first toList
         .> uncurry (finishBuilds host)
     PlanCopies _ -> pure
     Build path host ->
       flip lookupDerivation path <.>> building host path now
     PlanBuilds plannedBuilds _lastBuild ->
-        flip (foldM lookupDerivation) plannedBuilds
+      flip (foldM lookupDerivation) plannedBuilds
         <.>> planBuilds plannedBuilds
     PlanDownloads _download _unpacked plannedDownloads ->
       planDownloads plannedDownloads .> pure
@@ -156,7 +170,7 @@ finishBuilds host builds' oldState = do
       .> (field @"runningBuilds" %~ Map.adjust (Set.filter ((`Set.notMember` newCompletedDrvs) . fst)) host)
 
 modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
-modifyBuildReports host = fmap (uncurry insertBuildReport) .> foldr (.) id
+modifyBuildReports host = fmap (uncurry insertBuildReport) .> foldl' (.) id
  where
   insertBuildReport name =
     Map.insertWith
@@ -170,23 +184,30 @@ out2drv :: BuildState -> StorePath -> Maybe Derivation
 out2drv s = flip Map.lookup (outputToDerivation s)
 
 failedBuild :: UTCTime -> Derivation -> Int -> BuildState -> BuildState
-failedBuild now drv code bs =
-  bs
+failedBuild now drv code buildState =
+  buildState
     |> (field @"failedBuilds" %~ maybe id (\(host, stamp) -> insertMultiMap host $ Set.singleton (drv, timeDiffInt now stamp, code)) buildHost)
     .> (field @"runningBuilds" %~ maybe id (Map.adjust (Set.filter ((drv /=) . fst)) . fst) buildHost)
-    .> (field @"buildForest" %~ updateForest (derivationUpdate bs drv (second buildState <$> buildHost)))
+    .> (field @"buildForest" %~ updateForest (derivationUpdate buildState drv (second buildStatus <$> buildHost)))
  where
-  buildState start = State.Failed{buildExitCode = code, buildDuration = timeDiffInt now start, buildEnd = now}
+  buildStatus start = State.Failed{buildExitCode = code, buildDuration = timeDiffInt now start, buildEnd = now}
   buildHost =
-    find ((== drv) . fst . snd) (mapM toList =<< Map.assocs (runningBuilds bs))
+    find ((== drv) . fst . snd) (mapM toList =<< Map.assocs (runningBuilds buildState))
       <|>> second (fst . snd)
 
 note :: a -> Maybe b -> Either a b
 note a = maybe (Left a) Right
 
 lookupDerivation :: MonadReadDerivation m => BuildState -> Derivation -> m BuildState
-lookupDerivation bs@BuildState{outputToDerivation, derivationInfos, derivationParents, errors} drv =
-  handleEither . mkDerivationInfo <$> getDerivation drv
+lookupDerivation buildState@BuildState{outputToDerivation, derivationInfos, derivationParents, errors} drv =
+  if Map.member drv derivationInfos
+    then pure buildState
+    else do
+      derivationInfo <- getDerivation drv <|>> mkDerivationInfo
+      derivationInfo
+        |> fmap (inputDrvs .> Map.keysSet)
+        .> fromRight mempty
+        .> foldM lookupDerivation (handleEither derivationInfo)
  where
   mkDerivationInfo = \derivationEither -> do
     derivation <- first (("during parsing the derivation: " <>) . toText) derivationEither
@@ -198,13 +219,13 @@ lookupDerivation bs@BuildState{outputToDerivation, derivationInfos, derivationPa
         }
   handleEither = \case
     Right infos ->
-      bs
+      buildState
         { outputToDerivation = foldl' (.) id ((`Map.insert` drv) <$> outputs infos) outputToDerivation
         , derivationInfos = Map.insert drv infos derivationInfos
         , derivationParents = foldl' (.) id ((`insertMultiMapOne` drv) <$> Map.keys (inputDrvs infos)) derivationParents
         }
     Left err ->
-      bs
+      buildState
         { errors = "Could not determine output path for derivation " <> toText drv <> " Error: " <> err : errors
         }
 
@@ -224,7 +245,7 @@ planBuilds derivations buildState =
   insertDerivation :: Derivation -> BuildForest -> BuildForest
   insertDerivation derivation' = updateForest (derivationUpdate buildState derivation' Nothing)
 
-derivationUpdate :: BuildState -> Derivation -> Maybe (Host, BuildStatus) -> ForestUpdate (Either DerivationNode StorePathNode)
+derivationUpdate :: BuildState -> Derivation -> Maybe (Host, BuildStatus) -> ForestUpdate BuildTreeNode
 derivationUpdate buildState derivation' newState = do
   let def = Left (DerivationNode derivation' newState)
   ForestUpdate
@@ -235,33 +256,82 @@ derivationUpdate buildState derivation' newState = do
     , def
     }
 
-isDirectDependency :: BuildState -> Either DerivationNode StorePathNode -> Either DerivationNode StorePathNode -> Bool
-isDirectDependency buildState parent' child' = case (parent', child') of
-  (Left (DerivationNode parent _), Left (DerivationNode child _)) -> maybe False (Set.member child . Map.keysSet . inputDrvs) (Map.lookup parent (derivationInfos buildState))
-  _ -> False
+storePathUpdate :: BuildState -> StorePath -> StorePathState -> ForestUpdate BuildTreeNode
+storePathUpdate buildState storePath newState = do
+  let drv = Map.lookup storePath (outputToDerivation buildState)
+      def = Right (StorePathNode storePath drv (one newState))
+  ForestUpdate
+    { isParent = flip (isDirectDependency buildState) def
+    , isChild = isDirectDependency buildState def
+    , match = matchStorePath storePath
+    , update = second ((typed %~ insertStorePathState newState) .> (typed .~ drv))
+    , def
+    }
 
-matchDerivation :: Derivation -> Either DerivationNode b -> Bool
+insertStorePathState :: StorePathState -> NonEmpty StorePathState -> NonEmpty StorePathState
+insertStorePathState storePathState = toList .> localFilter .> (storePathState :|)
+ where
+  localFilter = case storePathState of
+    DownloadPlanned -> id
+    State.Downloading _ -> filter (DownloadPlanned /=)
+    Downloaded h -> filter (State.Downloading h /=) .> filter (DownloadPlanned /=)
+    State.Uploading _ -> id
+    Uploaded h -> filter (State.Uploading h /=)
+
+isDirectDependency :: BuildState -> BuildTreeNode -> BuildTreeNode -> Bool
+isDirectDependency buildState parent' child' = fromMaybe False $ case (parent', child') of
+  (Left (DerivationNode parent _), Left (DerivationNode child _)) -> drvsDep parent child
+  (Left (DerivationNode parent _), Right child) -> drv2path parent child
+  (Right (StorePathNode _ (Just parent) _), Right child) -> drv2path parent child
+  (Right (StorePathNode _ Nothing _), Right _) -> Nothing
+  (Right _, Left _) -> Nothing
+ where
+  getInfo parent = Map.lookup parent (derivationInfos buildState)
+  drvsDep parent child = getInfo parent <|>> inputDrvs .> Map.keysSet .> Set.member child
+  drv2path parent = \case
+    (StorePathNode child Nothing _) -> getInfo parent <|>> inputSrcs .> Set.member child
+    (StorePathNode _ (Just child) _) -> drvsDep parent child
+
+matchDerivation :: Derivation -> BuildTreeNode -> Bool
 matchDerivation derivation' = either ((derivation' ==) . derivation) (const False)
+matchStorePath :: StorePath -> BuildTreeNode -> Bool
+matchStorePath storePath = either (const False) ((storePath ==) . path)
 
 planDownloads :: Set StorePath -> BuildState -> BuildState
-planDownloads storePath = field @"outstandingDownloads" %~ Set.union storePath
+planDownloads storePaths buildState =
+  buildState
+    |> (field @"outstandingDownloads" %~ Set.union storePaths)
+    .> ( field @"buildForest"
+          %~ ( storePaths
+                |> toList
+                .> fmap (\storePath -> updateForest (storePathUpdate buildState storePath DownloadPlanned))
+                .> foldl' (.>) id
+             )
+       )
 
-downloading :: Host -> StorePath -> BuildState -> (Maybe (Derivation, UTCTime), BuildState)
-downloading host storePath s@BuildState{outstandingDownloads, completedDownloads, runningBuilds} =
+downloaded :: Host -> StorePath -> BuildState -> (Maybe (Derivation, UTCTime), BuildState)
+downloaded host storePath buildState =
   ( second fst <$> done
-  , s
-      { outstandingDownloads = Set.delete storePath outstandingDownloads
-      , completedDownloads = newCompletedDownloads
-      }
+  , buildState
+      |> (field @"outstandingDownloads" %~ Set.delete storePath)
+      .> (field @"completedDownloads" %~ newCompletedDownloads)
+      .> (field @"buildForest" %~ updateForest (storePathUpdate buildState storePath (State.Downloaded host)))
   )
  where
-  newCompletedDownloads = insertMultiMap host (Set.singleton storePath) completedDownloads
-  drv = out2drv s storePath
-  done = find ((drv ==) . Just . fst) $ toList (Map.findWithDefault mempty host runningBuilds)
+  newCompletedDownloads = insertMultiMap host (Set.singleton storePath)
+  drv = out2drv buildState storePath
+  done =
+    buildState
+      |> runningBuilds
+        .> Map.findWithDefault mempty host
+        .> toList
+        .> find ((drv ==) . Just . fst)
 
-uploading :: Host -> StorePath -> BuildState -> BuildState
-uploading host storePath =
-  field @"completedUploads" %~ Map.insertWith Set.union host (Set.singleton storePath)
+uploaded :: Host -> StorePath -> BuildState -> BuildState
+uploaded host storePath buildState =
+  buildState
+    |> (field @"completedUploads" %~ Map.insertWith Set.union host (Set.singleton storePath))
+    .> (field @"buildForest" %~ updateForest (storePathUpdate buildState storePath (State.Uploaded host)))
 
 building :: Host -> Derivation -> UTCTime -> BuildState -> BuildState
 building host drv now oldState =

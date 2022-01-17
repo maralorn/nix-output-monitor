@@ -17,7 +17,7 @@ data DerivationNode = DerivationNode
 data StorePathNode
   = StorePathNode
       { path :: StorePath
-      , derivation :: Maybe (Derivation, Text)
+      , origDerivation :: Maybe Derivation
       , state :: NonEmpty StorePathState
       }
   deriving stock (Show, Eq, Ord, Read, Generic)
@@ -32,19 +32,18 @@ data DerivationInfo = MkDerivationInfo
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
 
-type Node = Either DerivationNode StorePathNode
+type BuildTreeNode = Either DerivationNode StorePathNode
 type Link = Either Derivation StorePath
-type BuildForest = Forest Node
-type LinkTreeNode = Either Node Link
+type BuildForest = Forest BuildTreeNode
+type LinkTreeNode = Either BuildTreeNode Link
 type LinkedBuildTree = Forest LinkTreeNode
 type SummaryTreeNode = (LinkTreeNode, Summary)
 type SummaryForest = Forest SummaryTreeNode
-type Summary = Set Node
+type Summary = Set BuildTreeNode
 
 data BuildState = BuildState
   { outstandingBuilds :: Set Derivation
   , outstandingDownloads :: Set StorePath
-  , plannedCopies :: Int
   , runningBuilds :: Map Host (Set (Derivation, (UTCTime, Maybe Int)))
   , completedBuilds :: Map Host (Set Derivation)
   , failedBuilds :: Map Host (Set (Derivation, Int, Int))
@@ -86,7 +85,6 @@ initalState = do
     BuildState
       mempty
       mempty
-      0
       mempty
       mempty
       mempty

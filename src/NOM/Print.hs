@@ -11,7 +11,7 @@ import Data.Tree (Forest)
 import qualified Data.Tree as Tree
 
 -- optics
-import Optics (has, preview, summing, united, (%), _2, _Just, _Left, _Nothing, _Right)
+import Optics (has, preview, summing, (%), _2, _Just, _Left, _Nothing, _Right)
 
 -- generic-optics
 import Data.Generics.Product (typed)
@@ -21,10 +21,12 @@ import Data.Generics.Sum (_Ctor)
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
 
+import Data.List (partition)
+import qualified Data.Text as Text
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildState (..), BuildStatus (Building, Built, Failed), DerivationNode (DerivationNode), LinkTreeNode, StorePathNode (StorePathNode), Summary, SummaryForest)
+import NOM.State (BuildState (..), BuildStatus (..), DerivationNode (..), Link, LinkTreeNode, StorePathNode (..), StorePathState (..), Summary, SummaryForest)
 import NOM.State.Tree (collapseForestN, mapTwigsAndLeafs)
 import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<|>>), (|>))
 
@@ -165,6 +167,7 @@ possibleElisions =
   [ has (_Right % _Right)
   , has (_Right % _Left)
   , has (_Left % _Left % typed % _Just % _2 % _Ctor @"Built")
+  , has (_Left % _Right)
   , has (_Left % _Left % typed % _Nothing)
   ]
 
@@ -197,34 +200,46 @@ printBuilds maybeWindow now =
   shrinkForestToScreenSize :: SummaryForest -> Forest ElisionTreeNode
   shrinkForestToScreenSize forest = shrinkForestBy (length (foldMap Tree.flatten forest) - maxRows) forest
   printSummariesTree :: Bool -> ElisionTreeNode -> Text
-  printSummariesTree isLeaf = (uncurry . flip) \summaries ->
-    let count = length summaries
-     in maybe
-          (markup grey (show count <> " more"))
-          ( either
-              (either printDerivation printStorePath .> (<> markup grey (showCond isLeaf printAndMore count)))
-              (printLink (count - 1))
-          )
-          .> (<> " " <> showSummaries summaries)
-  showSummaries :: Summary -> Text
-  showSummaries summaries =
-    bar red (has (_Just % _2 % _Ctor @"Failed"))
-      <> bar green (has (_Just % _2 % _Ctor @"Built"))
-      <> bar yellow (has (_Just % _2 % _Ctor @"Building"))
-      <> bar blue (has _Nothing) -- Waiting
-      <> memptyIfTrue
-        (null storePathStates)
-        ( "("
-            <> down
-            <> printNum (has (_Ctor @"Downloaded"))
-            <> "/"
-            <> printNum (has (summing (_Ctor @"DownloadPlanned") (_Ctor @"Downloaded" % united)))
-            <> ")"
+  printSummariesTree isLeaf = (uncurry . flip) \summary ->
+    maybe
+      (markup grey (printMore summary))
+      ( either
+          (either printDerivation printStorePath .> (<> markup grey (showCond isLeaf (printAndMore summary))))
+          (printLink summary)
+      )
+      .> (<> showSummary summary)
+  showSummary :: Summary -> Text
+  showSummary summaries =
+    (if Text.null totalBar then "" else " " <> totalBar)
+      <> markup
+        magenta
+        ( memptyIfTrue
+            (null downloads)
+            ( " ("
+                <> down
+                <> printNum (has (_Ctor @"Downloaded")) downloads
+                <> "/"
+                <> show (length downloads)
+                <> ")"
+            )
+            <> memptyIfTrue
+              (null uploads)
+              ( " ("
+                  <> up
+                  <> show (length uploads)
+                  <> ")"
+              )
         )
    where
+    totalBar =
+      bar red (has (_Just % _2 % _Ctor @"Failed"))
+        <> bar green (has (_Just % _2 % _Ctor @"Built"))
+        <> bar yellow (has (_Just % _2 % _Ctor @"Building"))
+        <> bar blue (has _Nothing) -- Waiting
     buildStates = toList summaries |> mapMaybe (preview (_Left % typed))
     storePathStates = toList summaries |> mapMaybe (preview (_Right % typed)) .> (fmap (toList @NonEmpty) .> join)
-    printNum p = storePathStates |> filter p .> length .> show
+    (uploads, downloads) = partition (has (summing (_Ctor @"Uploading") (_Ctor @"Uploaded"))) storePathStates
+    printNum p = filter p .> length .> show
     bar color p =
       buildStates
         |> filter p
@@ -262,16 +277,41 @@ printBuilds maybeWindow now =
           ]
 
 printStorePath :: StorePathNode -> Text
-printStorePath (StorePathNode path _ _) = name path
+printStorePath (StorePathNode path _ states) = markup magenta (foldMap (printStorePathState .> (<> " ")) states <> name path)
 
-printLink :: Int -> Either Derivation StorePath -> Text
-printLink num =
-  either toStorePath id
+printStorePathState :: StorePathState -> Text
+printStorePathState = \case
+  DownloadPlanned -> down <> todo
+  (Downloading _) -> down <> running
+  (Uploading _) -> up <> running
+  (Downloaded _) -> down <> done
+  (Uploaded _) -> up <> done
+
+printLink :: Summary -> Link -> Text
+printLink summary link =
+  link
+    |> either toStorePath id
     .> name
-    .> (<> markup grey (printAndMore num <> " ↴"))
+    .> (<> markup grey (printAndMore s <> " ↴"))
+ where
+  s = summary |> toList .> filter ((link /=) . bimap derivation path) .> fromList
 
-printAndMore :: Int -> Text
-printAndMore num = showCond (num > 0) (" and " <> show num <> " more")
+printAndMore :: Summary -> Text
+printAndMore summary = showCond (not (null summary)) (" and " <> printMore summary)
+
+printMore :: Summary -> Text
+printMore summary =
+  showCond
+    (not (null summary))
+    ( Text.intercalate
+        " and "
+        ( showCond (builds > 0) [show builds <> " builds"]
+            <> showCond (pathCounts > 0) [show pathCounts <> " transfers"]
+        )
+        <> " more"
+    )
+ where
+  (builds, pathCounts) = summary |> toList .> partitionEithers .> bimap length length
 
 hostMarkup :: Host -> Derivation -> Text
 hostMarkup Localhost build = markups [cyan, bold] (name . toStorePath $ build)
