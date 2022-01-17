@@ -193,7 +193,7 @@ printBuilds maybeWindow now =
   shrinkForestToScreenSize
     .> fmap (mapTwigsAndLeafs (printSummariesTree False) (printSummariesTree True))
     .> showForest
-    .> (markup bold " Dependency Graph: " :|)
+    .> (markup bold " Dependency Graph:" :|)
  where
   maxRows :: Int
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
@@ -207,29 +207,33 @@ printBuilds maybeWindow now =
           (either printDerivation printStorePath .> (<> markup grey (showCond isLeaf (printAndMore summary))))
           (printLink summary)
       )
-      .> (<> showSummary summary)
+      .> (<> " " <> showSummary summary)
   showSummary :: Summary -> Text
   showSummary summaries =
-    (if Text.null totalBar then "" else " " <> totalBar)
-      <> markup
-        magenta
-        ( memptyIfTrue
-            (null downloads)
-            ( " ("
+    [ [totalBar | not (Text.null totalBar)]
+    , memptyIfTrue
+        (null downloads)
+        [ markup
+            cyan
+            ( "("
                 <> down
-                <> printNum (has (_Ctor @"Downloaded")) downloads
-                <> "/"
-                <> show (length downloads)
+                <> show fullDownloads
+                <> showCond (length downloads > fullDownloads) ("/" <> show (length downloads))
                 <> ")"
             )
-            <> memptyIfTrue
-              (null uploads)
-              ( " ("
-                  <> up
-                  <> show (length uploads)
-                  <> ")"
-              )
-        )
+        ]
+    , memptyIfTrue
+        (null uploads)
+        [ markup
+            magenta
+            ( "("
+                <> up
+                <> show (length uploads)
+                <> ")"
+            )
+        ]
+    ]
+      |> join .> unwords
    where
     totalBar =
       bar red (has (_Just % _2 % _Ctor @"Failed"))
@@ -239,53 +243,56 @@ printBuilds maybeWindow now =
     buildStates = toList summaries |> mapMaybe (preview (_Left % typed))
     storePathStates = toList summaries |> mapMaybe (preview (_Right % typed)) .> (fmap (toList @NonEmpty) .> join)
     (uploads, downloads) = partition (has (summing (_Ctor @"Uploading") (_Ctor @"Uploaded"))) storePathStates
-    printNum p = filter p .> length .> show
+    fullDownloads = length (filter (has (_Ctor @"Downloaded")) downloads)
     bar color p =
       buildStates
         |> filter p
         .> length
         .> (`stimesMonoid` lb)
         .> markup color
-  --bar color p = markup color $ case () of
-  --_ | count <= 2 -> stimesMonoid count lb
-  --_ | count > 2, count < 10 -> lb <> show count <> stimesMonoid (count - 2) lb
-  --_ -> lb <> show count <> stimesMonoid (count - 3) lb
   printDerivation :: DerivationNode -> Text
-  printDerivation (DerivationNode derivation status) = case status of
-    Nothing -> markup blue . (todo <>) . name . toStorePath $ derivation
+  printDerivation (DerivationNode (toStorePath .> name -> name) status) = case status of
+    Nothing -> markup blue (todo <> " " <> name)
     Just (host, buildStatus) -> case buildStatus of
       Building t l ->
         unwords $
-          [ markup yellow running
-          , hostMarkup host derivation
+          [ markups [yellow, bold] (running <> " " <> name)
+          , hostMarkup host
           , clock
           , timeDiff now t
           ]
             <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) l
       Failed dur code _at ->
         unwords
-          [ markup yellow warning
-          , hostMarkup host derivation
+          [ markups [red, bold] (warning <> " " <> name)
+          , hostMarkup host
           , markups [red, bold] (unwords ["failed with exit code", show code, "after", clock, timeDiffSeconds dur])
           ]
       Built dur _at ->
         unwords
-          [ markup green done
-          , hostMarkup host derivation
+          [ markup green (done <> " " <> name)
+          , hostMarkup host
           , clock
           , timeDiffSeconds dur
           ]
 
 printStorePath :: StorePathNode -> Text
-printStorePath (StorePathNode path _ states) = markup magenta (foldMap (printStorePathState .> (<> " ")) states <> name path)
+printStorePath (StorePathNode path _ states) = foldMap (printStorePathState .> (<> " ")) states <> markup color (name path)
+ where
+  color = case last states of
+    DownloadPlanned -> cyan
+    (Downloading _) -> cyan
+    (Downloaded _) -> cyan
+    (Uploading _) -> magenta
+    (Uploaded _) -> magenta
 
 printStorePathState :: StorePathState -> Text
 printStorePathState = \case
-  DownloadPlanned -> down <> todo
-  (Downloading _) -> down <> running
-  (Uploading _) -> up <> running
-  (Downloaded _) -> down <> done
-  (Uploaded _) -> up <> done
+  DownloadPlanned -> markup cyan down <> markup blue todo
+  (Downloading _) -> markup cyan down <> markup yellow running
+  (Uploading _) -> markup magenta up <> markup yellow running
+  (Downloaded _) -> markup cyan down <> markup green done
+  (Uploaded _) -> markup magenta up <> markup green done
 
 printLink :: Summary -> Link -> Text
 printLink summary link =
@@ -297,25 +304,14 @@ printLink summary link =
   s = summary |> toList .> filter ((link /=) . bimap derivation path) .> fromList
 
 printAndMore :: Summary -> Text
-printAndMore summary = showCond (not (null summary)) (" and " <> printMore summary)
+printAndMore summary = showCond (not (null summary)) (" & " <> printMore summary)
 
 printMore :: Summary -> Text
-printMore summary =
-  showCond
-    (not (null summary))
-    ( Text.intercalate
-        " and "
-        ( showCond (builds > 0) [show builds <> " builds"]
-            <> showCond (pathCounts > 0) [show pathCounts <> " transfers"]
-        )
-        <> " more"
-    )
- where
-  (builds, pathCounts) = summary |> toList .> partitionEithers .> bimap length length
+printMore summary = showCond (not (null summary)) (show (length summary) <> " more")
 
-hostMarkup :: Host -> Derivation -> Text
-hostMarkup Localhost build = markups [cyan, bold] (name . toStorePath $ build)
-hostMarkup host build = hostMarkup Localhost build <> " on " <> markup magenta (toText host)
+hostMarkup :: Host -> Text
+hostMarkup Localhost = ""
+hostMarkup host = "on " <> markup magenta (toText host)
 
 timeFormat :: String
 timeFormat = "%02H:%02M:%02S"
