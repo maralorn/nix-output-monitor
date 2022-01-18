@@ -25,6 +25,7 @@ import System.Console.Terminal.Size (Window (Window), size)
 
 import NOM.Print.Table as Table (displayWidth, truncate)
 import NOM.Update.Monad (UpdateMonad)
+import NOM.Util ((.>), (|>))
 
 type Stream = S.SerialT IO
 type Output = Text
@@ -44,10 +45,9 @@ parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, me
 
 readTextChunks :: UF.Unfold IO Handle Text
 readTextChunks = UF.fromStream1 \handle -> fix \(streamTail :: Stream Text) ->
-  liftIO (try (TextIO.hGetChunk handle)) >>= \case
-    Left (_ :: IOException) -> streamTail
-    Right "" -> mempty
-    Right input -> input .: streamTail
+  liftIO (try @IOException (TextIO.hGetChunk handle)) >>= either (const streamTail) \case
+    "" -> mempty
+    input -> input .: streamTail
 
 runUpdates ::
   forall update state output.
@@ -67,16 +67,22 @@ writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar Output -> Out
 writeStateToScreen linesVar stateVar bufferVar printer = do
   now <- getCurrentTime
   terminalSize <- size
-  (writtenLines, buffer, linesToWrite, output) <- atomically $ do
+
+  -- Do this scrictly so that rendering the output does not flicker
+  (!writtenLines, !buffer, !linesToWrite, !output) <- atomically $ do
     buildState <- readTVar stateVar
     let output = truncateOutput terminalSize (printer terminalSize now buildState)
         linesToWrite = length (Text.lines output)
     writtenLines <- swapTVar linesVar linesToWrite
     buffer <- swapTVar bufferVar mempty
     pure (writtenLines, buffer, linesToWrite, output)
-  replicateM_ writtenLines $ do
+
+  -- Clear last output from screen.
+  replicateM_ writtenLines do
     cursorUpLine 1
     clearLine
+
+  -- Write new output to screen.
   putText buffer
   when (linesToWrite > 0) $ putTextLn output
   hFlush stdout
@@ -90,7 +96,7 @@ interact ::
   IO state
 interact parser updater printer initialState =
   S.unfold readTextChunks stdin
-    & processTextStream parser updater (Just printer) initialState
+    |> processTextStream parser updater (Just printer) initialState
 
 processTextStream ::
   forall update state.
@@ -106,22 +112,20 @@ processTextStream parser updater printerMay initialState inputStream = do
   let keepProcessing :: IO ()
       keepProcessing =
         inputStream
-          & parseStream parser
-          & S.fold (runUpdates stateVar bufferVar updater)
+          |> parseStream parser
+          .> S.fold (runUpdates stateVar bufferVar updater)
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . Text.null =<< readTVar bufferVar
-  case printerMay of
-    Just printer -> do
-      linesVar <- newTVarIO 0
-      let writeToScreen :: IO ()
-          writeToScreen = writeStateToScreen linesVar stateVar bufferVar printer
-          keepPrinting :: IO ()
-          keepPrinting = forever do
-            race_ (concurrently_ (threadDelay 20000) waitForInput) (threadDelay 1000000)
-            writeToScreen
-      race_ keepProcessing keepPrinting
-      writeToScreen
-    Nothing -> keepProcessing
+  printerMay |> maybe keepProcessing \printer -> do
+    linesVar <- newTVarIO 0
+    let writeToScreen :: IO ()
+        writeToScreen = writeStateToScreen linesVar stateVar bufferVar printer
+        keepPrinting :: IO ()
+        keepPrinting = forever do
+          race_ (concurrently_ (threadDelay 20000) waitForInput) (threadDelay 1000000)
+          writeToScreen
+    race_ keepProcessing keepPrinting
+    writeToScreen
   readTVarIO stateVar
 
 truncateOutput :: Maybe (Window Int) -> Text -> Text
