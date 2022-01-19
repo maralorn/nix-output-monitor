@@ -134,7 +134,7 @@ truncateOutput win output = maybe output go win
   go (Window rows columns) = Text.intercalate "\n" $ truncateColumns columns <$> truncatedRows rows
   truncateColumns columns line = if displayWidth line > columns then Table.truncate (columns - 1) line <> "…" <> toText (setSGRCode [Reset]) else line
   truncatedRows rows =
-    if length outputLines >= rows
-      then take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + 4 - rows) outputLines
+    if length outputLines >= rows - 2
+      then take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + 2 - rows) outputLines
       else outputLines
   outputLines = Text.lines output
