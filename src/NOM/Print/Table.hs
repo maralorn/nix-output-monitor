@@ -1,7 +1,6 @@
 module NOM.Print.Table (
   Entry,
   cells,
-  printAligned,
   printAlignedSep,
   prependLines,
   text,
@@ -118,8 +117,8 @@ verticalSlim, hsep :: Text
 verticalSlim = "│"
 hsep = " " <> verticalSlim <> " "
 
-printAligned :: NonEmpty (NonEmpty Entry) -> NonEmpty Text
-printAligned rows = printRow " " (toList $ widths "" rows) <$> rows
+--printAligned :: NonEmpty (NonEmpty Entry) -> NonEmpty Text
+--printAligned rows = printRow " " (toList $ widths "" rows) <$> rows
 printAlignedSep :: NonEmpty (NonEmpty Entry) -> NonEmpty Text
 printAlignedSep rows = printRow hsep (toList $ widths hsep rows) <$> rows
 

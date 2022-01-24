@@ -195,9 +195,6 @@ failedBuild now drv code buildState =
     find ((== drv) . fst . snd) (mapM toList =<< Map.assocs (runningBuilds buildState))
       <|>> second (fst . snd)
 
-note :: a -> Maybe b -> Either a b
-note a = maybe (Left a) Right
-
 lookupDerivation :: MonadReadDerivation m => BuildState -> Derivation -> m BuildState
 lookupDerivation buildState@BuildState{outputToDerivation, derivationInfos, derivationParents, errors} drv =
   if Map.member drv derivationInfos

@@ -1,6 +1,5 @@
 module NOM.State.Tree (
   ForestUpdate (..),
-  trimForest,
   replaceDuplicates,
   updateForest,
   sortForest,
@@ -70,12 +69,6 @@ aggregateTree :: Monoid b => (a -> b) -> Tree a -> Tree (a, b)
 aggregateTree summary = go
  where
   go (Node x (fmap go -> xs)) = Node (x, foldMap (uncurry (<>) . first summary . rootLabel) xs) xs
-
-trimForest :: (a -> Bool) -> Forest a -> Forest a
-trimForest keep = go
- where
-  go = mapMaybe keepTree
-  keepTree (Node label (go -> subForest)) = if keep label || not (null subForest) then Just (Node label subForest) else Nothing
 
 collapseForestN :: forall a b. Semigroup b => (a -> Bool) -> Int -> Forest (Maybe a, b) -> (Int, Forest (Maybe a, b))
 collapseForestN elider = go
