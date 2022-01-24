@@ -19,7 +19,8 @@ module NOM.Print.Table (
   truncate,
   markup,
   markups,
-grey) where
+  grey,
+) where
 
 import Relude hiding (truncate)
 
@@ -31,7 +32,7 @@ import Data.Char.WCWidth (wcwidth)
 
 -- ansi-terminal
 import System.Console.ANSI (
-  Color (Blue, Cyan, Green, Magenta, Red, Yellow, Black),
+  Color (Black, Blue, Cyan, Green, Magenta, Red, Yellow),
   ColorIntensity (Dull, Vivid),
   ConsoleIntensity (BoldIntensity),
   ConsoleLayer (Foreground),

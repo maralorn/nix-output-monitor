@@ -27,7 +27,7 @@ import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildState (..), BuildStatus (..), DerivationNode (..), Link, LinkTreeNode, StorePathNode (..), StorePathState (..), Summary, SummaryForest)
-import NOM.State.Tree (collapseForestN, mapTwigsAndLeafs)
+import NOM.State.Tree (collapseForestN, mapRootsTwigsAndLeafs)
 import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<|>>), (|>))
 
 lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
@@ -181,7 +181,7 @@ shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions li
     | nAfter <= 0 = forest''
     | otherwise = go moreElisions' nAfter forest''
    where
-    (nAfter, forest'') = collapseForestN nextElision n f
+    (nAfter, forest'') = collapseForestN (\x -> x |> nextElision .> bool Nothing (Just (either one (const mempty) x))) n f
     moreElisions' = moreElisions <|>> \e x -> e x || nextElision x
 
 printBuilds ::
@@ -191,7 +191,7 @@ printBuilds ::
   NonEmpty Text
 printBuilds maybeWindow now =
   shrinkForestToScreenSize
-    .> fmap (mapTwigsAndLeafs (printSummariesTree False) (printSummariesTree True))
+    .> fmap (mapRootsTwigsAndLeafs (printSummariesNode True) (printSummariesNode False) (printSummariesNode True))
     .> showForest
     .> (markup bold " Dependency Graph:" :|)
  where
@@ -199,15 +199,16 @@ printBuilds maybeWindow now =
   maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
   shrinkForestToScreenSize :: SummaryForest -> Forest ElisionTreeNode
   shrinkForestToScreenSize forest = shrinkForestBy (length (foldMap Tree.flatten forest) - maxRows) forest
-  printSummariesTree :: Bool -> ElisionTreeNode -> Text
-  printSummariesTree isLeaf = (uncurry . flip) \summary ->
-    maybe
-      (markup grey (printMore summary))
-      ( either
-          (either printDerivation printStorePath .> (<> markup grey (showCond isLeaf (printAndMore summary))))
-          (printLink summary)
-      )
-      .> (<> " " <> showSummary summary)
+  printSummariesNode :: Bool -> ElisionTreeNode -> Text
+  printSummariesNode isLeaf = (uncurry . flip) \summary' ->
+    let summary = showCond isLeaf (showSummary summary')
+     in maybe
+          summary
+          ( either
+              (either printDerivation printStorePath .> (<> showCond isLeaf (" " <> summary)))
+              printLink
+          )
+
   showSummary :: Summary -> Text
   showSummary summaries =
     [ [totalBar | not (Text.null totalBar)]
@@ -215,23 +216,14 @@ printBuilds maybeWindow now =
         (null downloads)
         [ markup
             cyan
-            ( "("
-                <> down
+            ( down
                 <> show fullDownloads
                 <> showCond (length downloads > fullDownloads) ("/" <> show (length downloads))
-                <> ")"
             )
         ]
     , memptyIfTrue
         (null uploads)
-        [ markup
-            magenta
-            ( "("
-                <> up
-                <> show (length uploads)
-                <> ")"
-            )
-        ]
+        [markup magenta (up <> show (length uploads))]
     ]
       |> join .> unwords
    where
@@ -249,7 +241,7 @@ printBuilds maybeWindow now =
         |> filter p
         .> length
         .> (`stimesMonoid` lb)
-        .> markup color
+        .> (\c -> memptyIfTrue (Text.null c) (markup color c))
   printDerivation :: DerivationNode -> Text
   printDerivation (DerivationNode (toStorePath .> name -> name) status) = case status of
     Nothing -> markup blue (todo <> " " <> name)
@@ -294,36 +286,30 @@ printStorePathState = \case
   (Downloaded _) -> markup cyan down <> markup green done
   (Uploaded _) -> markup magenta up <> markup green done
 
-printLink :: Summary -> Link -> Text
-printLink summary link =
+printLink :: Link -> Text
+printLink link =
   link
     |> either toStorePath id
     .> name
-    .> (<> markup grey (printAndMore s <> " ↴"))
- where
-  s = summary |> toList .> filter ((link /=) . bimap derivation path) .> fromList
-
-printAndMore :: Summary -> Text
-printAndMore summary = showCond (not (null summary)) (" & " <> printMore summary)
-
-printMore :: Summary -> Text
-printMore summary = showCond (not (null summary)) (show (length summary) <> " more")
+    .> (<> markup grey " ↴")
 
 hostMarkup :: Host -> Text
 hostMarkup Localhost = ""
 hostMarkup host = "on " <> markup magenta (toText host)
 
-timeFormat :: String
-timeFormat = "%02H:%02M:%02S"
-
 timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff =
   diffUTCTime
-    <.>> formatTime defaultTimeLocale timeFormat
+    <.>> printDuration
     .> toText
 
+printDuration :: NominalDiffTime -> Text
+printDuration diff
+  | diff < 60 = p "%Ss"
+  | diff < 60 * 60 = p "%Mm%Ss"
+  | otherwise = p "%Hh%Mm%Ss"
+ where
+  p x = diff |> formatTime defaultTimeLocale x .> toText
+
 timeDiffSeconds :: Int -> Text
-timeDiffSeconds =
-  fromIntegral
-    .> formatTime @NominalDiffTime defaultTimeLocale timeFormat
-    .> toText
+timeDiffSeconds = fromIntegral .> printDuration

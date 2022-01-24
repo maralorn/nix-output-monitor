@@ -5,7 +5,7 @@ module NOM.State.Tree (
   sortForest,
   aggregateTree,
   collapseForestN,
-  mapTwigsAndLeafs,
+  mapRootsTwigsAndLeafs,
 ) where
 
 import Relude
@@ -13,7 +13,7 @@ import Relude
 import qualified Data.Set as Set
 import Data.Tree (Forest, Tree (Node, subForest), rootLabel)
 
-import NOM.Util ((.>), (|>))
+import NOM.Util ((.>), (|>), (<.>>))
 
 subTrees :: Ord a => Tree a -> Set (Tree a)
 subTrees t = Set.insert t (foldMap subTrees (subForest t))
@@ -58,24 +58,25 @@ updateForest ForestUpdate{..} forest =
           (subMatch, subForest') = go subForest
        in (matches || subMatch, Node label ((if matches then (treeToInsert :) else id) subForest'))
 
-mapTwigsAndLeafs :: (a -> b) -> (a -> b) -> Tree a -> Tree b
-mapTwigsAndLeafs mapTwig mapLeaf = go
+mapRootsTwigsAndLeafs :: (a -> b) -> (a -> b) -> (a -> b) -> Tree a -> Tree b
+mapRootsTwigsAndLeafs mapRoot mapTwig mapLeaf = go True
  where
-  go = \case
+  go top = \case
     Node l [] -> Node (mapLeaf l) []
-    Node l rest -> Node (mapTwig l) (go <$> rest)
+    Node l rest | top -> Node (mapRoot l) (go False <$> rest)
+    Node l rest -> Node (mapTwig l) (go False <$> rest)
 
 aggregateTree :: Monoid b => (a -> b) -> Tree a -> Tree (a, b)
 aggregateTree summary = go
  where
   go (Node x (fmap go -> xs)) = Node (x, foldMap (uncurry (<>) . first summary . rootLabel) xs) xs
 
-collapseForestN :: forall a b. Semigroup b => (a -> Bool) -> Int -> Forest (Maybe a, b) -> (Int, Forest (Maybe a, b))
+collapseForestN :: forall a b. Semigroup b => (a -> Maybe b) -> Int -> Forest (Maybe a, b) -> (Int, Forest (Maybe a, b))
 collapseForestN elider = go
  where
   canElide :: Tree (Maybe a, b) -> Maybe b
   canElide = \case
-    Node (a, b) [] -> a |> maybe True elider .> bool Nothing (Just b)
+    Node (a, b) [] -> a |> maybe (Just b) (elider <.>> (b <>))
     _ -> Nothing
   go :: Int -> Forest (Maybe a, b) -> (Int, Forest (Maybe a, b))
   go n forest | n <= 0 = (n, forest)

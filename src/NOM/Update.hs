@@ -105,7 +105,7 @@ updateCachedShowForest (field @"buildForest" %~ sortForest (mkOrder nodeOrder) -
   newState
     { cachedShowForest =
         newState |> buildForest
-          .> addSummaryToForest
+          .> fmap (aggregateTree one)
           .> replaceLinksInForest
           .> sortForest (fmap fst .> mkOrder linkNodeOrder)
     }
@@ -340,8 +340,6 @@ building host drv now oldState =
   buildStatus = Just (host, Building{buildStart = now, buildNeeded = lastNeeded})
   lastNeeded = Map.lookup (host, getReportName drv) (buildReports oldState)
 
-addSummaryToForest :: BuildForest -> Forest (Either DerivationNode StorePathNode, Summary)
-addSummaryToForest = fmap (aggregateTree one)
 
 replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summary) -> Forest (LinkTreeNode, Summary)
 replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
