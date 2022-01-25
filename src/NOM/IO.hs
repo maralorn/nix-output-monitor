@@ -68,7 +68,7 @@ writeStateToScreen linesVar stateVar bufferVar printer = do
   now <- getCurrentTime
   terminalSize <- size
 
-  -- Do this scrictly so that rendering the output does not flicker
+  -- Do this strictly so that rendering the output does not flicker
   (!writtenLines, !buffer, !linesToWrite, !output) <- atomically $ do
     buildState <- readTVar stateVar
     let output = truncateOutput terminalSize (printer terminalSize now buildState)
