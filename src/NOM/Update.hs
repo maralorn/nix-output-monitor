@@ -1,5 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-
 module NOM.Update where
 
 import Relude
@@ -10,7 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
-import Data.Tree (Forest, Tree (Node))
+import Data.Tree (Tree (Node))
 
 import Data.Generics.Product (HasType (typed), field)
 import Optics ((%~), (.~))
@@ -21,9 +19,9 @@ import qualified Nix.Derivation as Nix
 
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildForest, BuildState (..), BuildStatus (..), BuildTreeNode, DerivationInfo (..), DerivationNode (..), LinkTreeNode, StorePathNode (StorePathNode), StorePathState (DownloadPlanned, Downloaded, Uploaded), Summary, path)
+import NOM.State (BuildForest, BuildState (..), BuildStatus (..), BuildTreeNode, DerivationInfo (..), DerivationNode (..), StorePathNode (..), StorePathState (..), path)
 import qualified NOM.State as State
-import NOM.State.Tree (ForestUpdate (..), aggregateTree, replaceDuplicates, sortForest, updateForest)
+import NOM.State.Tree (ForestUpdate (..), sortForest, updateForest)
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (..),
@@ -32,7 +30,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (hush, insertMultiMap, insertMultiMapOne, (.>), (<.>>), (<<.>>>), (<<|>>>), (<|>>), (|>))
+import NOM.Util (hush, insertMultiMap, insertMultiMapOne, (.>), (<.>>), (<<|>>>), (<|>>), (|>))
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -81,34 +79,18 @@ storePathOrder = \case
    State.Uploading _ -> SUploading
    State.DownloadPlanned -> SDownloadWaiting
 
-linkNodeOrder :: LinkTreeNode -> SortOrder
-linkNodeOrder = either nodeOrder (const SLink)
-
-updateState :: UpdateMonad m => (Maybe ParseResult, Text) -> BuildState -> m (BuildState, Text)
-updateState (update, buffer) = fmap (,buffer) <$> updateState' update
-
 setInputReceived :: BuildState -> BuildState
 setInputReceived s = if inputReceived s then s else s{inputReceived = True}
 
-updateState' :: UpdateMonad m => Maybe ParseResult -> BuildState -> m BuildState
-updateState' result (setInputReceived -> state1) = do
+updateState :: UpdateMonad m => Maybe ParseResult -> BuildState -> m (Maybe BuildState)
+updateState result (setInputReceived -> state1) = do
   -- Update the state if any changes where parsed.
   state2Maybe <- mapM (processResult state1) result
   let state2 = fromMaybe state1 state2Maybe
   -- Check if any local builds have finished, because nix-build would not tell us.
   state3Maybe <- detectLocalFinishedBuilds state2
   -- If any changes happened calculate a new cachedForest
-  fromMaybe state2 state3Maybe |> (if isJust state2Maybe || isJust state3Maybe then updateCachedShowForest else id) .> pure
-
-updateCachedShowForest :: BuildState -> BuildState
-updateCachedShowForest (field @"buildForest" %~ sortForest (mkOrder nodeOrder) -> newState) =
-  newState
-    { cachedShowForest =
-        newState |> buildForest
-          .> fmap (aggregateTree one)
-          .> replaceLinksInForest
-          .> sortForest (fmap fst .> mkOrder linkNodeOrder)
-    }
+  state3Maybe <|> state2Maybe |> fmap (field @"buildForest" %~ sortForest (mkOrder nodeOrder)) .> pure
 
 detectLocalFinishedBuilds :: UpdateMonad m => BuildState -> m (Maybe BuildState)
 detectLocalFinishedBuilds oldState = do
@@ -128,8 +110,8 @@ processResult :: UpdateMonad m => BuildState -> ParseResult -> m BuildState
 processResult oldState result = do
   now <- getNow
   oldState |> case result of
-    Uploading path host -> uploaded host path .> pure
-    Downloading path host ->
+    Parser.Uploading path host -> uploaded host path .> pure
+    Parser.Downloading path host ->
       downloaded host path
         .> first toList
         .> uncurry (finishBuilds host)
@@ -339,10 +321,3 @@ building host drv now oldState =
  where
   buildStatus = Just (host, Building{buildStart = now, buildNeeded = lastNeeded})
   lastNeeded = Map.lookup (host, getReportName drv) (buildReports oldState)
-
-
-replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summary) -> Forest (LinkTreeNode, Summary)
-replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
-
-mkLink :: (Either DerivationNode StorePathNode, Summary) -> (Either Derivation StorePath, Summary)
-mkLink (node, summary) = (bimap derivation path node, Set.insert node summary)

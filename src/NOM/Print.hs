@@ -1,5 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-
 module NOM.Print (stateToText) where
 
 import Relude
@@ -26,9 +24,10 @@ import qualified Data.Text as Text
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildState (..), BuildStatus (..), DerivationNode (..), Link, LinkTreeNode, StorePathNode (..), StorePathState (..), Summary, SummaryForest)
-import NOM.State.Tree (collapseForestN, mapRootsTwigsAndLeafs)
-import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<|>>), (|>))
+import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationNode (..), Link, LinkTreeNode, StorePathNode (..), StorePathState (..), Summary, SummaryForest)
+import NOM.State.Tree (aggregateTree, collapseForestN, mapRootsTwigsAndLeafs, replaceDuplicates, sortForest)
+import NOM.Update (SortOrder (SLink), mkOrder, nodeOrder)
+import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<<.>>>), (<|>>), (|>))
 
 lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 vertical = "┃"
@@ -50,14 +49,11 @@ lb = "▓"
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
-stateToText :: Maybe (Window Int) -> UTCTime -> BuildState -> Text
-stateToText maybeWindow now buildState@BuildState{..}
+stateToText :: BuildState -> Maybe (Window Int) -> UTCTime -> Text
+stateToText buildState@BuildState{..} maybeWindow now
   | not inputReceived = time <> showCond (diffUTCTime now startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
   | not anythingGoingOn = time
-  | otherwise =
-    buildsDisplay
-      <> table
-      <> unlines errors
+  | otherwise = buildsDisplay <> table <> unlines errors
  where
   anythingGoingOn = totalBuilds + downloadsDone + numOutstandingDownloads + numFailedBuilds > 0
   buildsDisplay =
@@ -67,7 +63,7 @@ stateToText maybeWindow now buildState@BuildState{..}
         (upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds maybeWindow now cachedShowForest)
+        (printBuilds maybeWindow now buildForest)
         <> "\n"
   table =
     prependLines
@@ -184,13 +180,25 @@ shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions li
     (nAfter, forest'') = collapseForestN (\x -> x |> nextElision .> bool Nothing (Just (either one (const mempty) x))) n f
     moreElisions' = moreElisions <|>> \e x -> e x || nextElision x
 
+replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summary) -> Forest (LinkTreeNode, Summary)
+replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
+
+mkLink :: (Either DerivationNode StorePathNode, Summary) -> (Either Derivation StorePath, Summary)
+mkLink (node, summary) = (bimap derivation path node, Set.insert node summary)
+
+linkNodeOrder :: LinkTreeNode -> SortOrder
+linkNodeOrder = either nodeOrder (const SLink)
+
 printBuilds ::
   Maybe (Window Int) ->
   UTCTime ->
-  SummaryForest ->
+  BuildForest ->
   NonEmpty Text
 printBuilds maybeWindow now =
-  shrinkForestToScreenSize
+  fmap (aggregateTree one)
+    .> replaceLinksInForest
+    .> sortForest (fmap fst .> mkOrder linkNodeOrder)
+    .> shrinkForestToScreenSize
     .> fmap (mapRootsTwigsAndLeafs (printSummariesNode True) (printSummariesNode False) (printSummariesNode True))
     .> showForest
     .> (markup bold " Dependency Graph:" :|)

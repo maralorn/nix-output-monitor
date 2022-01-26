@@ -4,6 +4,15 @@ import Relude
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Relude.Extra (toSnd)
+
+passThroughBuffer :: Functor m => (update -> state -> m state) -> (update, buffer) -> state -> m (state, buffer)
+passThroughBuffer updater (update, buffer) = updater update <.>> (,buffer)
+
+addPrintCache :: Functor m => (update -> state -> m (Maybe state)) -> (state -> cache) -> update -> (state, cache) -> m (state, cache)
+addPrintCache updater cacher update (oldState, oldCache) =
+  updater update oldState
+    <|>> maybe (oldState, oldCache) (toSnd cacher)
 
 insertMultiMap :: (Ord k, Ord a) => k -> Set a -> Map k (Set a) -> Map k (Set a)
 insertMultiMap = Map.insertWith Set.union
@@ -51,5 +60,5 @@ f <|>> g = f |> fmap g
 
 -- Functorial version of |>
 infixl 8 <<|>>>
-(<<|>>>) :: (Functor f, Functor g)  => f (g a) -> (a -> b) -> f (g b)
+(<<|>>>) :: (Functor f, Functor g) => f (g a) -> (a -> b) -> f (g b)
 f <<|>>> g = f <|>> fmap g

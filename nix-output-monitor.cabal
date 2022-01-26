@@ -21,6 +21,7 @@ common common-config
     ConstraintKinds
     DeriveAnyClass
     DeriveGeneric
+    DataKinds
     DerivingStrategies
     DuplicateRecordFields
     FlexibleContexts

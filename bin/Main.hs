@@ -1,6 +1,7 @@
 module Main where
 
 import Relude
+import Relude.Extra (toSnd)
 
 import Data.Text.IO (hPutStrLn)
 import Data.Version (showVersion)
@@ -11,9 +12,9 @@ import Paths_nix_output_monitor (version)
 import NOM.IO (interact)
 import NOM.Parser (parser)
 import NOM.Print (stateToText)
+import NOM.State (BuildState (failedBuilds), failedBuilds, initalState)
 import NOM.Update (updateState)
-import NOM.State (initalState, failedBuilds)
-import NOM.Util ( countPaths, (<||>) )
+import NOM.Util (addPrintCache, countPaths, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
 
 main :: IO ()
 main = do
@@ -27,9 +28,9 @@ main = do
       -- It's not a mistake if the user requests the help text, otherwise tell
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
-  firstState <- initalState
-  finalState <- interact parser updateState stateToText firstState
-  if countPaths (failedBuilds finalState) == 0
+  firstState <- initalState <|>> toSnd stateToText
+  finalState <- interact parser (passThroughBuffer (addPrintCache updateState stateToText)) snd firstState
+  if finalState |> fst .> failedBuilds .> countPaths .> (== 0)
     then exitSuccess
     else exitFailure
 
