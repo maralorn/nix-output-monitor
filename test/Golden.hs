@@ -13,9 +13,9 @@ import NOM.IO
 import NOM.Parser
 import NOM.State
 import NOM.Update
+import NOM.Update.Monad (UpdateMonad)
+import NOM.Util (passThroughBuffer, (.>), (<.>>), (<|>>), (|>))
 import System.Environment (lookupEnv)
-import NOM.Util ((<.>>), (|>), passThroughBuffer)
-import NOM.Update.Monad (getNow)
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -47,22 +47,24 @@ testBuild name asserts withNix =
             <&> (\(_, a, b) -> (a, b))
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
-    now <- getNow
     firstState <- initalState
-    endState <- processTextStream parser (passThroughBuffer (preserveState . updateState)) Nothing (now,firstState) (pure $ toText errors)
+    endState <- processTextStream parser (passThroughBuffer (preserveStateSnd . updateState)) Nothing finalizer (Nothing, firstState) (pure $ toText errors)
     asserts output (snd endState)
 
-preserveState :: Functor m => ((istate, state) -> m (istate, Maybe state)) -> (istate, state) -> m (istate, state)
-preserveState update (i,s) = (i,s) |> update <.>> second (fromMaybe s)
+finalizer :: UpdateMonad m => (a, BuildState) -> m (a, BuildState)
+finalizer (n, s) = detectLocalFinishedBuilds s <|>> fromMaybe s .> (n,)
+
+preserveStateSnd :: Functor m => ((istate, state) -> m (istate, Maybe state)) -> (istate, state) -> m (istate, state)
+preserveStateSnd update (i, s) = (i, s) |> update <.>> second (fromMaybe s)
 
 golden1 :: Bool -> Test
 golden1 = testBuild "golden1" $ \output endState -> do
-    let noOfBuilds = 4
-    assertBool "Everything built" (Set.null $ outstandingBuilds endState)
-    assertBool "No running builds" (Set.null $ fold $ runningBuilds endState)
-    assertEqual "Builds completed" noOfBuilds (Set.size $ fold $ completedBuilds endState)
-    let outputStorePaths = mapMaybe parseStorePath (String.lines output)
-    assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
-    let outputDerivations = mapMaybe (`Map.lookup` outputToDerivation endState) outputStorePaths
-    assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
-    assertBool "All found derivations have successfully been built" (all (`Set.member` (fold $ completedBuilds endState)) outputDerivations)
+  let noOfBuilds = 4
+  assertBool "Everything built" (Set.null $ outstandingBuilds endState)
+  assertBool "No running builds" (Set.null $ fold $ runningBuilds endState)
+  assertEqual "Builds completed" noOfBuilds (Set.size $ fold $ completedBuilds endState)
+  let outputStorePaths = mapMaybe parseStorePath (String.lines output)
+  assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
+  let outputDerivations = mapMaybe (`Map.lookup` outputToDerivation endState) outputStorePaths
+  assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
+  assertBool "All found derivations have successfully been built" (all (`Set.member` (fold $ completedBuilds endState)) outputDerivations)

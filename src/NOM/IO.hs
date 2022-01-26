@@ -29,8 +29,9 @@ import NOM.Util ((.>), (|>))
 
 type Stream = S.SerialT IO
 type Output = Text
-type UpdateFunc update state output = forall (m :: Type -> Type). UpdateMonad m => (update -> state -> m (state, output))
+type UpdateFunc update state output = forall m. UpdateMonad m => (update -> state -> m (state, output))
 type OutputFunc state = state -> Maybe (Window Int) -> UTCTime -> Output
+type Finalizer state = forall m. UpdateMonad m => state -> m state
 
 parseStream :: forall update. Parser update -> Stream Text -> Stream update
 parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, mempty)
@@ -92,21 +93,23 @@ interact ::
   Parser update ->
   UpdateFunc update state Output ->
   OutputFunc state ->
+  Finalizer state ->
   state ->
   IO state
-interact parser updater printer initialState =
+interact parser updater printer finalize initialState =
   S.unfold readTextChunks stdin
-    |> processTextStream parser updater (Just printer) initialState
+    |> processTextStream parser updater (Just printer) finalize initialState
 
 processTextStream ::
   forall update state.
   Parser update ->
   UpdateFunc update state Output ->
   Maybe (OutputFunc state) ->
+  Finalizer state ->
   state ->
   Stream Text ->
   IO state
-processTextStream parser updater printerMay initialState inputStream = do
+processTextStream parser updater printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
   let keepProcessing :: IO ()
@@ -125,8 +128,9 @@ processTextStream parser updater printerMay initialState inputStream = do
           race_ (concurrently_ (threadDelay 20000) waitForInput) (threadDelay 1000000)
           writeToScreen
     race_ keepProcessing keepPrinting
+    readTVarIO stateVar >>= finalize >>= writeTVar stateVar .> atomically
     writeToScreen
-  readTVarIO stateVar
+  readTVarIO stateVar |> (if isNothing printerMay then (>>= finalize) else id)
 
 truncateOutput :: Maybe (Window Int) -> Text -> Text
 truncateOutput win output = maybe output go win

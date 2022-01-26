@@ -83,7 +83,7 @@ storePathOrder = \case
 setInputReceived :: BuildState -> BuildState
 setInputReceived s = if inputReceived s then s else s{inputReceived = True}
 
-updateState :: UpdateMonad m => Maybe ParseResult -> (UTCTime, BuildState) -> m (UTCTime, Maybe BuildState)
+updateState :: UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, BuildState) -> m (Maybe UTCTime, Maybe BuildState)
 updateState result (lastAccess, state0) = do
   state1 <-
     state0 |> setInputReceived
@@ -93,9 +93,9 @@ updateState result (lastAccess, state0) = do
   -- Check if any local builds have finished, because nix-build would not tell us.
   -- If we haven‘t done so in the last 200ms.
   now <- getNow
-  let checkLocalBuildsOnTimeout :: UpdateMonad m => Maybe BuildState -> m (UTCTime, Maybe BuildState)
+  let checkLocalBuildsOnTimeout :: UpdateMonad m => Maybe BuildState -> m (Maybe UTCTime, Maybe BuildState)
       checkLocalBuildsOnTimeout
-        | diffUTCTime now lastAccess > 0.2 = (traverseToFst (fromMaybe state0 .> detectLocalFinishedBuilds) <.>> uncurry (<|>)) <.>> (now,)
+        | maybe True (diffUTCTime now .> (>= 0.2)) lastAccess = traverseToFst (fromMaybe state0 .> detectLocalFinishedBuilds) <.>> uncurry (<|>) <.>> (Just now,)
         | otherwise = (lastAccess,) .> pure
   checkLocalBuildsOnTimeout state1
     <|>> second (fmap (field @"buildForest" %~ sortForest (mkOrder nodeOrder)))
