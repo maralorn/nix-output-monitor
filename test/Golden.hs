@@ -14,6 +14,7 @@ import NOM.Parser
 import NOM.State
 import NOM.Update
 import System.Environment (lookupEnv)
+import NOM.Util ((<.>>), (|>), passThroughBuffer)
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -46,8 +47,11 @@ testBuild name asserts withNix =
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalState
-    endState <- processTextStream parser updateState Nothing firstState (pure $ toText errors)
+    endState <- processTextStream parser (passThroughBuffer (preserveState . updateState)) Nothing firstState (pure $ toText errors)
     asserts output endState
+
+preserveState :: Functor m => (state -> m (Maybe state)) -> state -> m state
+preserveState update b = b |> update <.>> fromMaybe b
 
 golden1 :: Bool -> Test
 golden1 = testBuild "golden1" $ \output endState -> do
