@@ -31,6 +31,7 @@ import NOM.Update.Monad (
   UpdateMonad,
  )
 import NOM.Util (hush, insertMultiMap, insertMultiMapOne, (.>), (<.>>), (<<|>>>), (<|>>), (|>))
+import Relude.Extra (traverseToFst)
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -73,24 +74,31 @@ nodeOrder = \case
 
 storePathOrder :: StorePathState -> SortOrder
 storePathOrder = \case
-   State.Downloaded _ -> SDownloaded
-   State.Downloading _ -> SDownloading
-   State.Uploaded _ -> SUploaded
-   State.Uploading _ -> SUploading
-   State.DownloadPlanned -> SDownloadWaiting
+  State.Downloaded _ -> SDownloaded
+  State.Downloading _ -> SDownloading
+  State.Uploaded _ -> SUploaded
+  State.Uploading _ -> SUploading
+  State.DownloadPlanned -> SDownloadWaiting
 
 setInputReceived :: BuildState -> BuildState
 setInputReceived s = if inputReceived s then s else s{inputReceived = True}
 
-updateState :: UpdateMonad m => Maybe ParseResult -> BuildState -> m (Maybe BuildState)
-updateState result (setInputReceived -> state1) = do
-  -- Update the state if any changes where parsed.
-  state2Maybe <- mapM (processResult state1) result
-  let state2 = fromMaybe state1 state2Maybe
+updateState :: UpdateMonad m => Maybe ParseResult -> (UTCTime, BuildState) -> m (UTCTime, Maybe BuildState)
+updateState result (lastAccess, state0) = do
+  state1 <-
+    state0 |> setInputReceived
+      -- Update the state if any changes where parsed.
+      .> processResult
+      .> forM result
   -- Check if any local builds have finished, because nix-build would not tell us.
-  state3Maybe <- detectLocalFinishedBuilds state2
-  -- If any changes happened calculate a new cachedForest
-  state3Maybe <|> state2Maybe |> fmap (field @"buildForest" %~ sortForest (mkOrder nodeOrder)) .> pure
+  -- If we haven‘t done so in the last 200ms.
+  now <- getNow
+  let checkLocalBuildsOnTimeout :: UpdateMonad m => Maybe BuildState -> m (UTCTime, Maybe BuildState)
+      checkLocalBuildsOnTimeout
+        | diffUTCTime now lastAccess > 0.2 = (traverseToFst (fromMaybe state0 .> detectLocalFinishedBuilds) <.>> uncurry (<|>)) <.>> (now,)
+        | otherwise = (lastAccess,) .> pure
+  checkLocalBuildsOnTimeout state1
+    <|>> second (fmap (field @"buildForest" %~ sortForest (mkOrder nodeOrder)))
 
 detectLocalFinishedBuilds :: UpdateMonad m => BuildState -> m (Maybe BuildState)
 detectLocalFinishedBuilds oldState = do

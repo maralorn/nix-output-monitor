@@ -1,18 +1,18 @@
 module NOM.Util where
 
 import Relude
+import Relude.Extra (toSnd)
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Relude.Extra (toSnd)
 
 passThroughBuffer :: Functor m => (update -> state -> m state) -> (update, buffer) -> state -> m (state, buffer)
 passThroughBuffer updater (update, buffer) = updater update <.>> (,buffer)
 
-addPrintCache :: Functor m => (update -> state -> m (Maybe state)) -> (state -> cache) -> update -> (state, cache) -> m (state, cache)
-addPrintCache updater cacher update (oldState, oldCache) =
-  updater update oldState
-    <|>> maybe (oldState, oldCache) (toSnd cacher)
+addPrintCache :: Functor m => (update -> (istate, state) -> m (istate, Maybe state)) -> (state -> cache) -> update -> (istate, state, cache) -> m (istate, state, cache)
+addPrintCache updater cacher update (oldIState, oldState, oldCache) =
+  updater update (oldIState, oldState)
+    <|>> second (maybe (oldState, oldCache) (toSnd cacher)) .> (\(a, (b, c)) -> (a, b, c))
 
 insertMultiMap :: (Ord k, Ord a) => k -> Set a -> Map k (Set a) -> Map k (Set a)
 insertMultiMap = Map.insertWith Set.union

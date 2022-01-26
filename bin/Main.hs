@@ -1,10 +1,10 @@
 module Main where
 
 import Relude
-import Relude.Extra (toSnd)
 
 import Data.Text.IO (hPutStrLn)
 import Data.Version (showVersion)
+import Optics (view, _2, _3)
 import System.Environment (getArgs)
 
 import Paths_nix_output_monitor (version)
@@ -14,7 +14,8 @@ import NOM.Parser (parser)
 import NOM.Print (stateToText)
 import NOM.State (BuildState (failedBuilds), failedBuilds, initalState)
 import NOM.Update (updateState)
-import NOM.Util (addPrintCache, countPaths, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
+import NOM.Update.Monad (getNow)
+import NOM.Util (addPrintCache, countPaths, passThroughBuffer, (.>), (<||>), (|>))
 
 main :: IO ()
 main = do
@@ -28,9 +29,10 @@ main = do
       -- It's not a mistake if the user requests the help text, otherwise tell
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
-  firstState <- initalState <|>> toSnd stateToText
-  finalState <- interact parser (passThroughBuffer (addPrintCache updateState stateToText)) snd firstState
-  if finalState |> fst .> failedBuilds .> countPaths .> (== 0)
+  firstState <- initalState
+  now <- getNow
+  finalState <- interact parser (passThroughBuffer (addPrintCache updateState stateToText)) (view _3) (now, firstState, stateToText firstState)
+  if (view _2 finalState |> failedBuilds .> countPaths) == 0
     then exitSuccess
     else exitFailure
 

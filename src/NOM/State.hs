@@ -2,12 +2,12 @@ module NOM.State where
 
 import Relude
 
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (UTCTime)
 import Data.Tree (Forest)
 
 import NOM.Parser (Derivation (..), Host (..), StorePath (..))
 import NOM.Update.Monad
-    ( BuildReportMap, MonadCacheBuildReports(getCachedBuildReports) )
+    ( BuildReportMap, MonadCacheBuildReports(getCachedBuildReports), MonadNow, getNow )
 
 data DerivationNode = DerivationNode
   { derivation :: Derivation
@@ -54,7 +54,6 @@ data BuildState = BuildState
   , derivationParents :: Map Derivation (Set Derivation)
   , buildReports :: BuildReportMap
   , buildForest :: BuildForest
-  , cachedShowForest :: SummaryForest
   , startTime :: UTCTime
   , errors :: [Text]
   , inputReceived :: Bool
@@ -77,9 +76,9 @@ data BuildStatus
       }
   deriving (Show, Eq, Ord, Read, Generic)
 
-initalState :: IO BuildState
+initalState :: (MonadCacheBuildReports m, MonadNow m) => m BuildState
 initalState = do
-  now <- getCurrentTime
+  now <- getNow
   buildReports <- getCachedBuildReports
   pure $
     BuildState
@@ -94,7 +93,6 @@ initalState = do
       mempty
       mempty
       buildReports
-      mempty
       mempty
       now
       mempty

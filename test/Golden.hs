@@ -15,6 +15,7 @@ import NOM.State
 import NOM.Update
 import System.Environment (lookupEnv)
 import NOM.Util ((<.>>), (|>), passThroughBuffer)
+import NOM.Update.Monad (getNow)
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -46,12 +47,13 @@ testBuild name asserts withNix =
             <&> (\(_, a, b) -> (a, b))
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
+    now <- getNow
     firstState <- initalState
-    endState <- processTextStream parser (passThroughBuffer (preserveState . updateState)) Nothing firstState (pure $ toText errors)
-    asserts output endState
+    endState <- processTextStream parser (passThroughBuffer (preserveState . updateState)) Nothing (now,firstState) (pure $ toText errors)
+    asserts output (snd endState)
 
-preserveState :: Functor m => (state -> m (Maybe state)) -> state -> m state
-preserveState update b = b |> update <.>> fromMaybe b
+preserveState :: Functor m => ((istate, state) -> m (istate, Maybe state)) -> (istate, state) -> m (istate, state)
+preserveState update (i,s) = (i,s) |> update <.>> second (fromMaybe s)
 
 golden1 :: Bool -> Test
 golden1 = testBuild "golden1" $ \output endState -> do
