@@ -16,7 +16,6 @@ import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
 -- data-default
 import Data.Default (def)
 
-
 -- filepath
 import System.FilePath ((</>))
 
@@ -53,6 +52,7 @@ instance MonadCacheBuildReports IO where
 tryUpdateBuildReports :: (BuildReportMap -> BuildReportMap) -> IO BuildReportMap
 tryUpdateBuildReports updateFunc = do
   dir <- buildReportsDir
+  createDirectoryIfMissing True dir
   withLockFile
     def{retryToAcquireLock = NumberOfTimes 10, sleepBetweenRetries = 500000}
     (dir </> withLockExt buildReportsFilename)
