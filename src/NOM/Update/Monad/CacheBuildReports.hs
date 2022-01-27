@@ -52,7 +52,7 @@ instance MonadCacheBuildReports IO where
 tryUpdateBuildReports :: (BuildReportMap -> BuildReportMap) -> IO BuildReportMap
 tryUpdateBuildReports updateFunc = do
   dir <- buildReportsDir
-  createDirectoryIfMissing True dir
+  catch @IOException (createDirectoryIfMissing True dir) (const pass)
   withLockFile
     def{retryToAcquireLock = NumberOfTimes 10, sleepBetweenRetries = 500000}
     (dir </> withLockExt buildReportsFilename)
