@@ -171,13 +171,13 @@ shrinkForestBy :: Int -> SummaryForest -> Forest ElisionTreeNode
 shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions linesToElide
  where
   go :: [LinkTreeNode -> Bool] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
-  go [] _ f = f
-  go (nextElision : moreElisions) n f
-    | n <= 0 = f
+  go [] _ forest = forest
+  go (nextElision : moreElisions) n forest
+    | n <= 0 = forest
     | nAfter <= 0 = forest''
     | otherwise = go moreElisions' nAfter forest''
    where
-    (nAfter, forest'') = collapseForestN (\x -> x |> nextElision .> bool Nothing (Just (either one (const mempty) x))) n f
+    (nAfter, forest'') = collapseForestN (\x -> x |> nextElision .> bool Nothing (Just (either one (const mempty) x))) n forest
     moreElisions' = moreElisions <|>> \e x -> e x || nextElision x
 
 replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summary) -> Forest (LinkTreeNode, Summary)
@@ -244,12 +244,11 @@ printBuilds maybeWindow now =
     storePathStates = toList summaries |> mapMaybe (preview (_Right % typed)) .> (fmap (toList @NonEmpty) .> join)
     (uploads, downloads) = partition (has (summing (_Ctor @"Uploading") (_Ctor @"Uploaded"))) storePathStates
     fullDownloads = length (filter (has (_Ctor @"Downloaded")) downloads)
-    bar color p =
-      buildStates
-        |> filter p
-        .> length
-        .> (`stimesMonoid` lb)
-        .> (\c -> memptyIfTrue (Text.null c) (markup color c))
+    countStates p =       buildStates        |> filter p        .> length
+    bar color (countStates -> c)
+      | c == 0 = ""
+      | c <= 10 = stimesMonoid c lb |> markup color
+      | otherwise = ("▓▓▓┄" <> show c <> "┄▓▓▓") |> markup color
   printDerivation :: DerivationNode -> Text
   printDerivation (DerivationNode (toStorePath .> name -> name) status) = case status of
     Nothing -> markup blue (todo <> " " <> name)
