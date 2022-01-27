@@ -213,7 +213,7 @@ printBuilds maybeWindow now =
      in maybe
           summary
           ( either
-              (either printDerivation printStorePath .> (<> showCond isLeaf (" " <> summary)))
+              (either printDerivation printStorePath .> (<> showCond (isLeaf && not (Text.null summary)) (markup grey " & " <> summary)))
               printLink
           )
 
@@ -256,25 +256,20 @@ printBuilds maybeWindow now =
     Just (host, buildStatus) -> case buildStatus of
       Building t l ->
         unwords $
-          [ markups [yellow, bold] (running <> " " <> name)
-          , hostMarkup host
-          , clock
-          , timeDiff now t
-          ]
+          [markups [yellow, bold] (running <> " " <> name)]
+            <> hostMarkup host
+            <> [clock, timeDiff now t]
             <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) l
       Failed dur code _at ->
-        unwords
-          [ markups [red, bold] (warning <> " " <> name)
-          , hostMarkup host
-          , markups [red, bold] (unwords ["failed with exit code", show code, "after", clock, timeDiffSeconds dur])
-          ]
+        unwords $
+          [markups [red, bold] (warning <> " " <> name)]
+            <> hostMarkup host
+            <> [markups [red, bold] (unwords ["failed with exit code", show code, "after", clock, timeDiffSeconds dur])]
       Built dur _at ->
-        unwords
-          [ markup green (done <> " " <> name)
-          , hostMarkup host
-          , clock
-          , timeDiffSeconds dur
-          ]
+        unwords $
+          [markup green (done <> " " <> name)]
+            <> hostMarkup host
+            <> [markup grey (clock <> " " <> timeDiffSeconds dur)]
 
 printStorePath :: StorePathNode -> Text
 printStorePath (StorePathNode path _ states) = foldMap (printStorePathState .> (<> " ")) states <> markup color (name path)
@@ -299,11 +294,12 @@ printLink link =
   link
     |> either toStorePath id
     .> name
-    .> (<> markup grey " ↴")
+    .> (<> " ↴")
+    .> markup grey
 
-hostMarkup :: Host -> Text
-hostMarkup Localhost = ""
-hostMarkup host = "on " <> markup magenta (toText host)
+hostMarkup :: Host -> [Text]
+hostMarkup Localhost = mempty
+hostMarkup host = ["on " <> markup magenta (toText host)]
 
 timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff =
