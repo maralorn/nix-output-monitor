@@ -1,4 +1,4 @@
 dist-newstyle
 .envrc
 .direnv
-result
+result*
