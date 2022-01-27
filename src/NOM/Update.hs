@@ -234,7 +234,7 @@ planBuilds derivations buildState =
 
 derivationUpdate :: BuildState -> Derivation -> Maybe (Host, BuildStatus) -> ForestUpdate BuildTreeNode
 derivationUpdate buildState derivation' newState = do
-  let def = Left (DerivationNode derivation' newState)
+  let def = Left @DerivationNode @StorePathNode (DerivationNode derivation' newState)
   ForestUpdate
     { isParent = flip (isDirectDependency buildState) def
     , isChild = isDirectDependency buildState def

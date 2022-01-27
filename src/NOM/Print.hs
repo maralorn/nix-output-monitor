@@ -2,8 +2,10 @@ module NOM.Print (stateToText) where
 
 import Relude
 
+import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 import Data.Tree (Forest)
 import qualified Data.Tree as Tree
@@ -19,8 +21,6 @@ import Data.Generics.Sum (_Ctor)
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
 
-import Data.List (partition)
-import qualified Data.Text as Text
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
@@ -244,7 +244,7 @@ printBuilds maybeWindow now =
     storePathStates = toList summaries |> mapMaybe (preview (_Right % typed)) .> (fmap (toList @NonEmpty) .> join)
     (uploads, downloads) = partition (has (summing (_Ctor @"Uploading") (_Ctor @"Uploaded"))) storePathStates
     fullDownloads = length (filter (has (_Ctor @"Downloaded")) downloads)
-    countStates p =       buildStates        |> filter p        .> length
+    countStates p = buildStates |> filter p .> length
     bar color (countStates -> c)
       | c == 0 = ""
       | c <= 10 = stimesMonoid c lb |> markup color
