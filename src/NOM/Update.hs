@@ -1,7 +1,6 @@
 module NOM.Update where
 
 import Relude
-import Relude.Extra (traverseToFst)
 
 import Control.Monad (foldM)
 import Data.Generics.Product (field, typed)
