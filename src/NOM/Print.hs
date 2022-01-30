@@ -6,7 +6,7 @@ import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
+import Data.Time (NominalDiffTime, UTCTime, defaultTimeLocale, diffUTCTime, formatTime, ZonedTime, zonedTimeToUTC)
 import Data.Tree (Forest)
 import qualified Data.Tree as Tree
 
@@ -24,9 +24,10 @@ import qualified System.Console.Terminal.Size as Window
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildForest, BuildState (..), BuildStatus (..), DerivationNode (..), Link, LinkTreeNode, StorePathNode (..), StorePathState (..), Summary, SummaryForest)
+import NOM.State (BuildStatus (..), DerivationInfo (..), NOMV1State (..), StorePathState (..), buildHost, getOutstandingDownloads, getCompletedDownloads, getCompletedUploads, getRunningBuilds, getCompletedBuilds, getOutstandingBuilds, getFailedBuilds, ProcessState (JustStarted, Finished))
 import NOM.State.Tree (aggregateTree, collapseForestN, mapRootsTwigsAndLeafs, replaceDuplicates, sortForest)
-import NOM.Update (SortOrder (SLink), mkOrder, nodeOrder)
+
+--import NOM.Update (SortOrder (SLink), mkOrder, nodeOrder)
 import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<<.>>>), (<|>>), (|>))
 
 lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
@@ -39,6 +40,7 @@ down = "⬇"
 up = "⬆"
 clock = "⏲"
 running = "▶"
+goal = "🏁"
 done = "✔"
 todo = "⏳"
 warning = "⚠"
@@ -49,22 +51,22 @@ lb = "▓"
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
-stateToText :: BuildState -> Maybe (Window Int) -> UTCTime -> Text
-stateToText buildState@BuildState{..} maybeWindow now
-  | not inputReceived = time <> showCond (diffUTCTime now startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
+stateToText :: NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
+stateToText buildState@MkNOMV1State{..} maybeWindow now
+  | processState == JustStarted = time <> showCond (diffUTCTime (zonedTimeToUTC now) startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
   | not anythingGoingOn = time
   | otherwise = buildsDisplay <> table <> unlines errors
  where
   anythingGoingOn = totalBuilds + downloadsDone + numOutstandingDownloads + numFailedBuilds > 0
-  buildsDisplay =
-    showCond
-      anythingGoingOn
-      $ prependLines
-        (upperleft <> horizontal)
-        (vertical <> " ")
-        (vertical <> " ")
-        (printBuilds maybeWindow now buildForest)
-        <> "\n"
+  buildsDisplay = "Top Builds: " <> (Map.filter Set.null derivationParents |> Map.keysSet .> foldMap (toStorePath .> name .> (<> " "))) <> "\n"
+  {-    showCond
+   anythingGoingOn
+   $ prependLines
+     (upperleft <> horizontal)
+     (vertical <> " ")
+     (vertical <> " ")
+     (printBuilds maybeWindow now buildForest)
+     <> "\n"-}
   table =
     prependLines
       (leftT <> stimes (3 :: Int) horizontal <> " ")
@@ -79,9 +81,7 @@ stateToText buildState@BuildState{..} maybeWindow now
       <> optHeader showHosts "Host"
   optHeader cond = showCond cond . one . bold . header :: Text -> [Entry]
   tableRows =
-    showCond
-      showHosts
-      (printHosts buildState showBuilds showDownloads showUploads)
+    showCond showHosts printHosts
       <> maybeToList (nonEmpty lastRow)
   lastRow =
     showCond
@@ -100,63 +100,62 @@ stateToText buildState@BuildState{..} maybeWindow now
 
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
+  outstandingDownloads = buildState |> getOutstandingDownloads
+  completedDownloads = buildState |> getCompletedDownloads
+  completedUploads = buildState |> getCompletedUploads
+  runningBuilds = buildState |> getRunningBuilds <.>> buildHost
+  outstandingBuilds = buildState |> getOutstandingBuilds
+  completedBuilds = buildState |> getCompletedBuilds <.>> buildHost
+  numFailedBuilds =  buildState |> getFailedBuilds .> Map.size
   showDownloads = downloadsDone + length outstandingDownloads > 0
-  showUploads = countPaths completedUploads > 0
-  numFailedBuilds = Set.size failedBuildsSet
+  showUploads = Map.size completedUploads > 0
   numOutstandingDownloads = Set.size outstandingDownloads
   numHosts =
-    Set.size (Set.filter (/= Localhost) (Map.keysSet runningBuilds <> Map.keysSet completedBuilds <> Map.keysSet completedUploads))
-  numRunningBuilds = Set.size runningBuildsSet
-  failedBuildsSet = collapseMultimap failedBuilds
-  completedBuildsSet = collapseMultimap completedBuilds
-  runningBuildsSet = collapseMultimap runningBuilds
-  numCompletedBuilds = Set.size completedBuildsSet
+    Set.size (Set.filter (/= Localhost) (foldMap one runningBuilds <> foldMap one completedBuilds <> foldMap one completedUploads))
+  numRunningBuilds = Map.size runningBuilds
+  numCompletedBuilds = Map.size completedBuilds
   numOutstandingBuilds = length outstandingBuilds
   totalBuilds = numOutstandingBuilds + numRunningBuilds + numCompletedBuilds
-  downloadsDone = countPaths completedDownloads
-  time = clock <> " " <> timeDiff now startTime
+  downloadsDone = Map.size completedDownloads
+  finishMarkup = if numFailedBuilds == 0 then((goal <> "Finished") <>) .> markup green  else ((warning <> " Exited with failures") <>) .> markup red
+  time = if processState == Finished then finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> timeDiff (zonedTimeToUTC now) startTime) else clock <> " " <> timeDiff (zonedTimeToUTC now) startTime
 
-printHosts :: BuildState -> Bool -> Bool -> Bool -> [NonEmpty Entry]
-printHosts BuildState{runningBuilds, completedBuilds, completedDownloads, completedUploads} showBuilds showDownloads showUploads =
-  mapMaybe nonEmpty $ labelForHost <$> hosts
- where
-  labelForHost h =
-    showCond
-      showBuilds
-      [ nonZeroShowBold numRunningBuilds (yellow (label running (disp numRunningBuilds)))
-      , nonZeroShowBold doneBuilds (green (label done (disp doneBuilds)))
-      , dummy
-      ]
-      <> showCond
-        showDownloads
-        [nonZeroShowBold downloads (green (label down (disp downloads))), dummy]
-      <> showCond
-        showUploads
-        [nonZeroShowBold uploads (green (label up (disp uploads)))]
-      <> one (magenta (header (toText h)))
+  printHosts :: [NonEmpty Entry]
+  printHosts =
+    mapMaybe nonEmpty $ labelForHost <$> hosts
    where
-    uploads = l h completedUploads
-    downloads = l h completedDownloads
-    numRunningBuilds = l h runningBuilds
-    doneBuilds = l h completedBuilds
-  hosts =
-    sort
-      . toList
-      $ Map.keysSet runningBuilds
-        <> Map.keysSet completedBuilds
-        <> Map.keysSet completedUploads
-        <> Map.keysSet completedDownloads
-  l host = Set.size . Map.findWithDefault mempty host
-
+    labelForHost h =
+      showCond
+        showBuilds
+        [ nonZeroShowBold numRunningBuilds (yellow (label running (disp numRunningBuildsOnHost)))
+        , nonZeroShowBold doneBuilds (green (label done (disp doneBuilds)))
+        , dummy
+        ]
+        <> showCond
+          showDownloads
+          [nonZeroShowBold downloads (green (label down (disp downloads))), dummy]
+        <> showCond
+          showUploads
+          [nonZeroShowBold uploads (green (label up (disp uploads)))]
+        <> one (magenta (header (toText h)))
+     where
+      uploads = l h completedUploads
+      downloads = l h completedDownloads
+      numRunningBuildsOnHost = l h runningBuilds
+      doneBuilds = l h completedBuilds
+    hosts =
+      sort . toList @Set $
+        foldMap (foldMap one) [runningBuilds, completedBuilds] <> foldMap (foldMap one) [completedUploads, completedDownloads]
+    l host = Map.size . Map.filter (host ==)
 nonZeroShowBold :: Int -> Entry -> Entry
 nonZeroShowBold num = if num > 0 then bold else const dummy
+
 nonZeroBold :: Int -> Entry -> Entry
 nonZeroBold num = if num > 0 then bold else id
 
+{-
 targetRatio :: Int
 targetRatio = 3
-
-type ElisionTreeNode = (Maybe LinkTreeNode, Summary)
 
 possibleElisions :: [LinkTreeNode -> Bool]
 possibleElisions =
@@ -188,11 +187,10 @@ mkLink (node, summary) = (bimap derivation path node, Set.insert node summary)
 
 linkNodeOrder :: LinkTreeNode -> SortOrder
 linkNodeOrder = either nodeOrder (const SLink)
-
 printBuilds ::
   Maybe (Window Int) ->
   UTCTime ->
-  BuildForest ->
+  NOMV1State ->
   NonEmpty Text
 printBuilds maybeWindow now =
   fmap (aggregateTree one)
@@ -295,10 +293,10 @@ printLink link =
     .> name
     .> (<> " ↴")
     .> markup grey
-
 hostMarkup :: Host -> [Text]
 hostMarkup Localhost = mempty
 hostMarkup host = ["on " <> markup magenta (toText host)]
+-}
 
 timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff =

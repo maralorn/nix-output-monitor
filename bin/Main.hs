@@ -4,20 +4,22 @@ import Relude
 
 import Data.Text.IO (hPutStrLn)
 import Data.Version (showVersion)
-import Optics (view, _2, _3)
+import Optics (view, _2, _3, (.~))
 import System.Environment (getArgs)
 import System.Console.Terminal.Size (Window)
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, ZonedTime)
 
 import Paths_nix_output_monitor (version)
 
 import NOM.IO (interact)
 import NOM.Parser (parser)
 import NOM.Print (stateToText)
-import NOM.State (BuildState (failedBuilds), failedBuilds, initalState)
+import NOM.State (NOMV1State, initalState, getFailedBuilds, ProcessState (..))
 import NOM.Update (detectLocalFinishedBuilds, updateState)
 import NOM.Update.Monad (UpdateMonad)
-import NOM.Util (addPrintCache, countPaths, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
+import NOM.Util (addPrintCache, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
+import qualified Data.Map.Strict as Map
+import Data.Generics.Product (typed)
 
 main :: IO ()
 main = do
@@ -33,12 +35,12 @@ main = do
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   firstState <- initalState
   finalState <- interact parser (passThroughBuffer (addPrintCache updateState stateToText)) (view _3) finalizer (Nothing, firstState, stateToText firstState)
-  if (view _2 finalState |> failedBuilds .> countPaths) == 0
+  if (view _2 finalState |> getFailedBuilds .> Map.size) == 0
     then exitSuccess
     else exitFailure
 
-finalizer :: UpdateMonad m => ((a, BuildState, Maybe (Window Int) -> UTCTime -> Text) -> m (a, BuildState, Maybe (Window Int) -> UTCTime -> Text))
-finalizer (n, s, p) = detectLocalFinishedBuilds s <|>> maybe (n, s, p) (\s' -> (n, s', stateToText s'))
+finalizer :: UpdateMonad m => ((a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text) -> m (a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text))
+finalizer (n, s, _) = detectLocalFinishedBuilds s <|>> fromMaybe s .> (typed .~ Finished) .> (\s' -> (n, s', stateToText s'))
 
 helpText :: Text
 helpText =

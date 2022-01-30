@@ -3,97 +3,96 @@ module NOM.State where
 import Relude
 
 import Data.Time (UTCTime)
-import Data.Tree (Forest)
 
+import Data.Generics.Product (the, typed)
+import Data.Generics.Sum (_As, _Ctor)
+import qualified Data.Map.Strict as Map
 import NOM.Parser (Derivation (..), Host (..), StorePath (..))
-import NOM.Update.Monad
-    ( BuildReportMap, MonadCacheBuildReports(getCachedBuildReports), MonadNow, getNow )
-
-data DerivationNode = DerivationNode
-  { derivation :: Derivation
-  , state :: Maybe (Host, BuildStatus)
-  }
-  deriving stock (Show, Eq, Ord, Read, Generic)
-data StorePathNode
-  = StorePathNode
-      { path :: StorePath
-      , origDerivation :: Maybe Derivation
-      , state :: NonEmpty StorePathState
-      }
-  deriving stock (Show, Eq, Ord, Read, Generic)
+import NOM.Update.Monad (
+  BuildReportMap,
+  MonadCacheBuildReports (getCachedBuildReports),
+  MonadNow,
+  getNow,
+ )
+import NOM.Util ((.>), (|>), (<.>>))
+import Optics (preview, has, (%), only)
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
   deriving stock (Show, Eq, Ord, Read, Generic)
 
 data DerivationInfo = MkDerivationInfo
   { outputs :: Map Text StorePath
-  , inputDrvs :: Map Derivation (Set Text)
-  , inputSrcs :: Set StorePath
+  , inputDerivations :: Map Derivation (Set Text)
+  , inputSources :: Set StorePath
+  , buildStatus :: BuildStatus
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
 
-type BuildTreeNode = Either DerivationNode StorePathNode
-type Link = Either Derivation StorePath
-type BuildForest = Forest BuildTreeNode
-type LinkTreeNode = Either BuildTreeNode Link
-type LinkedBuildTree = Forest LinkTreeNode
-type SummaryTreeNode = (LinkTreeNode, Summary)
-type SummaryForest = Forest SummaryTreeNode
-type Summary = Set BuildTreeNode
-
-data BuildState = BuildState
-  { outstandingBuilds :: Set Derivation
-  , outstandingDownloads :: Set StorePath
-  , runningBuilds :: Map Host (Set (Derivation, (UTCTime, Maybe Int)))
-  , completedBuilds :: Map Host (Set Derivation)
-  , failedBuilds :: Map Host (Set (Derivation, Int, Int))
-  , completedDownloads :: Map Host (Set StorePath)
-  , completedUploads :: Map Host (Set StorePath)
-  , outputToDerivation :: Map StorePath Derivation
-  , derivationInfos :: Map Derivation DerivationInfo
+data NOMV1State = MkNOMV1State
+  { derivationInfos :: Map Derivation DerivationInfo
+  , storePathInfos :: Map StorePath (NonEmpty StorePathState)
   , derivationParents :: Map Derivation (Set Derivation)
+  , storePathProducers :: Map StorePath (Derivation, Text)
+  , storePathInputFor :: Map StorePath (Set Derivation)
   , buildReports :: BuildReportMap
-  , buildForest :: BuildForest
   , startTime :: UTCTime
   , errors :: [Text]
-  , inputReceived :: Bool
+  , processState :: ProcessState
   }
+  deriving stock (Show, Eq, Ord, Read, Generic)
+
+data ProcessState = JustStarted | InputReceived | Finished
   deriving stock (Show, Eq, Ord, Read, Generic)
 
 data BuildStatus
-  = Building
-      { buildStart :: UTCTime
-      , buildNeeded :: Maybe Int
-      }
-  | Failed
-      { buildDuration :: Int
-      , buildExitCode :: Int
-      , buildEnd :: UTCTime
-      }
-  | Built
-      { buildDuration :: Int
-      , buildEnd :: UTCTime
-      }
+  = Unknown
+  | Planned
+  | Building (BuildInfo ())
+  | Failed (BuildInfo (UTCTime, Int)) -- End and ExitCode
+  | Built (BuildInfo UTCTime) -- end
   deriving (Show, Eq, Ord, Read, Generic)
 
-initalState :: (MonadCacheBuildReports m, MonadNow m) => m BuildState
+data BuildInfo a = MkBuildInfo
+  { buildStart :: UTCTime
+  , buildHost :: Host
+  , buildEstimate :: Maybe Int
+  , buildEnd :: a
+  }
+  deriving (Show, Eq, Ord, Read, Generic, Functor)
+
+initalState :: (MonadCacheBuildReports m, MonadNow m) => m NOMV1State
 initalState = do
   now <- getNow
   buildReports <- getCachedBuildReports
   pure $
-    BuildState
-      mempty
-      mempty
-      mempty
-      mempty
-      mempty
+    MkNOMV1State
       mempty
       mempty
       mempty
       mempty
       mempty
       buildReports
-      mempty
       now
       mempty
-      False
+      JustStarted
+
+getRunningBuildsByHost :: Host -> NOMV1State -> Map Derivation (BuildInfo ())
+getRunningBuildsByHost host = getRunningBuilds .> Map.filter (buildHost .> (==host))
+getOutstandingDownloads :: NOMV1State -> Set StorePath
+getOutstandingDownloads = storePathInfos .> Map.filter (elem DownloadPlanned) .> Map.keysSet
+getCompletedUploads :: NOMV1State -> Map StorePath Host
+getCompletedUploads =  storePathInfos .> Map.mapMaybe ((toList .> mapMaybe (preview (_Ctor @"Uploaded"))) .> listToMaybe)
+getCompletedDownloads :: NOMV1State -> Map StorePath Host
+getCompletedDownloads =  storePathInfos .> Map.mapMaybe ((toList .> mapMaybe (preview (_Ctor @"Downloaded"))) .> listToMaybe)
+getRunningBuilds :: NOMV1State -> Map Derivation (BuildInfo ())
+getRunningBuilds =  derivationInfos .> Map.mapMaybe (buildStatus .> preview (_Ctor @"Building"))
+getFailedBuilds :: NOMV1State -> Map Derivation (BuildInfo (UTCTime, Int))
+getFailedBuilds =  derivationInfos .> Map.mapMaybe (buildStatus .> preview (_Ctor @"Failed"))
+getCompletedBuilds :: NOMV1State -> Map Derivation (BuildInfo UTCTime)
+getCompletedBuilds = derivationInfos .> Map.mapMaybe (buildStatus .> preview (_Ctor @"Built"))
+getOutstandingBuilds :: NOMV1State -> Set Derivation
+getOutstandingBuilds =  derivationInfos .> Map.filter (buildStatus .> has (_Ctor @"Planned")) .> Map.keysSet
+drv2out :: NOMV1State -> Derivation -> Maybe StorePath
+drv2out s = Map.lookup "out" . outputs <=< flip Map.lookup (derivationInfos s)
+out2drv :: NOMV1State -> StorePath -> Maybe Derivation
+out2drv s = flip Map.lookup (storePathProducers s) <.>> fst

@@ -6,10 +6,10 @@ import Data.Set (union)
 import Relude.Unsafe as Unsafe (fromJust)
 import System.Directory (doesPathExist)
 
-import NOM.State (BuildState (completedBuilds, outstandingBuilds, runningBuilds))
-import NOM.Update (drv2out)
+import NOM.State (NOMV1State (..))
 
-printState :: BuildState -> IO ()
+{-
+printState :: NOMV1State -> IO ()
 printState endState = do
   let po x = do
         let out = toText . Unsafe.fromJust $ drv2out endState x
@@ -28,3 +28,4 @@ printState endState = do
     (foldl' union mempty $ runningBuilds endState)
   putTextLn "CompletedBuilds:"
   mapM_ (putTextLn <=< po) (foldl' union mempty $ completedBuilds endState)
+-}

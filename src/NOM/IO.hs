@@ -8,7 +8,7 @@ import Control.Concurrent.STM (check, swapTVar)
 import Control.Exception (IOException, try)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (UTCTime, getCurrentTime, ZonedTime, getZonedTime)
 import System.IO (hFlush)
 
 import qualified Streamly as S
@@ -30,7 +30,7 @@ import NOM.Util ((.>), (|>))
 type Stream = S.SerialT IO
 type Output = Text
 type UpdateFunc update state output = forall m. UpdateMonad m => (update -> state -> m (state, output))
-type OutputFunc state = state -> Maybe (Window Int) -> UTCTime -> Output
+type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
 type Finalizer state = forall m. UpdateMonad m => state -> m state
 
 parseStream :: forall update. Parser update -> Stream Text -> Stream update
@@ -66,7 +66,7 @@ runUpdates stateVar bufferVar updater = FL.drainBy \input -> do
 
 writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar Output -> OutputFunc state -> IO ()
 writeStateToScreen linesVar stateVar bufferVar printer = do
-  now <- getCurrentTime
+  now <- getZonedTime
   terminalSize <- size
 
   -- Do this strictly so that rendering the output does not flicker

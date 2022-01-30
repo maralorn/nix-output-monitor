@@ -6,6 +6,9 @@ import Relude.Extra (toSnd)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+foldEndo :: Foldable f => f (a -> a) -> a -> a
+foldEndo = foldMap Endo .> appEndo
+
 passThroughBuffer :: Functor m => (update -> state -> m state) -> (update, buffer) -> state -> m (state, buffer)
 passThroughBuffer updater (update, buffer) = updater update <.>> (,buffer)
 
