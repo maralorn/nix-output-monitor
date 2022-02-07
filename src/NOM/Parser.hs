@@ -1,3 +1,6 @@
+
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeFamilies #-}
 module NOM.Parser where
 
 import Relude hiding (take, takeWhile)
@@ -18,6 +21,8 @@ import Data.Attoparsec.Text (
   takeWhile,
  )
 import Data.Text (stripSuffix)
+import Data.MemoTrie
+import NOM.Util ((.>), (|>), (<.>>))
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -40,10 +45,27 @@ data StorePath = StorePath
   { hash :: !Text
   , name :: !Text
   }
-  deriving stock (Show, Ord, Eq, Read)
+  deriving stock (Show, Ord, Eq, Read, Generic)
+
+toRep :: StorePath -> (String, String)
+toRep StorePath{..}= (toString hash, toString name)
+fromRep :: (String, String) -> StorePath
+fromRep = bimap toText toText .> uncurry StorePath
 
 newtype Derivation = Derivation {toStorePath :: StorePath}
-  deriving stock (Show, Ord, Eq, Read)
+  deriving stock (Show, Ord, Eq, Read, Generic)
+
+instance HasTrie StorePath where
+  newtype (StorePath :->: b) = StorePathTrie { unStorePathTrie :: (String,String) :->: b }
+  trie = \f -> StorePathTrie (trie (fromRep .> f))
+  untrie theTrie = toRep .> (theTrie |> unStorePathTrie .> untrie)
+  enumerate = unStorePathTrie .> enumerate <.>> first fromRep
+
+instance HasTrie Derivation where
+  newtype (Derivation :->: b) = DerivationTrie { unDerivationTrie :: StorePath :->: b }
+  trie = \f -> DerivationTrie (trie (Derivation .> f))
+  untrie theTrie = toStorePath .> (theTrie |> unDerivationTrie .> untrie)
+  enumerate = unDerivationTrie .> enumerate <.>> first Derivation
 
 instance ToText Derivation where
   toText = (<> ".drv") . toText . toStorePath
@@ -105,14 +127,13 @@ indent = () <$ string "  "
 planBuilds :: Parser ParseResult
 planBuilds =
   maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x))) . nonEmpty
-    =<< ( choice
+    =<< choice
             [ string "these derivations will be built:"
             , string "this derivation will be built:"
             , string "these " *> (decimal :: Parser Int) *> string " derivations will be built:"
             ]
             *> endOfLine
             *> many planBuildLine
-        )
 
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivation <* endOfLine
@@ -147,7 +168,7 @@ checking = Checking <$> (string "checking outputs of " *> inTicks derivation <* 
 copying :: Parser ParseResult
 copying =
   string "copying "
-    *> (transmission <|> (PlanCopies <$> decimal <* string " paths" <* ellipsisEnd))
+    *> (transmission <|> PlanCopies <$> decimal <* string " paths" <* ellipsisEnd)
 
 transmission :: Parser ParseResult
 transmission = do

@@ -52,6 +52,7 @@ common common-config
     , filepath
     , generic-optics
     , lock-file
+    , MemoTrie
     , mtl
     , nix-derivation
     , optics
@@ -63,6 +64,7 @@ common common-config
     , text
     , time
     , unix
+    , vector
     , wcwidth
 
   default-language:   Haskell2010

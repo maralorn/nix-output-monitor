@@ -149,8 +149,6 @@ timeDiffInt = diffUTCTime <.>> floor
 finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(Derivation, BuildInfo ())] -> NOMV1State -> m NOMV1State
 finishBuilds host builds' oldState = do
   now <- getNow
-  --  let derivationUpdates = foldl' (.) id $ updateForest . uncurry mkUpdate <$> builds'
-  --      mkUpdate drv start = derivationUpdate oldState drv (Just (host, Built (timeDiffInt now start) now))
   updateReport <- nonEmpty builds' |> maybe (pure id) \builds -> reportFinishingBuilds host (builds <|>> second buildStart) <|>> (typed .~)
   let derivationUpdates = builds' <|>> \(drv, info) -> Map.adjust (typed .~ Built (info $> now)) drv
   oldState |> updateReport .> (field @"derivationInfos" %~ appEndo (foldMap Endo derivationUpdates)) .> pure

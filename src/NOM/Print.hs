@@ -24,7 +24,7 @@ import qualified System.Console.Terminal.Size as Window
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildStatus (..), DerivationInfo (..), NOMV1State (..), StorePathState (..), buildHost, getOutstandingDownloads, getCompletedDownloads, getCompletedUploads, getRunningBuilds, getCompletedBuilds, getOutstandingBuilds, getFailedBuilds, ProcessState (JustStarted, Finished))
+import NOM.State (BuildStatus (..), DerivationInfo (..), NOMV1State (..), StorePathState (..), buildHost, ProcessState (JustStarted, Finished), getSummary, topDrvs, DependencySummary (..))
 import NOM.State.Tree (aggregateTree, collapseForestN, mapRootsTwigsAndLeafs, replaceDuplicates, sortForest)
 
 --import NOM.Update (SortOrder (SLink), mkOrder, nodeOrder)
@@ -57,8 +57,13 @@ stateToText buildState@MkNOMV1State{..} maybeWindow now
   | not anythingGoingOn = time
   | otherwise = buildsDisplay <> table <> unlines errors
  where
-  anythingGoingOn = totalBuilds + downloadsDone + numOutstandingDownloads + numFailedBuilds > 0
-  buildsDisplay = "Top Builds: " <> (Map.filter Set.null derivationParents |> Map.keysSet .> foldMap (toStorePath .> name .> (<> " "))) <> "\n"
+  summary = getSummary buildState
+  MkDependencySummary{..} = summary Nothing
+  runningBuilds' = runningBuilds <|>> buildHost
+  completedBuilds' = completedBuilds <|>> buildHost
+  numFailedBuilds = Map.size failedBuilds
+  anythingGoingOn = totalBuilds + downloadsDone + numPlannedDownloads + numFailedBuilds > 0
+  buildsDisplay = "Top Builds: " <> (topDrvs buildState |> foldMap (toStorePath .> name .> (<> " "))) <> "\n"
   {-    showCond
    anythingGoingOn
    $ prependLines
@@ -88,34 +93,27 @@ stateToText buildState@MkNOMV1State{..} maybeWindow now
       showBuilds
       [ nonZeroBold numRunningBuilds (yellow (label running (disp numRunningBuilds)))
       , nonZeroBold numCompletedBuilds (green (label done (disp numCompletedBuilds)))
-      , nonZeroBold numOutstandingBuilds (blue (label todo (disp numOutstandingBuilds)))
+      , nonZeroBold numPlannedBuilds (blue (label todo (disp numPlannedBuilds)))
       ]
       <> showCond
         showDownloads
         [ nonZeroBold downloadsDone (green (label down (disp downloadsDone)))
-        , nonZeroBold numOutstandingDownloads . blue . label todo . disp $ numOutstandingDownloads
+        , nonZeroBold numPlannedDownloads . blue . label todo . disp $ numPlannedDownloads
         ]
       <> showCond showUploads [text ""]
       <> (one . bold . header $ time)
 
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
-  outstandingDownloads = buildState |> getOutstandingDownloads
-  completedDownloads = buildState |> getCompletedDownloads
-  completedUploads = buildState |> getCompletedUploads
-  runningBuilds = buildState |> getRunningBuilds <.>> buildHost
-  outstandingBuilds = buildState |> getOutstandingBuilds
-  completedBuilds = buildState |> getCompletedBuilds <.>> buildHost
-  numFailedBuilds =  buildState |> getFailedBuilds .> Map.size
-  showDownloads = downloadsDone + length outstandingDownloads > 0
+  showDownloads = downloadsDone + length plannedDownloads > 0
   showUploads = Map.size completedUploads > 0
-  numOutstandingDownloads = Set.size outstandingDownloads
+  numPlannedDownloads = Set.size plannedDownloads
   numHosts =
-    Set.size (Set.filter (/= Localhost) (foldMap one runningBuilds <> foldMap one completedBuilds <> foldMap one completedUploads))
+    Set.size (Set.filter (/= Localhost) (foldMap one runningBuilds' <> foldMap one completedBuilds' <> foldMap one completedUploads))
   numRunningBuilds = Map.size runningBuilds
   numCompletedBuilds = Map.size completedBuilds
-  numOutstandingBuilds = length outstandingBuilds
-  totalBuilds = numOutstandingBuilds + numRunningBuilds + numCompletedBuilds
+  numPlannedBuilds = length plannedBuilds
+  totalBuilds = numPlannedBuilds + numRunningBuilds + numCompletedBuilds
   downloadsDone = Map.size completedDownloads
   finishMarkup = if numFailedBuilds == 0 then((goal <> "Finished") <>) .> markup green  else ((warning <> " Exited with failures") <>) .> markup red
   time = if processState == Finished then finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> timeDiff (zonedTimeToUTC now) startTime) else clock <> " " <> timeDiff (zonedTimeToUTC now) startTime
@@ -124,6 +122,7 @@ stateToText buildState@MkNOMV1State{..} maybeWindow now
   printHosts =
     mapMaybe nonEmpty $ labelForHost <$> hosts
    where
+    labelForHost :: Host -> [Entry]
     labelForHost h =
       showCond
         showBuilds
@@ -141,11 +140,11 @@ stateToText buildState@MkNOMV1State{..} maybeWindow now
      where
       uploads = l h completedUploads
       downloads = l h completedDownloads
-      numRunningBuildsOnHost = l h runningBuilds
-      doneBuilds = l h completedBuilds
+      numRunningBuildsOnHost = l h runningBuilds'
+      doneBuilds = l h completedBuilds'
     hosts =
       sort . toList @Set $
-        foldMap (foldMap one) [runningBuilds, completedBuilds] <> foldMap (foldMap one) [completedUploads, completedDownloads]
+        foldMap (foldMap one) [runningBuilds', completedBuilds'] <> foldMap (foldMap one) [completedUploads, completedDownloads]
     l host = Map.size . Map.filter (host ==)
 nonZeroShowBold :: Int -> Entry -> Entry
 nonZeroShowBold num = if num > 0 then bold else const dummy
