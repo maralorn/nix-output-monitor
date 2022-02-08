@@ -24,7 +24,7 @@ import qualified System.Console.Terminal.Size as Window
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildStatus (..), DerivationInfo (..), NOMV1State (..), StorePathState (..), buildHost, ProcessState (JustStarted, Finished), getSummary, topDrvs, DependencySummary (..))
+import NOM.State (BuildStatus (..), DerivationInfo (..), NOMV1State (..), StorePathState (..), buildHost, ProcessState (JustStarted, Finished), DependencySummary (..))
 import NOM.State.Tree (aggregateTree, collapseForestN, mapRootsTwigsAndLeafs, replaceDuplicates, sortForest)
 
 --import NOM.Update (SortOrder (SLink), mkOrder, nodeOrder)

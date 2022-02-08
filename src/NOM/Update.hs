@@ -15,9 +15,10 @@ import Data.Attoparsec.Text (endOfInput, parseOnly)
 
 import qualified Nix.Derivation as Nix
 
+import qualified Data.IntMap as IntMap
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationInfo (..), NOMV1State (..), ProcessState (..), StorePathState (..), drv2out, getRunningBuildsByHost, out2drv)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), NOMV1State (..), ProcessState (..), StorePathState (..), drv2out, getRunningBuildsByHost, lookupDerivationId, out2drv, RunningBuildInfo)
 import qualified NOM.State as State
 import NOM.Update.Monad (
   BuildReportMap,
@@ -28,6 +29,7 @@ import NOM.Update.Monad (
   UpdateMonad,
  )
 import NOM.Util (foldEndo, hush, (.>), (<.>>), (<|>>), (|>))
+import Relude.Extra (under)
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -88,23 +90,26 @@ updateState result (lastAccess, state0) = do
           then (Just now, detectLocalFinishedBuilds)
           else (lastAccess, const (pure Nothing))
   -- A Left means that we have not changed the state
-  Left state0 |>
-  -- First check if we this is the first time that we receive input (for error messages)
-     tryAndPropagate (setInputReceived .> pure) >=>
-  -- Update the state if any changes where parsed.
-     tryAndPropagate (processResult .> forM result) >=>
-  -- Check if any local builds have finished, because nix-build would not tell us.
-  -- If we haven‘t done so in the last 200ms.
-     tryAndPropagate check
-  -- If we have a Right now, we return that
-       <.>> hush .> (nextAccessTime,)
+  Left state0
+    |>
+    -- First check if we this is the first time that we receive input (for error messages)
+    tryAndPropagate (setInputReceived .> pure)
+    >=>
+    -- Update the state if any changes where parsed.
+    tryAndPropagate (processResult .> forM result)
+    >=>
+    -- Check if any local builds have finished, because nix-build would not tell us.
+    -- If we haven‘t done so in the last 200ms.
+    tryAndPropagate check
+    -- If we have a Right now, we return that
+    <.>> hush .> (nextAccessTime,)
 
 tryAndPropagate :: Functor f => (a -> f (Maybe a)) -> Either a a -> f (Either a a)
 tryAndPropagate f x = either f f x <|>> maybe x Right
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMV1State -> m (Maybe NOMV1State)
 detectLocalFinishedBuilds oldState = do
-  let runningLocalBuilds = getRunningBuildsByHost Localhost oldState |> Map.toList
+  let runningLocalBuilds = getRunningBuildsByHost Localhost oldState |> coerce .> IntMap.toList <.>> first coerce
   newCompletedOutputs <-
     filterM
       (maybe (pure False) storePathExists . drv2out oldState . fst)
@@ -146,12 +151,14 @@ reportFinishingBuilds host builds = do
 timeDiffInt :: UTCTime -> UTCTime -> Int
 timeDiffInt = diffUTCTime <.>> floor
 
-finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(Derivation, BuildInfo ())] -> NOMV1State -> m NOMV1State
-finishBuilds host builds' oldState = do
+finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(DerivationId, BuildInfo ())] -> NOMV1State -> m NOMV1State
+finishBuilds host builds'' oldState = do
+  let builds' = builds'' |> mapMaybe \(drv, info) -> lookupDerivationId oldState drv <|>> (,info)
   now <- getNow
   updateReport <- nonEmpty builds' |> maybe (pure id) \builds -> reportFinishingBuilds host (builds <|>> second buildStart) <|>> (typed .~)
-  let derivationUpdates = builds' <|>> \(drv, info) -> Map.adjust (typed .~ Built (info $> now)) drv
-  oldState |> updateReport .> (field @"derivationInfos" %~ appEndo (foldMap Endo derivationUpdates)) .> pure
+  let derivationUpdates :: [IntMap DerivationInfo -> IntMap DerivationInfo]
+      derivationUpdates = builds'' <|>> \(drv, info) -> IntMap.adjust (typed .~ Built (info $> now)) (coerce drv)
+  oldState |> updateReport .> (field @"derivationInfos" %~ under (appEndo (foldMap Endo derivationUpdates))) .> pure
 
 modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
 modifyBuildReports host = fmap (uncurry insertBuildReport) .> foldEndo
@@ -266,7 +273,7 @@ matchStorePath storePath = either (const False) ((storePath ==) . path)
 planDownloads :: Set StorePath -> NOMV1State -> NOMV1State
 planDownloads = (toList <.>> insertStorePathState DownloadPlanned) .> foldEndo
 
-downloaded :: Host -> StorePath -> NOMV1State -> (Maybe (Derivation, BuildInfo ()), NOMV1State)
+downloaded :: Host -> StorePath -> NOMV1State -> (Maybe (DerivationId, RunningBuildInfo), NOMV1State)
 downloaded host storePath buildState =
   ( done
   , buildState |> insertStorePathState (Downloaded host) storePath
