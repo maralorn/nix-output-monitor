@@ -12,6 +12,12 @@ foldEndo = foldMap Endo .> appEndo
 passThroughBuffer :: Functor m => (update -> state -> m state) -> (update, buffer) -> state -> m (state, buffer)
 passThroughBuffer updater (update, buffer) = updater update <.>> (,buffer)
 
+firstFF :: (Functor f, Functor g) => (a -> f (g c)) -> (a, b) -> f (g (c, b))
+firstFF f (a, b) = f a <<|>>> (,b)
+
+forMaybeM :: Monad m => [a] -> (a -> m (Maybe b)) -> m [b]
+forMaybeM = flip mapMaybeM
+
 addPrintCache :: Functor m => (update -> (istate, state) -> m (istate, Maybe state)) -> (state -> cache) -> update -> (istate, state, cache) -> m (istate, state, cache)
 addPrintCache updater cacher update (oldIState, oldState, oldCache) =
   updater update (oldIState, oldState)

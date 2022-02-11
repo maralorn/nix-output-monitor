@@ -1,19 +1,24 @@
-{-# LANGUAGE OverloadedLabels #-}
-
 module NOM.State where
 
 import Relude
+import Relude.Extra (toSnd, traverseToSnd)
 
 import Data.Time (UTCTime)
 
-import Data.Generics.Product (the, typed)
+import Data.Generics.Product (HasField (field), the, typed)
 import Data.Generics.Sum (_As, _Ctor)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.MemoTrie (HasTrie, memo)
 import qualified Data.Set as Set
 import Data.Vector (Vector)
+import Optics (coerced, has, only, preview, review, view, (%), (%~), (^.))
+
 import NOM.Parser (Derivation (..), Host (..), StorePath (..))
+import NOM.State.CacheId (CacheId)
+import NOM.State.CacheId.Map (CacheIdMap)
+import qualified NOM.State.CacheId.Map as CMap
+import NOM.State.CacheId.Set (CacheIdSet)
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (getCachedBuildReports),
@@ -21,8 +26,6 @@ import NOM.Update.Monad (
   getNow,
  )
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
-import Optics (coerced, has, only, preview, review, view, (%), (^.))
-import Relude.Extra (toSnd, traverseToSnd)
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
   deriving stock (Show, Eq, Ord, Read, Generic)
@@ -30,11 +33,12 @@ data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Down
 data DerivationInfo = MkDerivationInfo
   { derivationName :: Derivation
   , outputs :: Map Text StorePathId
-  , -- True if this node is the first occurrence in the tree
-    inputDerivations :: Vector (DerivationId, DisplayState, Vector Text)
+  , inputDerivations :: Vector (DerivationId, DisplayState, Vector Text)
   , inputSources :: StorePathSet
   , buildStatus :: BuildStatus
   , dependencySummary :: DependencySummary
+  , cached :: Bool
+  , derivationParents :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
 
@@ -48,19 +52,11 @@ type DerivationMap = CacheIdMap Derivation
 type StorePathSet = CacheIdSet StorePath
 type DerivationSet = CacheIdSet Derivation
 
-newtype CacheId b = MkCacheId {cidToInt :: Int}
-  deriving stock (Show, Eq, Ord, Read, Generic)
-
-newtype CacheIdSet b = MkCacheIdSet {cidSet :: IntSet}
-  deriving stock (Show, Eq, Ord, Read, Generic)
-  deriving newtype (Semigroup, Monoid)
-newtype CacheIdMap b a = MkCacheIdMap {cidMap :: IntMap a}
-  deriving stock (Show, Eq, Ord, Read, Generic)
-  deriving newtype (Semigroup, Monoid)
-
 data StorePathInfo = MkStorePathInfo
   { storePathName :: StorePath
-  , storePathStates :: NonEmpty StorePathState
+  , storePathStates :: Set StorePathState
+  , storePathProducers :: Maybe DerivationId
+  , storePathInputFor :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
 
@@ -82,9 +78,6 @@ data DependencySummary = MkDependencySummary
 data NOMV1State = MkNOMV1State
   { derivationInfos :: DerivationMap DerivationInfo
   , storePathInfos :: StorePathMap StorePathInfo
-  , derivationParents :: DerivationMap DerivationSet
-  , storePathProducers :: StorePathMap DerivationId
-  , storePathInputFor :: StorePathMap DerivationSet
   , fullSummary :: DependencySummary
   , forestRoots :: Vector DerivationId
   , buildReports :: BuildReportMap
@@ -125,9 +118,6 @@ initalState = do
       mempty
       mempty
       mempty
-      mempty
-      emptySummary
-      mempty
       buildReports
       now
       mempty
@@ -155,13 +145,13 @@ drvDeps s drv =
           .> Map.keys
       )
 
+-}
+
 instance Semigroup DependencySummary where
   (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7)
 
--}
-
-emptySummary :: DependencySummary
-emptySummary = MkDependencySummary mempty mempty mempty mempty mempty mempty mempty
+instance Monoid DependencySummary where
+  mempty = MkDependencySummary mempty mempty mempty mempty mempty mempty mempty
 
 {-
 instance Monoid DependencySummary where
@@ -217,29 +207,60 @@ getOutstandingBuilds = derivationInfos .> Map.filter (buildStatus .> has (_Ctor 
 getRunningBuilds :: NOMState (DerivationMap RunningBuildInfo)
 getRunningBuilds = gets (fullSummary .> runningBuilds)
 getRunningBuildsByHost :: Host -> NOMState (DerivationMap RunningBuildInfo)
-getRunningBuildsByHost host = getRunningBuilds <|>> filterMap (buildHost .> (== host))
-
-filterMap :: (a -> Bool) -> CacheIdMap b a -> CacheIdMap b a
-filterMap p = coerce .> IntMap.filter p .> coerce
-
-lookupCacheId :: Ord a => CacheId b -> CacheIdMap b a -> Maybe a
-lookupCacheId i = coerce .> IntMap.lookup (coerce i)
+getRunningBuildsByHost host = getRunningBuilds <|>> CMap.filter (buildHost .> (== host))
 
 lookupStorePathId :: StorePathId -> NOMState (Maybe StorePath)
-lookupStorePathId s = gets (storePathInfos .> lookupCacheId s <.>> storePathName)
+lookupStorePathId s = gets (storePathInfos .> CMap.lookup s <.>> storePathName)
 lookupDerivationId :: DerivationId -> NOMState (Maybe Derivation)
-lookupDerivationId d = gets (derivationInfos .> lookupCacheId d <.>> derivationName)
+lookupDerivationId d = gets (derivationInfos .> CMap.lookup d <.>> derivationName)
 
-type NOMState = State NOMV1State
+type NOMState a = forall m. MonadState NOMV1State m => m a
+type NOMStateT m a = MonadState NOMV1State m => m a
+
+emptyStorePathInfo :: StorePath -> StorePathInfo
+emptyStorePathInfo path = MkStorePathInfo path mempty Nothing mempty
+emptyDerivationInfo :: Derivation -> DerivationInfo
+emptyDerivationInfo drv = MkDerivationInfo drv mempty mempty mempty Unknown mempty False mempty
 
 getStorePathId :: StorePath -> NOMState StorePathId
-getStorePathId = _
-getDerivationId :: StorePath -> NOMState DerivationId
-getDerivationId = _
+getStorePathId path = do
+  let newId = do
+        key <- gets (storePathInfos .> CMap.nextKey)
+        modify (field @"storePathInfos" %~ CMap.insert key (emptyStorePathInfo path))
+        modify (field @"storePathIds" %~ Map.insert path key)
+        pure key
+  gets (storePathIds .> Map.lookup path) >>= maybe newId pure
+
+getDerivationId :: Derivation -> NOMState DerivationId
+getDerivationId drv = do
+  let newId = do
+        key <- gets (derivationInfos .> CMap.nextKey)
+        modify (field @"derivationInfos" %~ CMap.insert key (emptyDerivationInfo drv))
+        modify (field @"derivationIds" %~ Map.insert drv key)
+        pure key
+  gets (derivationIds .> Map.lookup drv) >>= maybe newId pure
 
 drv2out :: DerivationId -> NOMState (Maybe StorePath)
 drv2out drv =
-  gets (derivationInfos .> lookupCacheId drv >=> outputs .> Map.lookup "out")
+  gets (derivationInfos .> CMap.lookup drv >=> outputs .> Map.lookup "out")
     >>= mapM lookupStorePathId <.>> join
+
 out2drv :: StorePathId -> NOMState (Maybe DerivationId)
-out2drv path = gets (storePathProducers .> lookupCacheId path)
+out2drv path = gets (storePathInfos .> CMap.lookup path >=> storePathProducers)
+
+updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus)-> NOMState ()
+updateDerivationState _ _ = error "not implemented"
+
+insertStorePathState :: StorePathState -> StorePathId -> NOMState ()
+insertStorePathState storePathState storePath = error "not implemented"
+   -- typed %~ Map.alter (maybe (pure storePathState) (toList .> localFilter .> (storePathState :|)) .> Just) storePath
+ where
+  localFilter = case storePathState of
+    DownloadPlanned -> id
+    Downloading _ -> filter (DownloadPlanned /=)
+    Downloaded h -> filter (Downloading h /=) .> filter (DownloadPlanned /=)
+    Uploading _ -> id
+    Uploaded h -> filter (Uploading h /=)
+
+reportError :: Text -> NOMState ()
+reportError msg = modify' (field @"errors" %~ (msg:))
