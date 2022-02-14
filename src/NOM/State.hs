@@ -33,7 +33,7 @@ data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Down
 data DerivationInfo = MkDerivationInfo
   { derivationName :: Derivation
   , outputs :: Map Text StorePathId
-  , inputDerivations :: Vector (DerivationId, DisplayState, Vector Text)
+  , inputDerivations :: [(DerivationId, DisplayState, Set Text)]
   , inputSources :: StorePathSet
   , buildStatus :: BuildStatus
   , dependencySummary :: DependencySummary
@@ -55,7 +55,7 @@ type DerivationSet = CacheIdSet Derivation
 data StorePathInfo = MkStorePathInfo
   { storePathName :: StorePath
   , storePathStates :: Set StorePathState
-  , storePathProducers :: Maybe DerivationId
+  , storePathProducer :: Maybe DerivationId
   , storePathInputFor :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
@@ -79,7 +79,7 @@ data NOMV1State = MkNOMV1State
   { derivationInfos :: DerivationMap DerivationInfo
   , storePathInfos :: StorePathMap StorePathInfo
   , fullSummary :: DependencySummary
-  , forestRoots :: Vector DerivationId
+  , forestRoots :: [DerivationId]
   , buildReports :: BuildReportMap
   , startTime :: UTCTime
   , errors :: [Text]
@@ -246,7 +246,7 @@ drv2out drv =
     >>= mapM lookupStorePathId <.>> join
 
 out2drv :: StorePathId -> NOMState (Maybe DerivationId)
-out2drv path = gets (storePathInfos .> CMap.lookup path >=> storePathProducers)
+out2drv path = gets (storePathInfos .> CMap.lookup path >=> storePathProducer)
 
 updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus)-> NOMState ()
 updateDerivationState _ _ = error "not implemented"

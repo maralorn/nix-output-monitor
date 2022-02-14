@@ -2,26 +2,25 @@ module NOM.Update where
 
 import Relude
 
-import Control.Monad (foldM)
+import Control.Monad.Except (liftEither)
 import Data.Generics.Product (field, typed)
 import Data.Generics.Sum (_As)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
-import Optics (preview, (%), (%~), (.~))
+import Optics (preview, (%), (%~), (.~), (?~))
 
 import Data.Attoparsec.Text (endOfInput, parseOnly)
 
 import qualified Nix.Derivation as Nix
 
-import Control.Monad.Except (liftEither)
-import qualified Data.IntMap as IntMap
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary (plannedDownloads), DerivationId, DerivationInfo (..), DerivationMap, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getRunningBuildsByHost, getStorePathId, lookupDerivationId, out2drv, reportError, updateDerivationState)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), DisplayState (OptionalNode), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
+import qualified NOM.State.CacheId.Set as CSet
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (..),
@@ -30,8 +29,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (firstFF, foldEndo, forMaybeM, hush, (.>), (<.>>), (<<|>>>), (<|>>), (|>))
-import Relude.Extra (under)
+import NOM.Util (firstFF, foldEndo, forMaybeM, hush, (.>), (<.>>), (<|>>), (|>))
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -138,10 +136,10 @@ processResult result = do
     Build drv host -> withChange do
       lookupDerivation drv >>= flip (building host) now
     PlanBuilds plannedBuilds _lastBuild -> withChange do
-      mapM lookupDerivation plannedBuilds >>= planBuilds
+      mapM lookupDerivation (toList plannedBuilds) >>= fromList .> planBuilds
     PlanDownloads _download _unpacked plannedDownloads ->
       withChange $
-        mapM getStorePathId plannedDownloads >>= planDownloads
+        mapM getStorePathId (toList plannedDownloads) >>= fromList .> planDownloads
     Checking drv ->
       withChange $
         lookupDerivation drv >>= flip (building Localhost) now
@@ -189,51 +187,41 @@ lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT m Derivatio
 lookupDerivation drv = do
   drvId <- getDerivationId drv
   isCached <- gets (derivationInfos .> CMap.lookup drvId .> maybe False cached)
-  unless isCached $ either reportError pure =<< runExceptT do
+  unless isCached $
+    either reportError pure =<< runExceptT do
       parsedDerivation <- getDerivation drv >>= liftEither
-      modify (field @"derivationInfos" %~ CMap.adjust (insertDerivationInfos parsedDerivation) drvId)
-      -- derivationInfo
-      --  |> fmap (inputDerivations .> Map.keysSet)
-      -- .> fromRight mempty
-      -- .> foldM lookupDerivation (handleEither derivationInfo)
+      outputs <-
+        Nix.outputs parsedDerivation |> Map.traverseMaybeWithKey \_ path -> do
+          parseStorePath (Nix.path path) |> mapM \pathName -> do
+            pathId <- getStorePathId pathName
+            modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathProducer" ?~ drvId) pathId)
+            pure pathId
+      inputSources <-
+        Nix.inputSrcs parsedDerivation |> flip foldlM mempty \acc path -> do
+          pathIdMay <-
+            parseStorePath path |> mapM \pathName -> do
+              pathId <- getStorePathId pathName
+              modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathInputFor" %~ CSet.insert drvId) pathId)
+              pure pathId
+          pure $ maybe id CSet.insert pathIdMay acc
+      inputDerivations <-
+        Nix.inputDrvs parsedDerivation |> Map.toList .> mapMaybeM \(drvPath, outs) -> do
+          depIdMay <-
+            parseDerivation drvPath |> mapM \depName -> do
+              depId <- lookupDerivation depName
+              modify (field @"derivationInfos" %~ CMap.adjust (field @"derivationParents" %~ CSet.insert drvId) depId)
+              pure depId
+          pure $ depIdMay <|>> (,OptionalNode,outs)
+      modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs, inputSources, inputDerivations, cached = True}) drvId)
   pure drvId
 
-
- where
-    insertDerivationInfos derivation = \i -> i
-       { outputs = Nix.outputs derivation & Map.mapMaybe (parseStorePath . Nix.path)
-       , inputSources = fromList . mapMaybe parseStorePath . toList . Nix.inputSrcs $ derivation
-       , inputDerivations = Map.fromList . mapMaybe (bitraverse parseDerivation pure) . Map.toList . Nix.inputDrvs $ derivation }
-{-
-  mkDerivationInfo = \derivationEither -> do
-    derivation <- first (("during parsing the derivation: " <>) . toText) derivationEither
-    pure $
-      MkDerivationInfo
-        { outputs = Nix.outputs derivation & Map.mapMaybe (parseStorePath . Nix.path)
-        , inputSources = fromList . mapMaybe parseStorePath . toList . Nix.inputSrcs $ derivation
-        , inputDerivations = Map.fromList . mapMaybe (bitraverse parseDerivation pure) . Map.toList . Nix.inputDrvs $ derivation
-        , buildStatus = Unknown
-        }
-  handleEither = \case
-    Right infos ->
-      buildState
-        |> (typed %~ Map.insert drv infos)
-        .> (field @"derivationParents" %~ foldEndo (inputDerivations infos |> Map.keys <.>> \drv' -> Map.alter (maybe (one drv) (Set.insert drv) .> Just) drv'))
-        .> (typed %~ foldEndo (outputs infos |> Map.toList <.>> \(name, path) -> Map.insert path (drv, name)))
-        .> (typed %~ foldEndo (inputSources infos |> toList <.>> \path -> Map.alter (maybe (one drv) (Set.insert drv) .> Just) path))
-        .> (field @"derivationParents" %~ Map.alter (fromMaybe mempty .> Just) drv)
-    Left err ->
-      buildState
-        { errors = "Could not determine output path for derivation " <> toText drv <> " Error: " <> err : errors
-        }
--}
 parseStorePath :: FilePath -> Maybe StorePath
 parseStorePath = hush . parseOnly (Parser.storePath <* endOfInput) . fromString
 parseDerivation :: FilePath -> Maybe Derivation
 parseDerivation = hush . parseOnly (Parser.derivation <* endOfInput) . fromString
 
 planBuilds :: Set DerivationId -> NOMState ()
-planBuilds = (toList <.>> \drv -> field @"derivationInfos" %~ Map.adjust (typed .~ Planned) drv) .> foldEndo
+planBuilds = mapM_ \drv -> updateDerivationState drv (const Planned)
 
 {-
 derivationUpdate :: NOMV1State -> Derivation -> Maybe (Host, BuildStatus) -> ForestUpdate BuildTreeNode
@@ -281,22 +269,22 @@ matchStorePath storePath = either (const False) ((storePath ==) . path)
 -}
 
 planDownloads :: Set StorePathId -> NOMState ()
-planDownloads = (toList <.>> insertStorePathState DownloadPlanned) .> foldEndo
+planDownloads = mapM_ (insertStorePathState DownloadPlanned)
 
 downloaded :: Host -> StorePathId -> NOMState (Maybe (DerivationId, RunningBuildInfo))
-downloaded host storePath buildState =
-  ( done
-  , buildState |> insertStorePathState (Downloaded host) storePath
-  )
- where
-  done = do
-    d <- out2drv buildState storePath
-    Map.lookup d (derivationInfos buildState) >>= preview (typed @BuildStatus % _As @"Building") <.>> (d,)
+downloaded host pathId = do
+  insertStorePathState (Downloaded host) pathId
+  runMaybeT $ do
+    drvId <- MaybeT (out2drv pathId)
+    drvInfos <- MaybeT (gets (derivationInfos .> CMap.lookup drvId))
+    MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (drvId,)))
 
 uploaded :: Host -> StorePathId -> NOMState ()
 uploaded host = insertStorePathState (Downloaded host)
 
 building :: Host -> DerivationId -> UTCTime -> NOMState ()
-building host drv now nomState = (field @"derivationInfos" %~ Map.adjust (typed .~ Building (MkBuildInfo now host lastNeeded ())) drv) nomState
- where
-  lastNeeded = Map.lookup (host, getReportName drv) (buildReports nomState)
+building host drv now = do
+  lastNeeded <- runMaybeT do
+    drvName <- MaybeT (lookupDerivationId drv)
+    MaybeT (gets (buildReports .> Map.lookup (host, getReportName drvName)))
+  updateDerivationState drv (const (Building (MkBuildInfo now host lastNeeded ())))

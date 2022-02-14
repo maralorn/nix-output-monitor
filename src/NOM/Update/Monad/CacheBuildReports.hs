@@ -29,6 +29,7 @@ import System.IO.LockFile (
  )
 
 import NOM.Parser (Host (..))
+import NOM.Util ((.>))
 
 -- Exposed functions
 
@@ -46,6 +47,9 @@ instance MonadCacheBuildReports IO where
     dir <- buildReportsDir
     loadBuildReports dir
   updateBuildReports updateFunc = catch (tryUpdateBuildReports updateFunc) memptyOnLockFail
+instance MonadCacheBuildReports m => MonadCacheBuildReports (StateT a m) where
+  getCachedBuildReports = lift getCachedBuildReports
+  updateBuildReports =updateBuildReports .> lift
 
 -- Implementation
 
