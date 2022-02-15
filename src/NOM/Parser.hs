@@ -1,4 +1,3 @@
-
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 module NOM.Parser where

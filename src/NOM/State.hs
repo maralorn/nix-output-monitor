@@ -1,7 +1,6 @@
 module NOM.State where
 
 import Relude
-import Relude.Extra (toSnd, traverseToSnd)
 
 import Data.Time (UTCTime)
 

@@ -1,7 +1,6 @@
 module NOM.Print (stateToText) where
 
 import Relude
-
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
