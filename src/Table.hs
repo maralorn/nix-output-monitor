@@ -19,7 +19,7 @@ data Entry = Entry
   { codes :: [SGR]
   , lcontent :: Text
   , rcontent :: Text
-  , span :: Int
+  , width :: Int
   }
 
 -- >>> displayWidth "∑"
@@ -54,7 +54,7 @@ header :: Text -> Entry
 header t = Entry [] t "" 1
 
 cells :: Int -> Entry -> Entry
-cells span e = e{span}
+cells width e = e{width}
 
 label :: Text -> Entry -> Entry
 label t e = e{lcontent = t}
@@ -101,7 +101,7 @@ getWidthForColumn :: NonEmpty Entry -> Int
 getWidthForColumn = foldl' max 0 . fmap getRelevantWidthForEntry
 getRelevantWidthForEntry :: Entry -> Int
 getRelevantWidthForEntry entry
-  | span entry == 1 = entryWidth entry
+  | width entry == 1 = entryWidth entry
 getRelevantWidthForEntry _ = 0
 
 entryWidth :: Entry -> Int
@@ -110,15 +110,15 @@ entryWidth Entry{lcontent, rcontent} = displayWidth lcontent + displayWidth rcon
 chopWidthFromRows :: Text -> Int -> NonEmpty (NonEmpty Entry) -> [NonEmpty Entry]
 chopWidthFromRows sep width = mapMaybe (nonEmpty . chopWidthFromRow sep width) . toList
 chopWidthFromRow :: Text -> Int -> NonEmpty Entry -> [Entry]
-chopWidthFromRow sep width (entry@Entry{span} :| rest)
-  | span > 1 = entry{span = span - 1, lcontent = "", rcontent = mtimesDefault (max 0 (entryWidth entry - width - displayWidth sep)) " "} : rest
+chopWidthFromRow sep targetWidth (entry@Entry{width} :| rest)
+  | width > 1 = entry{width = width - 1, lcontent = "", rcontent = mtimesDefault (max 0 (entryWidth entry - targetWidth - displayWidth sep)) " "} : rest
 chopWidthFromRow _ _ (_ :| rest) = rest
 
 printRow :: Text -> [Int] -> NonEmpty Entry -> Text
 printRow sep colWidths entries = Text.intercalate sep $ snd (foldl' foldFun (colWidths, id) entries) []
  where
-  foldFun (colsLeft, line) entry@Entry{span} =
-    (drop span colsLeft, line . (printEntry sep entry (take span colsLeft) :))
+  foldFun (colsLeft, line) entry@Entry{width} =
+    (drop width colsLeft, line . (printEntry sep entry (take width colsLeft) :))
 
 -- >>> printEntry (cells 2 (label ">" (text "<"))) [5,5]
 -- ">           <"
