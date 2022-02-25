@@ -1,6 +1,6 @@
 # Revision history for nix-output-monitor
 
-## 1.0.4.1 -- 2022-02-25
+## 1.0.4.1 & 1.0.4.2 -- 2022-02-25
  * Rename an internal variable for relude 1.0 compat
 
 ## 1.0.4.0 -- 2021-12-03

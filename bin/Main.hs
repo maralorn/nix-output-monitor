@@ -14,7 +14,7 @@ import Update (countPaths, failedBuilds, initalState, updateState)
 
 main :: IO ()
 main = do
-  getArgs >>= \case
+  System.Environment.getArgs >>= \case
     [] -> pass
     ["--version"] -> do
       hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))

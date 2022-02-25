@@ -72,7 +72,7 @@ processText parser stateVar updater printerMay lazyInput = do
               clearLine
             putText buffer
             when (linesToWrite > 0) $ putTextLn output
-            hFlush stdout
+            System.IO.hFlush stdout
       waitForInput :: IO ()
       waitForInput =
         atomically $ check . not . Text.null =<< readTVar bufferVar
