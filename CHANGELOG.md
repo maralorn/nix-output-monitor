@@ -1,5 +1,8 @@
 # Revision history for nix-output-monitor
 
+## 1.0.5.0 -- 2022-03-05
+ * Make the parser for storepath accept more storepaths which actually occur in the wild.
+
 ## 1.0.4.1 & 1.0.4.2 -- 2022-02-25
  * Rename an internal variable for relude 1.0 compat
 
