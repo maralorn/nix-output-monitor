@@ -23,7 +23,7 @@ import NOM.Update.Monad
     MonadReadDerivation (..),
     UpdateMonad,
   )
-import NOM.Util (firstFF, foldEndo, forMaybeM, hush, (.>), (<.>>), (<|>>), (|>))
+import NOM.Util (firstFF, forMaybeM, hush, (.>), (<.>>), (<|>>), (|>), foldMapEndo)
 import qualified Nix.Derivation as Nix
 import Optics (preview, (%), (%~), (.~), (?~))
 import Relude
@@ -166,7 +166,7 @@ finishBuilds host builds = do
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
 modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
-modifyBuildReports host = fmap (uncurry insertBuildReport) .> foldEndo
+modifyBuildReports host = foldMapEndo (uncurry insertBuildReport)
   where
     insertBuildReport name =
       Map.insertWith

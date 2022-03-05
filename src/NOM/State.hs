@@ -16,7 +16,7 @@ import NOM.Update.Monad
     MonadNow,
     getNow,
   )
-import NOM.Util (foldEndo, (.>), (<.>>), (<|>>), (|>))
+import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
 import Optics ((%~), (.~))
 import Relude
 
@@ -314,11 +314,8 @@ updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
 
 updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 updateSummaryForStorePath oldStates newStates pathId =
-  foldEndo $
-    mconcat
-      [ deletedStates <|>> remove_deleted,
-        addedStates <|>> insert_added
-      ]
+  foldMapEndo remove_deleted deletedStates
+    .> foldMapEndo insert_added addedStates
   where
     remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
     remove_deleted = \case
@@ -333,7 +330,7 @@ updateSummaryForStorePath oldStates newStates pathId =
       Downloading _ -> error "Downloading state is yet unsupported"
       Uploading _ -> error "Uploading state is yet unsupported"
       Downloaded ho -> field @"completedDownloads" %~ CMap.insert pathId ho
-      Uploaded ho ->  field @"completedUploads" %~ CMap.insert pathId ho
+      Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
     deletedStates = Set.difference oldStates newStates |> toList
     addedStates = Set.difference newStates oldStates |> toList
 
@@ -363,7 +360,7 @@ insertStorePathState storePathId newStorePathState = do
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)
 
--- TODO: Sort parents
+-- TODO: Sort parents, update Linkshow status
 
 reportError :: Text -> NOMState ()
 reportError msg = modify' (field @"errors" %~ (msg :))
