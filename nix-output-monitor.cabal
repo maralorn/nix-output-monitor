@@ -16,13 +16,14 @@ extra-source-files: CHANGELOG.md
 
 common common-config
   default-extensions:
+    NoImplicitPrelude
     BangPatterns
     BlockArguments
     ConstraintKinds
-    DeriveAnyClass
-    DeriveGeneric
-    DeriveFunctor
     DataKinds
+    DeriveAnyClass
+    DeriveFunctor
+    DeriveGeneric
     DerivingStrategies
     DuplicateRecordFields
     FlexibleContexts
@@ -30,7 +31,6 @@ common common-config
     KindSignatures
     LambdaCase
     NamedFieldPuns
-    NoImplicitPrelude
     OverloadedStrings
     PartialTypeSignatures
     RankNTypes
@@ -59,7 +59,7 @@ common common-config
     , random
     , relude
     , stm
-    , streamly < 0.8
+    , streamly        <0.8
     , terminal-size
     , text
     , time
@@ -72,7 +72,7 @@ common common-config
 
 library
   import:          common-config
-  hs-source-dirs:  src
+  hs-source-dirs:  lib
   exposed-modules:
     NOM.Debug
     NOM.IO
@@ -81,10 +81,10 @@ library
     NOM.Print.Table
     NOM.Print.Tree
     NOM.State
-    NOM.State.Tree
     NOM.State.CacheId
     NOM.State.CacheId.Map
     NOM.State.CacheId.Set
+    NOM.State.Tree
     NOM.Update
     NOM.Update.Monad
     NOM.Update.Monad.CacheBuildReports
@@ -95,23 +95,24 @@ common exes
   ghc-options: -threaded
 
 executable nom
-  import:        exes
-  main-is:       bin/Main.hs
-  other-modules: Paths_nix_output_monitor
-  build-depends: nix-output-monitor
+  import:         exes
+  hs-source-dirs: exe
+  main-is:        Main.hs
+  other-modules:  Paths_nix_output_monitor
+  build-depends:  nix-output-monitor
 
 common tests
   import:        exes
   build-depends:
     , HUnit
-    , process
     , nix-output-monitor
+    , process
 
 test-suite unit-tests
-  import:  tests
-  type:    exitcode-stdio-1.0
+  import:         tests
+  type:           exitcode-stdio-1.0
   hs-source-dirs: test
-  main-is: Property.hs
+  main-is:        Property.hs
 
 test-suite golden-tests
   import:         tests
