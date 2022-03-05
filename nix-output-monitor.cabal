@@ -49,6 +49,7 @@ common common-config
     , containers
     , data-default
     , directory
+    , extra
     , filepath
     , generic-optics
     , lock-file
@@ -58,6 +59,7 @@ common common-config
     , optics
     , random
     , relude
+    , safe
     , stm
     , streamly        <0.8
     , terminal-size

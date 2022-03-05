@@ -11,7 +11,7 @@ import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), DisplayState (OptionalNode), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
@@ -32,23 +32,6 @@ getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
 
 {-
-data SortOrder
-  = -- First the failed builds starting with the earliest failures
-    SFailed UTCTime
-  | -- Second the running builds starting with longest running
-    -- For one build prefer the tree with the longest prefix for the highest probability of few permutations over time
-    SBuilding UTCTime (Down Int)
-  | SDownloading
-  | SUploading
-  | SWaiting
-  | SDownloadWaiting
-  | -- The longer a build is completed the less it matters
-    SDone (Down UTCTime)
-  | SDownloaded
-  | SUploaded
-  | -- Links are really not that interesting
-    SLink
-  deriving (Eq, Show, Ord)
 
 mkOrder :: (a -> SortOrder) -> Tree a -> SortOrder
 mkOrder order = go
@@ -207,7 +190,7 @@ lookupDerivation drv = do
               modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathInputFor" %~ CSet.insert drvId) pathId)
               pure pathId
           pure $ maybe id CSet.insert pathIdMay acc
-      inputDerivations <-
+      inputDerivationsList <-
         Nix.inputDrvs parsedDerivation |> Map.toList .> mapMaybeM \(drvPath, outs) -> do
           depIdMay <-
             parseDerivation drvPath |> mapM \depName -> do
@@ -215,7 +198,8 @@ lookupDerivation drv = do
               modify (field @"derivationInfos" %~ CMap.adjust (field @"derivationParents" %~ CSet.insert drvId) depId)
               modify (field @"forestRoots" %~ Seq.filter (/= depId))
               pure depId
-          pure $ depIdMay <|>> (,OptionalNode,outs)
+          pure $ depIdMay <|>> (,outs)
+      let inputDerivations = Seq.fromList inputDerivationsList
       modify (field @"derivationInfos" %~ CMap.adjust (\i -> i {outputs, inputSources, inputDerivations, cached = True}) drvId)
       noParents <- getDerivationInfos drvId <|>> derivationParents .> CSet.null
       when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
@@ -287,7 +271,7 @@ downloaded host pathId = do
     MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (drvId,)))
 
 uploaded :: Host -> StorePathId -> NOMState ()
-uploaded host = flip insertStorePathState (Downloaded host)
+uploaded host = flip insertStorePathState (Uploaded host)
 
 building :: Host -> DerivationId -> UTCTime -> NOMState ()
 building host drv now = do

@@ -1,23 +1,36 @@
 module Main where
 
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import qualified Data.String as String
-import NOM.IO
-import NOM.Parser
+import NOM.IO ( processTextStream )
+import NOM.Parser ( parser )
 import NOM.State
-import NOM.State (out2drv)
+    ( NOMV1State(MkNOMV1State, fullSummary),
+      DependencySummary(MkDependencySummary, completedUploads,
+                        completedDownloads, plannedDownloads, failedBuilds,
+                        completedBuilds, runningBuilds, plannedBuilds),
+      DerivationId,
+      initalState,
+      getStorePathId,
+      out2drv )
 import NOM.Update
+    ( updateState, detectLocalFinishedBuilds, parseStorePath )
 import NOM.Update.Monad (UpdateMonad)
-import NOM.Util (passThroughBuffer, (.>), (<.>>), (<|>>), (|>), forMaybeM)
+import NOM.Util
+    ( passThroughBuffer, (<.>>), (|>), forMaybeM, secondM )
 import Relude
 import System.Environment (lookupEnv)
 import System.Process (readProcessWithExitCode)
 import System.Random (randomIO)
 import Test.HUnit
+    ( assertBool,
+      (~:),
+      assertEqual,
+      runTestTT,
+      Counts(errors, failures),
+      Test,
+      Testable(test) )
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
-import NOM.Util (secondM)
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -68,7 +81,7 @@ golden1 = testBuild "golden1" $ \output endState@MkNOMV1State {fullSummary = sum
   assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)
   let outputStorePaths = mapMaybe parseStorePath (String.lines output)
   assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
-  let 
+  let
     outputDerivations :: [DerivationId]
     outputDerivations = flip evalState endState $ forMaybeM outputStorePaths $
        getStorePathId >=> out2drv

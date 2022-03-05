@@ -1,7 +1,11 @@
 module NOM.State where
 
+import Control.Monad.Extra (pureIf)
 import Data.Generics.Product (HasField (field))
+import Data.List.Extra (firstJust)
 import qualified Data.Map.Strict as Map
+import Data.MemoTrie (memo)
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Time (UTCTime)
 import NOM.Parser (Derivation (..), Host (..), StorePath (..))
@@ -19,6 +23,7 @@ import NOM.Update.Monad
 import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
 import Optics ((%~), (.~))
 import Relude
+import Safe.Foldable (maximumMay, minimumMay)
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
   deriving stock (Show, Eq, Ord, Read, Generic)
@@ -26,16 +31,13 @@ data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Down
 data DerivationInfo = MkDerivationInfo
   { derivationName :: Derivation,
     outputs :: Map Text StorePathId,
-    inputDerivations :: [(DerivationId, DisplayState, Set Text)],
+    inputDerivations :: Seq (DerivationId, Set Text),
     inputSources :: StorePathSet,
     buildStatus :: BuildStatus,
     dependencySummary :: DependencySummary,
     cached :: Bool,
     derivationParents :: DerivationSet
   }
-  deriving stock (Show, Eq, Ord, Read, Generic)
-
-data DisplayState = DisplayNode | OptionalNode | LinkOnly
   deriving stock (Show, Eq, Ord, Read, Generic)
 
 type StorePathId = CacheId StorePath
@@ -278,19 +280,75 @@ updateDerivationState drvId updateStatus = do
 
   let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
 
-  -- Update summaries of all parents
+  -- Update summaries of all parents and sort them
   updateParents update_summary (derivationParents derivation_infos)
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)
+  currentState <- get
+  modify (field @"forestRoots" %~ Seq.sortOn (sortKey currentState))
 
--- TODO: Sort parents
+sortParents :: DerivationSet -> NOMState ()
+sortParents parents = do
+  currentState <- get
+  let sort_parent :: DerivationId -> NOMState ()
+      sort_parent drvId = do
+        drvInfo <- getDerivationInfos drvId
+        let newDrvInfo = (field @"inputDerivations" %~ sort_derivations) drvInfo
+        modify (field @"derivationInfos" %~ CMap.insert drvId newDrvInfo)
+      sort_derivations :: Seq (DerivationId, Set Text) -> Seq (DerivationId, Set Text)
+      sort_derivations = Seq.sortOn (fst .> sort_key)
+
+      sort_key :: DerivationId -> SortKey
+      sort_key = memo (sortKey currentState)
+  parents |> CSet.toList .> mapM_ sort_parent
+
+-- We order by type and disambiguate by the number of a) waiting builds, b) running builds
+type SortKey =
+  ( SortOrder,
+    Down Int, -- Waiting Builds
+    Down Int, -- Running Builds
+    Down Int, -- Waiting Downloads
+    Down Int -- Completed Downloads
+  )
+
+data SortOrder
+  = -- First the failed builds starting with the earliest failures
+    SFailed UTCTime
+  | -- Second the running builds starting with longest running
+    -- For one build prefer the tree with the longest prefix for the highest probability of few permutations over time
+    SBuilding UTCTime
+  | SDownloading
+  | SUploading
+  | SWaiting
+  | SDownloadWaiting
+  | -- The longer a build is completed the less it matters
+    SDone (Down UTCTime)
+  | SDownloaded
+  | SUploaded
+  | SUnknown
+  deriving (Eq, Show, Ord)
+
+sortKey :: NOMV1State -> DerivationId -> SortKey
+sortKey currentState drvId = flip evalState currentState do
+  MkDerivationInfo {dependencySummary, buildStatus} <- getDerivationInfos drvId
+  let MkDependencySummary {..} = updateSummaryForDerivation Unknown buildStatus drvId dependencySummary
+      sort_entries =
+        [ minimumMay (failedBuilds <|>> buildEnd .> fst) <|>> SFailed,
+          minimumMay (runningBuilds <|>> buildStart) <|>> SBuilding,
+          pureIf (not (CSet.null plannedBuilds)) SWaiting,
+          pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting,
+          maximumMay (completedBuilds <|>> buildEnd) <|>> Down .> SDone,
+          pureIf (not (CMap.null completedDownloads)) SDownloaded,
+          pureIf (not (CMap.null completedUploads)) SUploaded
+        ]
+  pure (fromMaybe SUnknown (firstJust id sort_entries), Down (CSet.size plannedBuilds), Down (CMap.size runningBuilds), Down (CSet.size plannedDownloads), Down (CMap.size completedDownloads))
 
 updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
 updateParents update_func = go mempty
   where
     go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
-      Nothing -> pass
+      Nothing -> sortParents updated_parents
       Just (parentToUpdate, restToUpdate) -> do
         modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
         next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
@@ -306,7 +364,7 @@ updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
       Failed _ -> error "BUG: Failed builds need to stay failed"
       Built _ -> error "BUG: Completed builds need to stay completed"
     addNew = case newStatus of
-      Unknown -> error "BUG: Don‘t insert Unknown state"
+      Unknown -> id
       Planned -> field @"plannedBuilds" %~ CSet.insert drvId
       Building bi -> field @"runningBuilds" %~ CMap.insert drvId bi
       Failed bi -> field @"failedBuilds" %~ CMap.insert drvId bi
@@ -320,15 +378,15 @@ updateSummaryForStorePath oldStates newStates pathId =
     remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
     remove_deleted = \case
       DownloadPlanned -> field @"plannedDownloads" %~ CSet.delete pathId
-      Downloading _ -> error "Downloading state is yet unsupported"
-      Uploading _ -> error "Uploading state is yet unsupported"
-      Downloaded _ -> error "Don’t remove a completed download"
-      Uploaded _ -> error "Don‘t remove a completed upload"
+      Downloading _ -> error "BUG: Downloading state is yet unsupported"
+      Uploading _ -> error "BUG: Uploading state is yet unsupported"
+      Downloaded _ -> error "BUG: Don’t remove a completed download"
+      Uploaded _ -> error "BUG: Don‘t remove a completed upload"
     insert_added :: StorePathState -> DependencySummary -> DependencySummary
     insert_added = \case
       DownloadPlanned -> field @"plannedDownloads" %~ CSet.insert pathId
-      Downloading _ -> error "Downloading state is yet unsupported"
-      Uploading _ -> error "Uploading state is yet unsupported"
+      Downloading _ -> error "BUG: Downloading state is yet unsupported"
+      Uploading _ -> error "BUG: Uploading state is yet unsupported"
       Downloaded ho -> field @"completedDownloads" %~ CMap.insert pathId ho
       Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
     deletedStates = Set.difference oldStates newStates |> toList

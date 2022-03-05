@@ -1,5 +1,3 @@
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeFamilies #-}
 module NOM.Parser where
 
 import Relude hiding (take, takeWhile)
@@ -20,7 +18,6 @@ import Data.Attoparsec.Text (
   takeWhile,
  )
 import Data.Text (stripSuffix)
-import Data.MemoTrie
 import NOM.Util ((.>), (|>), (<.>>))
 
 data ParseResult
@@ -54,17 +51,6 @@ fromRep = bimap toText toText .> uncurry StorePath
 newtype Derivation = Derivation {toStorePath :: StorePath}
   deriving stock (Show, Ord, Eq, Read, Generic)
 
-instance HasTrie StorePath where
-  newtype (StorePath :->: b) = StorePathTrie { unStorePathTrie :: (String,String) :->: b }
-  trie = \f -> StorePathTrie (trie (fromRep .> f))
-  untrie theTrie = toRep .> (theTrie |> unStorePathTrie .> untrie)
-  enumerate = unStorePathTrie .> enumerate <.>> first fromRep
-
-instance HasTrie Derivation where
-  newtype (Derivation :->: b) = DerivationTrie { unDerivationTrie :: StorePath :->: b }
-  trie = \f -> DerivationTrie (trie (Derivation .> f))
-  untrie theTrie = toStorePath .> (theTrie |> unDerivationTrie .> untrie)
-  enumerate = unDerivationTrie .> enumerate <.>> first Derivation
 
 instance ToText Derivation where
   toText = (<> ".drv") . toText . toStorePath
