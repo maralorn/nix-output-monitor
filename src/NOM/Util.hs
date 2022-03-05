@@ -15,6 +15,9 @@ foldEndo = foldMapEndo id
 passThroughBuffer :: Functor m => (update -> state -> m state) -> (update, buffer) -> state -> m (state, buffer)
 passThroughBuffer updater (update, buffer) = updater update <.>> (,buffer)
 
+secondM :: Functor m => (b -> m c) -> (a, b) -> m (a, c)
+secondM f (a, b) = f b <|>> (a,)
+
 firstFF :: (Functor f, Functor g) => (a -> f (g c)) -> (a, b) -> f (g (c, b))
 firstFF f (a, b) = f a <<|>>> (,b)
 

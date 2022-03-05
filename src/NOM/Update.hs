@@ -11,7 +11,7 @@ import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), DisplayState (OptionalNode), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState, getDerivationInfos)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), DisplayState (OptionalNode), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
@@ -23,7 +23,7 @@ import NOM.Update.Monad
     MonadReadDerivation (..),
     UpdateMonad,
   )
-import NOM.Util (firstFF, forMaybeM, hush, (.>), (<.>>), (<|>>), (|>), foldMapEndo)
+import NOM.Util (foldMapEndo, hush, (.>), (<.>>), (<|>>), (|>))
 import qualified Nix.Derivation as Nix
 import Optics (preview, (%), (%~), (.~), (?~))
 import Relude
@@ -108,9 +108,13 @@ updateState result (inputAccessTime, inputState) = do
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
-  runningLocalBuilds <- getRunningBuildsByHost Localhost <|>> CMap.toList
-  newCompletedOutputs <- filterM (fst .> drv2out >=> maybe (pure False) storePathExists) runningLocalBuilds
-  let anyBuildsFinished = null newCompletedOutputs
+  runningLocalBuilds <- getRunningBuildsByHost Localhost <|>> CMap.toList -- .> traceShowId
+  let isCompleted (drvId, _) =
+        drv2out drvId >>= \case
+          Nothing -> pure False -- Derivation has no "out" output.
+          Just path -> storePathExists path
+  newCompletedOutputs <- filterM isCompleted runningLocalBuilds -- <|>> traceShowId
+  let anyBuildsFinished = not (null newCompletedOutputs)
   when anyBuildsFinished (finishBuilds Localhost newCompletedOutputs)
   pure anyBuildsFinished
 
@@ -157,11 +161,13 @@ timeDiffInt = diffUTCTime <.>> floor
 
 finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(DerivationId, BuildInfo ())] -> NOMStateT m ()
 finishBuilds host builds = do
-  let report =
-        fmap (second buildStart) .> reportFinishingBuilds host
-          >=> (field @"buildReports" .~) .> modify
-  forMaybeM builds (firstFF lookupDerivationId)
-    >>= nonEmpty .> maybe pass report
+  derivationsWithNames <- forM builds \(drvId, buildInfo) ->
+    lookupDerivationId drvId <|>> (,buildStart buildInfo)
+  nonEmpty derivationsWithNames |> \case
+    Nothing -> pass
+    Just finishedBuilds -> do
+      newBuildReports <- reportFinishingBuilds host finishedBuilds
+      modify (field @"buildReports" .~ newBuildReports)
   now <- getNow
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
@@ -285,7 +291,6 @@ uploaded host = flip insertStorePathState (Downloaded host)
 
 building :: Host -> DerivationId -> UTCTime -> NOMState ()
 building host drv now = do
-  lastNeeded <- runMaybeT do
-    drvName <- MaybeT (lookupDerivationId drv)
-    MaybeT (gets (buildReports .> Map.lookup (host, getReportName drvName)))
+  drvName <- lookupDerivationId drv
+  lastNeeded <- get <|>> buildReports .> Map.lookup (host, getReportName drvName)
   updateDerivationState drv (const (Building (MkBuildInfo now host lastNeeded ())))

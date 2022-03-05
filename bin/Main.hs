@@ -1,26 +1,22 @@
 module Main where
 
-import Relude
-
+import Data.Generics.Product (typed)
 import Data.Text.IO (hPutStrLn)
-import Data.Version (showVersion)
-import Optics (view, _2, _3, (.~))
-import System.Environment (getArgs)
-import System.Console.Terminal.Size (Window)
 import Data.Time (UTCTime, ZonedTime)
-
-import Paths_nix_output_monitor (version)
-
-import NOM.IO (interact)
-import NOM.Parser (parser)
+import Data.Version (showVersion)
+import NOM.IO (interact, Output)
+import NOM.Parser (parser, ParseResult)
 import NOM.Print (stateToText)
-import NOM.State (NOMV1State, initalState, fullSummary, failedBuilds, ProcessState (..))
+import NOM.State (NOMV1State, ProcessState (..), failedBuilds, fullSummary, initalState)
+import qualified NOM.State.CacheId.Map as CMap
 import NOM.Update (detectLocalFinishedBuilds, updateState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
-import qualified Data.Map.Strict as Map
-import Data.Generics.Product (typed)
-import qualified NOM.State.CacheId.Map as CMap
+import Optics (view, (.~), _3)
+import Paths_nix_output_monitor (version)
+import Relude
+import System.Console.Terminal.Size (Window)
+import System.Environment (getArgs)
 
 main :: IO ()
 main = do
@@ -35,24 +31,33 @@ main = do
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   firstState <- initalState
-  finalState <- interact parser (passThroughBuffer (addPrintCache updateState stateToText)) (view _3) finalizer (Nothing, firstState, stateToText firstState)
-  if (view _2 finalState |> fullSummary .> failedBuilds .> CMap.size) == 0
+  let firstCompoundState = (Nothing, firstState, stateToText firstState)
+  (_, finalState, _) <- interact parser compoundStateUpdater compoundStateToText finalizer firstCompoundState
+  if (finalState |> fullSummary .> failedBuilds .> CMap.size) == 0
     then exitSuccess
     else exitFailure
 
+compoundStateToText :: (a, b, c) -> c
+compoundStateToText = view _3
+
+compoundStateUpdater :: UpdateMonad m => (Maybe ParseResult, Output) -> (Maybe UTCTime, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text)-> m ((Maybe UTCTime, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text), Output)
+compoundStateUpdater = passThroughBuffer (addPrintCache updateState stateToText)
+
 finalizer :: UpdateMonad m => ((a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text) -> m (a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text))
-finalizer (n, s, _) = runStateT detectLocalFinishedBuilds s <|>> snd .> (typed .~ Finished) .> (\s' -> (n, s', stateToText s'))
+finalizer (n, oldState, _) = do
+  newState <- execStateT detectLocalFinishedBuilds oldState <|>> (typed .~ Finished)
+  pure (n, newState, stateToText newState)
 
 helpText :: Text
 helpText =
   unlines
-    [ "Usage: nix-build |& nom"
-    , ""
-    , "Run any nix command (nixos-rebuild,nix-build,home-manager switch,"
-    , "not nix build.) and pipe stderr and stdout into nom."
-    , ""
-    , "Don‘t forget to redirect stderr, too. That's what the & does."
-    , ""
-    , "Please see the readme for more details:"
-    , "https://github.com/maralorn/nix-output-monitor"
+    [ "Usage: nix-build |& nom",
+      "",
+      "Run any nix command (nixos-rebuild,nix-build,home-manager switch,",
+      "not nix build.) and pipe stderr and stdout into nom.",
+      "",
+      "Don‘t forget to redirect stderr, too. That's what the & does.",
+      "",
+      "Please see the readme for more details:",
+      "https://github.com/maralorn/nix-output-monitor"
     ]

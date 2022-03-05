@@ -15,6 +15,9 @@ insert (MkCacheId x) = cidSet .> IntSet.insert x .> MkCacheIdSet
 toList :: CacheIdSet b -> [CacheId b]
 toList = cidSet .> IntSet.toList <.>> MkCacheId
 
+fromFoldable :: Foldable f => f (CacheId b) -> CacheIdSet b
+fromFoldable = foldl' (flip insert) mempty
+
 null :: CacheIdSet b -> Bool
 null = cidSet .> IntSet.null
 
@@ -32,3 +35,6 @@ delete = coerce IntSet.delete
 
 size :: CacheIdSet b -> Int
 size = coerce IntSet.size
+
+isSubsetOf :: CacheIdSet b -> CacheIdSet b -> Bool
+isSubsetOf = coerce IntSet.isSubsetOf

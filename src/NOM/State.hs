@@ -210,11 +210,11 @@ getRunningBuilds = gets (fullSummary .> runningBuilds)
 getRunningBuildsByHost :: Host -> NOMState (DerivationMap RunningBuildInfo)
 getRunningBuildsByHost host = getRunningBuilds <|>> CMap.filter (buildHost .> (== host))
 
-lookupStorePathId :: StorePathId -> NOMState (Maybe StorePath)
-lookupStorePathId s = gets (storePathInfos .> CMap.lookup s <.>> storePathName)
+lookupStorePathId :: StorePathId -> NOMState StorePath
+lookupStorePathId = getStorePathInfos <.>> storePathName
 
-lookupDerivationId :: DerivationId -> NOMState (Maybe Derivation)
-lookupDerivationId d = gets (derivationInfos .> CMap.lookup d <.>> derivationName)
+lookupDerivationId :: DerivationId -> NOMState Derivation
+lookupDerivationId = getDerivationInfos <.>> derivationName
 
 type NOMState a = forall m. MonadState NOMV1State m => m a
 
@@ -247,7 +247,7 @@ getDerivationId drv = do
 drv2out :: DerivationId -> NOMState (Maybe StorePath)
 drv2out drv =
   gets (derivationInfos .> CMap.lookup drv >=> outputs .> Map.lookup "out")
-    >>= mapM lookupStorePathId <.>> join
+    >>= mapM lookupStorePathId
 
 out2drv :: StorePathId -> NOMState (Maybe DerivationId)
 out2drv path = gets (storePathInfos .> CMap.lookup path >=> storePathProducer)
