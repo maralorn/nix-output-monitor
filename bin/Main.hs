@@ -14,12 +14,13 @@ import Paths_nix_output_monitor (version)
 import NOM.IO (interact)
 import NOM.Parser (parser)
 import NOM.Print (stateToText)
-import NOM.State (NOMV1State, initalState, getFailedBuilds, ProcessState (..))
+import NOM.State (NOMV1State, initalState, fullSummary, failedBuilds, ProcessState (..))
 import NOM.Update (detectLocalFinishedBuilds, updateState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
 import qualified Data.Map.Strict as Map
 import Data.Generics.Product (typed)
+import qualified NOM.State.CacheId.Map as CMap
 
 main :: IO ()
 main = do
@@ -35,12 +36,12 @@ main = do
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   firstState <- initalState
   finalState <- interact parser (passThroughBuffer (addPrintCache updateState stateToText)) (view _3) finalizer (Nothing, firstState, stateToText firstState)
-  if (view _2 finalState |> getFailedBuilds .> Map.size) == 0
+  if (view _2 finalState |> fullSummary .> failedBuilds .> CMap.size) == 0
     then exitSuccess
     else exitFailure
 
 finalizer :: UpdateMonad m => ((a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text) -> m (a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text))
-finalizer (n, s, _) = detectLocalFinishedBuilds s <|>> fromMaybe s .> (typed .~ Finished) .> (\s' -> (n, s', stateToText s'))
+finalizer (n, s, _) = runStateT detectLocalFinishedBuilds s <|>> snd .> (typed .~ Finished) .> (\s' -> (n, s', stateToText s'))
 
 helpText :: Text
 helpText =

@@ -28,6 +28,8 @@ import NOM.State.Tree (aggregateTree, collapseForestN, mapRootsTwigsAndLeafs, re
 
 --import NOM.Update (SortOrder (SLink), mkOrder, nodeOrder)
 import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<<.>>>), (<|>>), (|>))
+import qualified NOM.State.CacheId.Map as CMap
+import qualified NOM.State.CacheId.Set as CSet
 
 lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 vertical = "┃"
@@ -56,13 +58,13 @@ stateToText buildState@MkNOMV1State{..} maybeWindow now
   | not anythingGoingOn = time
   | otherwise = buildsDisplay <> table <> unlines errors
  where
-  summary = getSummary buildState
-  MkDependencySummary{..} = summary Nothing
+  MkDependencySummary{..} = fullSummary
   runningBuilds' = runningBuilds <|>> buildHost
   completedBuilds' = completedBuilds <|>> buildHost
-  numFailedBuilds = Map.size failedBuilds
+  numFailedBuilds = CMap.size failedBuilds
   anythingGoingOn = totalBuilds + downloadsDone + numPlannedDownloads + numFailedBuilds > 0
-  buildsDisplay = "Top Builds: " <> (topDrvs buildState |> foldMap (toStorePath .> name .> (<> " "))) <> "\n"
+  buildsDisplay = "Top Builds: " <> (forestRoots |> foldMap (
+          flip CMap.lookup derivationInfos .> fromMaybe undefined .> derivationName .> toStorePath .> name .> (<> " "))) <> "\n"
   {-    showCond
    anythingGoingOn
    $ prependLines
@@ -104,16 +106,16 @@ stateToText buildState@MkNOMV1State{..} maybeWindow now
 
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
-  showDownloads = downloadsDone + length plannedDownloads > 0
-  showUploads = Map.size completedUploads > 0
-  numPlannedDownloads = Set.size plannedDownloads
+  showDownloads = downloadsDone + CSet.size plannedDownloads > 0
+  showUploads = CMap.size completedUploads > 0
+  numPlannedDownloads = CSet.size plannedDownloads
   numHosts =
     Set.size (Set.filter (/= Localhost) (foldMap one runningBuilds' <> foldMap one completedBuilds' <> foldMap one completedUploads))
-  numRunningBuilds = Map.size runningBuilds
-  numCompletedBuilds = Map.size completedBuilds
-  numPlannedBuilds = length plannedBuilds
+  numRunningBuilds = CMap.size runningBuilds
+  numCompletedBuilds = CMap.size completedBuilds
+  numPlannedBuilds = CSet.size plannedBuilds
   totalBuilds = numPlannedBuilds + numRunningBuilds + numCompletedBuilds
-  downloadsDone = Map.size completedDownloads
+  downloadsDone = CMap.size completedDownloads
   finishMarkup = if numFailedBuilds == 0 then((goal <> "Finished") <>) .> markup green  else ((warning <> " Exited with failures") <>) .> markup red
   time = if processState == Finished then finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> timeDiff (zonedTimeToUTC now) startTime) else clock <> " " <> timeDiff (zonedTimeToUTC now) startTime
 
@@ -144,7 +146,7 @@ stateToText buildState@MkNOMV1State{..} maybeWindow now
     hosts =
       sort . toList @Set $
         foldMap (foldMap one) [runningBuilds', completedBuilds'] <> foldMap (foldMap one) [completedUploads, completedDownloads]
-    l host = Map.size . Map.filter (host ==)
+    l host = CMap.size . CMap.filter (host ==)
 nonZeroShowBold :: Int -> Entry -> Entry
 nonZeroShowBold num = if num > 0 then bold else const dummy
 

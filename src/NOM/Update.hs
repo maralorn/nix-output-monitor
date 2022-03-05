@@ -1,35 +1,32 @@
 module NOM.Update where
 
-import Relude
-
 import Control.Monad.Except (liftEither)
+import Data.Attoparsec.Text (endOfInput, parseOnly)
 import Data.Generics.Product (field, typed)
 import Data.Generics.Sum (_As)
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
-import Optics (preview, (%), (%~), (.~), (?~))
-
-import Data.Attoparsec.Text (endOfInput, parseOnly)
-
-import qualified Nix.Derivation as Nix
-
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), DisplayState (OptionalNode), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), DisplayState (OptionalNode), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState, getDerivationInfos)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
-import NOM.Update.Monad (
-  BuildReportMap,
-  MonadCacheBuildReports (..),
-  MonadCheckStorePath (..),
-  MonadNow (..),
-  MonadReadDerivation (..),
-  UpdateMonad,
- )
+import NOM.Update.Monad
+  ( BuildReportMap,
+    MonadCacheBuildReports (..),
+    MonadCheckStorePath (..),
+    MonadNow (..),
+    MonadReadDerivation (..),
+    UpdateMonad,
+  )
 import NOM.Util (firstFF, foldEndo, forMaybeM, hush, (.>), (<.>>), (<|>>), (|>))
+import qualified Nix.Derivation as Nix
+import Optics (preview, (%), (%~), (.~), (?~))
+import Relude
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -83,7 +80,7 @@ setInputReceived :: NOMState Bool
 setInputReceived = do
   s <- get
   let change = processState s == JustStarted
-  when change (put s{processState = InputReceived})
+  when change (put s {processState = InputReceived})
   pure change
 
 updateState :: UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m (Maybe UTCTime, Maybe NOMV1State)
@@ -97,10 +94,10 @@ updateState result (inputAccessTime, inputState) = do
     runStateT
       ( orM
           [ -- First check if we this is the first time that we receive input (for error messages)
-            setInputReceived
-          , -- Update the state if any changes where parsed.
-            maybe (pure False) processResult result
-          , -- Check if any local builds have finished, because nix-build would not tell us.
+            setInputReceived,
+            -- Update the state if any changes where parsed.
+            maybe (pure False) processResult result,
+            -- Check if any local builds have finished, because nix-build would not tell us.
             -- If we haven‘t done so in the last 200ms.
             check
           ]
@@ -170,18 +167,18 @@ finishBuilds host builds = do
 
 modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
 modifyBuildReports host = fmap (uncurry insertBuildReport) .> foldEndo
- where
-  insertBuildReport name =
-    Map.insertWith
-      (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
-      (host, getReportName name)
+  where
+    insertBuildReport name =
+      Map.insertWith
+        (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
+        (host, getReportName name)
 
 failedBuild :: UTCTime -> DerivationId -> Int -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
- where
-  update = \case
-    Building a -> State.Failed (a $> (now, code))
-    x -> x
+  where
+    update = \case
+      Building a -> State.Failed (a $> (now, code))
+      x -> x
 
 lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT m DerivationId
 lookupDerivation drv = do
@@ -210,13 +207,17 @@ lookupDerivation drv = do
             parseDerivation drvPath |> mapM \depName -> do
               depId <- lookupDerivation depName
               modify (field @"derivationInfos" %~ CMap.adjust (field @"derivationParents" %~ CSet.insert drvId) depId)
+              modify (field @"forestRoots" %~ Seq.filter (/= depId))
               pure depId
           pure $ depIdMay <|>> (,OptionalNode,outs)
-      modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs, inputSources, inputDerivations, cached = True}) drvId)
+      modify (field @"derivationInfos" %~ CMap.adjust (\i -> i {outputs, inputSources, inputDerivations, cached = True}) drvId)
+      noParents <- getDerivationInfos drvId <|>> derivationParents .> CSet.null
+      when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
   pure drvId
 
 parseStorePath :: FilePath -> Maybe StorePath
 parseStorePath = hush . parseOnly (Parser.storePath <* endOfInput) . fromString
+
 parseDerivation :: FilePath -> Maybe Derivation
 parseDerivation = hush . parseOnly (Parser.derivation <* endOfInput) . fromString
 
@@ -269,18 +270,18 @@ matchStorePath storePath = either (const False) ((storePath ==) . path)
 -}
 
 planDownloads :: Set StorePathId -> NOMState ()
-planDownloads = mapM_ (insertStorePathState DownloadPlanned)
+planDownloads = mapM_ (`insertStorePathState` DownloadPlanned)
 
 downloaded :: Host -> StorePathId -> NOMState (Maybe (DerivationId, RunningBuildInfo))
 downloaded host pathId = do
-  insertStorePathState (Downloaded host) pathId
+  insertStorePathState pathId (Downloaded host)
   runMaybeT $ do
     drvId <- MaybeT (out2drv pathId)
     drvInfos <- MaybeT (gets (derivationInfos .> CMap.lookup drvId))
     MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (drvId,)))
 
 uploaded :: Host -> StorePathId -> NOMState ()
-uploaded host = insertStorePathState (Downloaded host)
+uploaded host = flip insertStorePathState (Downloaded host)
 
 building :: Host -> DerivationId -> UTCTime -> NOMState ()
 building host drv now = do

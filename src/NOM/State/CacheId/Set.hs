@@ -14,3 +14,21 @@ insert (MkCacheId x) = cidSet .> IntSet.insert x .> MkCacheIdSet
 
 toList :: CacheIdSet b -> [CacheId b]
 toList = cidSet .> IntSet.toList <.>> MkCacheId
+
+null :: CacheIdSet b -> Bool
+null = cidSet .> IntSet.null
+
+maxView :: CacheIdSet b -> Maybe (CacheId b, CacheIdSet b)
+maxView = cidSet .> IntSet.maxView .> coerce
+
+union :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
+union = coerce IntSet.union
+
+difference :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
+difference = coerce IntSet.difference
+
+delete :: CacheId b -> CacheIdSet b -> CacheIdSet b
+delete = coerce IntSet.delete
+
+size :: CacheIdSet b -> Int
+size = coerce IntSet.size

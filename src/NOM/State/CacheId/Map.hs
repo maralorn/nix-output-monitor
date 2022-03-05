@@ -8,7 +8,7 @@ import NOM.Util ((.>))
 
 newtype CacheIdMap b a = MkCacheIdMap {cidMap :: IntMap a}
   deriving stock (Show, Eq, Ord, Read, Generic)
-  deriving newtype (Semigroup, Monoid, Foldable)
+  deriving newtype (Semigroup, Monoid, Foldable, Functor)
 
 filter :: (a -> Bool) -> CacheIdMap b a -> CacheIdMap b a
 filter p = cidMap .> IntMap.filter p .> MkCacheIdMap
@@ -27,3 +27,9 @@ nextKey = cidMap .> IntMap.lookupMax .> maybe 0 (fst .> (+ 1)) .> MkCacheId
 
 adjust :: (a -> a) -> CacheId b -> CacheIdMap b a -> CacheIdMap b a
 adjust f (MkCacheId key) = cidMap .> IntMap.adjust f key .> MkCacheIdMap
+
+delete :: CacheId b -> CacheIdMap b a -> CacheIdMap b a
+delete (MkCacheId key) = cidMap .> IntMap.delete key .> coerce
+
+size :: CacheIdMap b a -> Int
+size = cidMap .> IntMap.size
