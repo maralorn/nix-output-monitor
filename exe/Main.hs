@@ -4,8 +4,8 @@ import Data.Generics.Product (typed)
 import Data.Text.IO (hPutStrLn)
 import Data.Time (UTCTime, ZonedTime)
 import Data.Version (showVersion)
-import NOM.IO (interact, Output)
-import NOM.Parser (parser, ParseResult)
+import NOM.IO (interact)
+import NOM.Parser (ParseResult, parser)
 import NOM.Print (stateToText)
 import NOM.State (NOMV1State, ProcessState (..), failedBuilds, fullSummary, initalState)
 import qualified NOM.State.CacheId.Map as CMap
@@ -37,13 +37,22 @@ main = do
     then exitSuccess
     else exitFailure
 
+type CompoundState = (Maybe UTCTime, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text)
+
 compoundStateToText :: (a, b, c) -> c
 compoundStateToText = view _3
 
-compoundStateUpdater :: UpdateMonad m => (Maybe ParseResult, Output) -> (Maybe UTCTime, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text)-> m ((Maybe UTCTime, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text), Output)
+compoundStateUpdater ::
+  UpdateMonad m =>
+  (Maybe ParseResult, Text) ->
+  CompoundState ->
+  m (CompoundState, Text)
 compoundStateUpdater = passThroughBuffer (addPrintCache updateState stateToText)
 
-finalizer :: UpdateMonad m => ((a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text) -> m (a, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text))
+finalizer ::
+  UpdateMonad m =>
+  CompoundState ->
+  m CompoundState
 finalizer (n, oldState, _) = do
   newState <- execStateT detectLocalFinishedBuilds oldState <|>> (typed .~ Finished)
   pure (n, newState, stateToText newState)
