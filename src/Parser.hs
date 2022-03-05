@@ -75,7 +75,7 @@ storePath :: Parser StorePath
 storePath =
   StorePath
     <$> (string storePrefix *> take 32)
-    <*> (char '-' *> takeWhile (inClass "a-zA-Z0-9_.-"))
+    <*> (char '-' *> takeWhile (inClass "a-zA-Z0-9?=_.+-"))
 
 derivation :: Parser Derivation
 derivation =
