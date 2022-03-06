@@ -43,11 +43,6 @@ data StorePath = StorePath
   }
   deriving stock (Show, Ord, Eq, Read, Generic)
 
-toRep :: StorePath -> (String, String)
-toRep StorePath{..}= (toString hash, toString name)
-fromRep :: (String, String) -> StorePath
-fromRep = bimap toText toText .> uncurry StorePath
-
 newtype Derivation = Derivation {toStorePath :: StorePath}
   deriving stock (Show, Ord, Eq, Read, Generic)
 

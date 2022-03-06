@@ -1,1 +1,1 @@
-{ roots = [ "^Paths_.", "^NOM.Debug.printState$", "^Main.main$" ], type-class-roots = True }
+{ roots = [ "^Paths_.", "^Main.main$" ], type-class-roots = True }

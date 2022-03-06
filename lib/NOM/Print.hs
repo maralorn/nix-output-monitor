@@ -1,28 +1,22 @@
 module NOM.Print (stateToText) where
 
-import Control.Monad (foldM)
-import Data.Generics.Product (typed)
 import Data.Generics.Sum (_Ctor)
-import Data.List (partition)
 import Data.List.NonEmpty.Extra (appendr)
-import qualified Data.Map.Strict as Map
-import Data.MemoTrie (HasTrie, memo)
+import Data.MemoTrie (memo)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
 import Data.Tree (Forest, Tree (Node, rootLabel))
-import qualified Data.Tree as Tree
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (MkBuildInfo), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (Finished, JustStarted), StorePathInfo, StorePathState (..), buildEnd, buildEstimate, buildHost, buildStart, getDerivationInfos)
+import NOM.State (BuildInfo (MkBuildInfo), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (Finished, JustStarted), buildEnd, buildEstimate, buildHost, buildStart, getDerivationInfos)
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
-import NOM.State.Sorting (SortOrder (SWaiting), sortKey, summaryIncludingRoot)
-import NOM.State.Tree (aggregateTree, collapseForestN, mapRootsTwigsAndLeafs, replaceDuplicates, sortForest)
-import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<<.>>>), (<|>>), (|>))
-import Optics (has, preview, summing, view, (%), _1, _2, _Just, _Left, _Nothing, _Right)
+import NOM.State.Sorting (summaryIncludingRoot)
+import NOM.State.Tree (mapRootsTwigsAndLeafs)
+import NOM.Util ((.>), (<.>>), (<|>>), (|>))
 import Optics.Fold (hasn't)
 import Relude
 import System.Console.Terminal.Size (Window)

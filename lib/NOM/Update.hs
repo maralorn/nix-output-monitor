@@ -11,10 +11,11 @@ import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, lookupDerivationId, out2drv, reportError, DependencySummary, DerivationSet, updateSummaryForDerivation, getStorePathInfos, storePathStates, updateSummaryForStorePath, storePathInputFor, storePathProducer)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, reportError, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
+import NOM.State.Sorting (sortKey, sortParents)
 import NOM.Update.Monad
   ( BuildReportMap,
     MonadCacheBuildReports (..),
@@ -27,7 +28,6 @@ import NOM.Util (foldMapEndo, hush, (.>), (<.>>), (<|>>), (|>))
 import qualified Nix.Derivation as Nix
 import Optics (preview, (%), (%~), (.~), (?~))
 import Relude
-import NOM.State.Sorting (sortKey, sortParents)
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -48,15 +48,16 @@ updateState result (inputAccessTime, inputState) = do
           else (inputAccessTime, pure False)
   (hasChanged, outputState) <-
     runStateT
-      ( or <$> sequence
-          [ -- First check if we this is the first time that we receive input (for error messages)
-            setInputReceived,
-            -- Update the state if any changes where parsed.
-            maybe (pure False) processResult result,
-            -- Check if any local builds have finished, because nix-build would not tell us.
-            -- If we haven‘t done so in the last 200ms.
-            check
-          ]
+      ( or
+          <$> sequence
+            [ -- First check if we this is the first time that we receive input (for error messages)
+              setInputReceived,
+              -- Update the state if any changes where parsed.
+              maybe (pure False) processResult result,
+              -- Check if any local builds have finished, because nix-build would not tell us.
+              -- If we haven‘t done so in the last 200ms.
+              check
+            ]
       )
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
@@ -187,51 +188,6 @@ parseDerivation = hush . parseOnly (Parser.derivation <* endOfInput) . fromStrin
 planBuilds :: Set DerivationId -> NOMState ()
 planBuilds = mapM_ \drv -> updateDerivationState drv (const Planned)
 
-{-
-derivationUpdate :: NOMV1State -> Derivation -> Maybe (Host, BuildStatus) -> ForestUpdate BuildTreeNode
-derivationUpdate buildState derivation' newState = do
-  let def = Left @DerivationNode @StorePathNode (DerivationNode derivation' newState)
-  ForestUpdate
-    { isParent = flip (isDirectDependency buildState) def
-    , isChild = isDirectDependency buildState def
-    , match = matchDerivation derivation'
-    , update = const def
-    , def
-    }
-
-storePathUpdate :: NOMV1State -> StorePath -> StorePathState -> ForestUpdate BuildTreeNode
-storePathUpdate buildState storePath newState = do
-  let drv = Map.lookup storePath (outputToDerivation buildState)
-      def = Right (StorePathNode storePath drv (one newState))
-  ForestUpdate
-    { isParent = flip (isDirectDependency buildState) def
-    , isChild = isDirectDependency buildState def
-    , match = matchStorePath storePath
-    , update = second ((typed %~ insertStorePathState newState) .> (typed .~ drv))
-    , def
-    }
--}
-
-{-
-isDirectDependency :: NOMV1State -> BuildTreeNode -> BuildTreeNode -> Bool
-isDirectDependency buildState parent' child' = fromMaybe False $ case (parent', child') of
-  (Left (DerivationNode parent _), Left (DerivationNode child _)) -> drvsDep parent child
-  (Left (DerivationNode parent _), Right child) -> drv2path parent child
-  (Right (StorePathNode _ (Just parent) _), Right child) -> drv2path parent child
-  (Right (StorePathNode _ Nothing _), Right _) -> Nothing
-  (Right _, Left _) -> Nothing
- where
-  getInfo parent = Map.lookup parent (derivationInfos buildState)
-  drvsDep parent child = getInfo parent <|>> inputDrvs .> Map.keysSet .> Set.member child
-  drv2path parent = \case
-    (StorePathNode child Nothing _) -> getInfo parent <|>> inputSrcs .> Set.member child
-    (StorePathNode _ (Just child) _) -> drvsDep parent child
-matchDerivation :: Derivation -> BuildTreeNode -> Bool
-matchDerivation derivation' = either ((derivation' ==) . derivation) (const False)
-matchStorePath :: StorePath -> BuildTreeNode -> Bool
-matchStorePath storePath = either (const False) ((storePath ==) . path)
--}
-
 planDownloads :: Set StorePathId -> NOMState ()
 planDownloads = mapM_ (`insertStorePathState` DownloadPlanned)
 
@@ -279,7 +235,6 @@ updateParents update_func = go mempty
         modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
         next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
         go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
-
 
 updateStorePathStates :: StorePathState -> Set StorePathState -> Set StorePathState
 updateStorePathStates newState = localFilter .> Set.insert newState
