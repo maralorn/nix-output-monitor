@@ -1,24 +1,22 @@
 module NOM.Parser where
 
-import Relude hiding (take, takeWhile)
-
-import Data.Attoparsec.Text (
-  Parser,
-  char,
-  choice,
-  decimal,
-  double,
-  endOfLine,
-  inClass,
-  isEndOfLine,
-  match,
-  string,
-  take,
-  takeTill,
-  takeWhile,
- )
+import Data.Attoparsec.Text
+  ( Parser,
+    char,
+    choice,
+    decimal,
+    double,
+    endOfLine,
+    inClass,
+    isEndOfLine,
+    match,
+    string,
+    take,
+    takeTill,
+    takeWhile,
+  )
 import Data.Text (stripSuffix)
-import NOM.Util ((.>))
+import Relude hiding (take, takeWhile)
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -38,8 +36,8 @@ updateParser :: Parser ParseResult
 updateParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
 data StorePath = StorePath
-  { hash :: !Text
-  , name :: !Text
+  { hash :: !Text,
+    name :: !Text
   }
   deriving stock (Show, Ord, Eq, Read, Generic)
 
@@ -48,6 +46,7 @@ newtype Derivation = Derivation {toStorePath :: StorePath}
 
 instance ToText Derivation where
   toText = (<> ".drv") . toText . toStorePath
+
 instance ToString Derivation where
   toString = toString . toText
 
@@ -56,15 +55,18 @@ storePrefix = "/nix/store/"
 
 instance ToText StorePath where
   toText (StorePath hash name) = storePrefix <> hash <> "-" <> name
+
 instance ToString StorePath where
   toString = toString . toText
 
 data Host = Localhost | Host !Text
   deriving stock (Ord, Eq)
   deriving stock (Show, Read)
+
 instance ToText Host where
   toText (Host name) = name
   toText Localhost = "localhost"
+
 instance ToString Host where
   toString = toString . toText
 
@@ -80,7 +82,7 @@ storePath =
 derivation :: Parser Derivation
 derivation =
   storePath >>= \x -> case stripSuffix ".drv" (name x) of
-    Just realName -> pure . Derivation $ x{name = realName}
+    Just realName -> pure . Derivation $ x {name = realName}
     Nothing -> mzero
 
 inTicks :: Parser a -> Parser a
@@ -107,12 +109,12 @@ planBuilds :: Parser ParseResult
 planBuilds =
   maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x))) . nonEmpty
     =<< choice
-            [ string "these derivations will be built:"
-            , string "this derivation will be built:"
-            , string "these " *> (decimal :: Parser Int) *> string " derivations will be built:"
-            ]
-            *> endOfLine
-            *> many planBuildLine
+      [ string "these derivations will be built:",
+        string "this derivation will be built:",
+        string "these " *> (decimal :: Parser Int) *> string " derivations will be built:"
+      ]
+      *> endOfLine
+      *> many planBuildLine
 
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivation <* endOfLine
@@ -121,9 +123,9 @@ planDownloads :: Parser ParseResult
 planDownloads =
   PlanDownloads
     <$> ( choice
-            [ string "these paths"
-            , string "this path"
-            , string "these " *> (decimal :: Parser Int) *> string " paths"
+            [ string "these paths",
+              string "this path",
+              string "these " *> (decimal :: Parser Int) *> string " paths"
             ]
             *> string " will be fetched ("
             *> double

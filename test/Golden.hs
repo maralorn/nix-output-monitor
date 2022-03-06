@@ -1,36 +1,53 @@
 module Main where
 
 import qualified Data.String as String
-import NOM.IO ( processTextStream )
-import NOM.Parser ( parser )
+import Data.Tuple.Extra (secondM)
+import NOM.IO (processTextStream)
+import NOM.Parser (parser)
 import NOM.State
-    ( NOMV1State(MkNOMV1State, fullSummary),
-      DependencySummary(MkDependencySummary, completedUploads,
-                        completedDownloads, plannedDownloads, failedBuilds,
-                        completedBuilds, runningBuilds, plannedBuilds),
-      DerivationId,
-      initalState,
-      getStorePathId,
-      out2drv )
+  ( DependencySummary
+      ( MkDependencySummary,
+        completedBuilds,
+        completedDownloads,
+        completedUploads,
+        failedBuilds,
+        plannedBuilds,
+        plannedDownloads,
+        runningBuilds
+      ),
+    DerivationId,
+    NOMV1State (MkNOMV1State, fullSummary),
+    getStorePathId,
+    initalState,
+    out2drv,
+  )
+import qualified NOM.State.CacheId.Map as CMap
+import qualified NOM.State.CacheId.Set as CSet
 import NOM.Update
-    ( updateState, detectLocalFinishedBuilds, parseStorePath )
+  ( detectLocalFinishedBuilds,
+    parseStorePath,
+    updateState,
+  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util
-    ( passThroughBuffer, (<.>>), (|>), forMaybeM, secondM )
+  ( forMaybeM,
+    passThroughBuffer,
+    (<.>>),
+    (|>),
+  )
 import Relude
 import System.Environment (lookupEnv)
 import System.Process (readProcessWithExitCode)
 import System.Random (randomIO)
 import Test.HUnit
-    ( assertBool,
-      (~:),
-      assertEqual,
-      runTestTT,
-      Counts(errors, failures),
-      Test,
-      Testable(test) )
-import qualified NOM.State.CacheId.Map as CMap
-import qualified NOM.State.CacheId.Set as CSet
+  ( Counts (errors, failures),
+    Test,
+    Testable (test),
+    assertBool,
+    assertEqual,
+    runTestTT,
+    (~:),
+  )
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -81,9 +98,10 @@ golden1 = testBuild "golden1" $ \output endState@MkNOMV1State {fullSummary = sum
   assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)
   let outputStorePaths = mapMaybe parseStorePath (String.lines output)
   assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
-  let
-    outputDerivations :: [DerivationId]
-    outputDerivations = flip evalState endState $ forMaybeM outputStorePaths $
-       getStorePathId >=> out2drv
+  let outputDerivations :: [DerivationId]
+      outputDerivations =
+        flip evalState endState $
+          forMaybeM outputStorePaths $
+            getStorePathId >=> out2drv
   assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
   assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
