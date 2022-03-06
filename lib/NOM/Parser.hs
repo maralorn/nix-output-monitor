@@ -18,7 +18,7 @@ import Data.Attoparsec.Text (
   takeWhile,
  )
 import Data.Text (stripSuffix)
-import NOM.Util ((.>), (|>), (<.>>))
+import NOM.Util ((.>))
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -50,7 +50,6 @@ fromRep = bimap toText toText .> uncurry StorePath
 
 newtype Derivation = Derivation {toStorePath :: StorePath}
   deriving stock (Show, Ord, Eq, Read, Generic)
-
 
 instance ToText Derivation where
   toText = (<> ".drv") . toText . toStorePath

@@ -8,7 +8,7 @@ import Control.Concurrent.STM (check, swapTVar)
 import Control.Exception (IOException, try)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import Data.Time (UTCTime, getCurrentTime, ZonedTime, getZonedTime)
+import Data.Time (ZonedTime, getZonedTime)
 import System.IO (hFlush)
 
 import qualified Streamly as S
@@ -138,7 +138,10 @@ truncateOutput win output = maybe output go win
   go (Window rows columns) = Text.intercalate "\n" $ truncateColumns columns <$> truncatedRows rows
   truncateColumns columns line = if displayWidth line > columns then Table.truncate (columns - 1) line <> "…" <> toText (setSGRCode [Reset]) else line
   truncatedRows rows =
-    if length outputLines >= rows - 2
-      then take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + 2 - rows) outputLines
+    if length outputLines >= rows - outputLinesToAlwaysShow
+      then take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + outputLinesToAlwaysShow + 2 - rows) outputLines
       else outputLines
   outputLines = Text.lines output
+
+outputLinesToAlwaysShow :: Int
+outputLinesToAlwaysShow = 5

@@ -76,7 +76,6 @@ library
   import:          common-config
   hs-source-dirs:  lib
   exposed-modules:
-    NOM.Debug
     NOM.IO
     NOM.Parser
     NOM.Print
@@ -87,6 +86,7 @@ library
     NOM.State.CacheId.Map
     NOM.State.CacheId.Set
     NOM.State.Tree
+    NOM.State.Sorting
     NOM.Update
     NOM.Update.Monad
     NOM.Update.Monad.CacheBuildReports

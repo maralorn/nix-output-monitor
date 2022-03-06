@@ -11,7 +11,7 @@ import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
 import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, insertStorePathState, lookupDerivationId, out2drv, reportError, updateDerivationState)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DerivationId, DerivationInfo (..), NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, lookupDerivationId, out2drv, reportError, DependencySummary, DerivationSet, updateSummaryForDerivation, getStorePathInfos, storePathStates, updateSummaryForStorePath, storePathInputFor, storePathProducer)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
@@ -27,38 +27,11 @@ import NOM.Util (foldMapEndo, hush, (.>), (<.>>), (<|>>), (|>))
 import qualified Nix.Derivation as Nix
 import Optics (preview, (%), (%~), (.~), (?~))
 import Relude
+import NOM.State.Sorting (sortKey, sortParents)
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
 
-{-
-
-mkOrder :: (a -> SortOrder) -> Tree a -> SortOrder
-mkOrder order = go
- where
-  go (Node label subForest) = minimum (order label : (increaseLevel . go <$> subForest))
-
-increaseLevel :: SortOrder -> SortOrder
-increaseLevel = \case
-  SBuilding t i -> SBuilding t (i + 1)
-  s -> s
-
-nodeOrder :: BuildTreeNode -> SortOrder
-nodeOrder = \case
-  Left (DerivationNode _ (Just (_, Building start _))) -> SBuilding start 0
-  Left (DerivationNode _ (Just (_, State.Failed _ _ at))) -> SFailed at
-  Left (DerivationNode _ (Just (_, Built _ at))) -> SDone (Down at)
-  Left (DerivationNode _ Nothing) -> SWaiting
-  Right (StorePathNode _ _ state') -> state' |> fmap storePathOrder .> minimum
-
-storePathOrder :: StorePathState -> SortOrder
-storePathOrder = \case
-  State.Downloaded _ -> SDownloaded
-  State.Downloading _ -> SDownloading
-  State.Uploaded _ -> SUploaded
-  State.Uploading _ -> SUploading
-  State.DownloadPlanned -> SDownloadWaiting
--}
 setInputReceived :: NOMState Bool
 setInputReceived = do
   s <- get
@@ -75,7 +48,7 @@ updateState result (inputAccessTime, inputState) = do
           else (inputAccessTime, pure False)
   (hasChanged, outputState) <-
     runStateT
-      ( orM
+      ( or <$> sequence
           [ -- First check if we this is the first time that we receive input (for error messages)
             setInputReceived,
             -- Update the state if any changes where parsed.
@@ -278,3 +251,60 @@ building host drv now = do
   drvName <- lookupDerivationId drv
   lastNeeded <- get <|>> buildReports .> Map.lookup (host, getReportName drvName)
   updateDerivationState drv (const (Building (MkBuildInfo now host lastNeeded ())))
+
+updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus) -> NOMState ()
+updateDerivationState drvId updateStatus = do
+  -- Update derivationInfo for this Derivation
+  derivation_infos <- getDerivationInfos drvId
+  let oldStatus = buildStatus derivation_infos
+      newStatus = updateStatus oldStatus
+  modify (field @"derivationInfos" %~ CMap.adjust (field @"buildStatus" .~ newStatus) drvId)
+
+  let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
+
+  -- Update summaries of all parents and sort them
+  updateParents update_summary (derivationParents derivation_infos)
+
+  -- Update fullSummary
+  modify (field @"fullSummary" %~ update_summary)
+  currentState <- get
+  modify (field @"forestRoots" %~ Seq.sortOn (sortKey currentState))
+
+updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
+updateParents update_func = go mempty
+  where
+    go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
+      Nothing -> sortParents updated_parents
+      Just (parentToUpdate, restToUpdate) -> do
+        modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
+        next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
+        go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
+
+
+updateStorePathStates :: StorePathState -> Set StorePathState -> Set StorePathState
+updateStorePathStates newState = localFilter .> Set.insert newState
+  where
+    localFilter = case newState of
+      DownloadPlanned -> id
+      State.Downloading _ -> Set.filter (DownloadPlanned /=)
+      Downloaded h -> Set.filter (State.Downloading h /=) .> Set.filter (DownloadPlanned /=)
+      State.Uploading _ -> id
+      Uploaded h -> Set.filter (State.Uploading h /=)
+
+insertStorePathState :: StorePathId -> StorePathState -> NOMState ()
+insertStorePathState storePathId newStorePathState = do
+  -- Update storePathInfos for this Storepath
+  store_path_infos <- getStorePathInfos storePathId
+  let oldStatus = storePathStates store_path_infos
+      newStatus = updateStorePathStates newStorePathState oldStatus
+  modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathStates" .~ newStatus) storePathId)
+
+  let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
+
+  -- Update summaries of all parents
+  updateParents update_summary (maybe id CSet.insert (storePathProducer store_path_infos) (storePathInputFor store_path_infos))
+
+  -- Update fullSummary
+  modify (field @"fullSummary" %~ update_summary)
+  currentState <- get
+  modify (field @"forestRoots" %~ Seq.sortOn (sortKey currentState))

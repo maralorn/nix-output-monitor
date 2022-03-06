@@ -1,30 +1,34 @@
 module NOM.Print (stateToText) where
 
+import Control.Monad (foldM)
 import Data.Generics.Product (typed)
 import Data.Generics.Sum (_Ctor)
 import Data.List (partition)
+import Data.List.NonEmpty.Extra (appendr)
 import qualified Data.Map.Strict as Map
 import Data.MemoTrie (HasTrie, memo)
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
-import Data.Tree (Forest)
+import Data.Tree (Forest, Tree (Node, rootLabel))
 import qualified Data.Tree as Tree
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildStatus (..), DependencySummary (..), DerivationInfo (..), NOMV1State (..), ProcessState (Finished, JustStarted), StorePathState (..), buildHost, getDerivationInfos)
+import NOM.State (BuildInfo (MkBuildInfo), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (Finished, JustStarted), StorePathInfo, StorePathState (..), buildEnd, buildEstimate, buildHost, buildStart, getDerivationInfos)
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
+import NOM.State.Sorting (SortOrder (SWaiting), sortKey, summaryIncludingRoot)
 import NOM.State.Tree (aggregateTree, collapseForestN, mapRootsTwigsAndLeafs, replaceDuplicates, sortForest)
 import NOM.Util (collapseMultimap, countPaths, (.>), (<.>>), (<<.>>>), (<|>>), (|>))
-import Optics (has, preview, summing, (%), _2, _Just, _Left, _Nothing, _Right)
+import Optics (has, preview, summing, view, (%), _1, _2, _Just, _Left, _Nothing, _Right)
+import Optics.Fold (hasn't)
 import Relude
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
-import Data.List.NonEmpty.Extra (appendl, appendr)
 
-lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
+lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average, goal :: Text
 vertical = "┃"
 lowerleft = "┗"
 upperleft = "┏"
@@ -34,38 +38,42 @@ down = "⬇"
 up = "⬆"
 clock = "⏲"
 running = "▶"
-
 goal = "🏁"
-
 done = "✔"
-
 todo = "⏳"
-
 warning = "⚠"
-
 average = "∅"
-
 bigsum = "∑"
-
 lb = "▓"
 
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
-unPackWindow :: Window b -> (b, b)
-unPackWindow (Window.Window a b) = (a, b)
+targetRatio, defaultTreeMax :: Int
+targetRatio = 3
+defaultTreeMax = 20
 
 stateToText :: NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
-stateToText buildState@MkNOMV1State {..} = fmap unPackWindow .> memo printWithSize
+stateToText buildState@MkNOMV1State {..} = fmap Window.height .> memo printWithSize
   where
-    printWithSize :: Maybe (Int, Int) -> ZonedTime -> Text
+    printWithSize :: Maybe Int -> ZonedTime -> Text
     printWithSize maybeWindow = printWithTime
       where
         printWithTime :: ZonedTime -> Text
         printWithTime
           | processState == JustStarted = \now -> time now <> showCond (diffUTCTime (zonedTimeToUTC now) startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
           | not anythingGoingOn = time
-          | otherwise = \now -> buildsDisplay <> table (time now) <> errorList
+          | otherwise = \now -> buildsDisplay now <> table (time now) <> errorList
+        maxHeight = case maybeWindow of
+          Just limit -> limit `div` targetRatio
+          Nothing -> defaultTreeMax
+        buildsDisplay now =
+          prependLines
+            (upperleft <> horizontal)
+            (vertical <> " ")
+            (vertical <> " ")
+            (printBuilds buildState maxHeight (zonedTimeToUTC now))
+            <> "\n"
     runTime now = timeDiff (zonedTimeToUTC now) startTime
     time
       | processState == Finished = \now -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> runTime now)
@@ -76,22 +84,6 @@ stateToText buildState@MkNOMV1State {..} = fmap unPackWindow .> memo printWithSi
     completedBuilds' = completedBuilds <|>> buildHost
     numFailedBuilds = CMap.size failedBuilds
     anythingGoingOn = totalBuilds + downloadsDone + numPlannedDownloads + numFailedBuilds > 0
-    buildsDisplay =
-      show (length forestRoots) <> " top builds: "
-        <> ( forestRoots
-               |> fmap
-                 ( \x -> evalState (getDerivationInfos x <|>> derivationName .> toStorePath .> name .> (<> " ")) buildState
-                 ) |> toList |> sort |> unlines
-           )
-        <> "\n"
-    {-    showCond
-     anythingGoingOn
-     $ prependLines
-       (upperleft <> horizontal)
-       (vertical <> " ")
-       (vertical <> " ")
-       (printBuilds maybeWindow now buildForest)
-       <> "\n"-}
     table time' =
       prependLines
         (leftT <> stimes (3 :: Int) horizontal <> " ")
@@ -106,7 +98,8 @@ stateToText buildState@MkNOMV1State {..} = fmap unPackWindow .> memo printWithSi
         <> optHeader showUploads "Uploads"
         <> optHeader showHosts "Host"
     optHeader cond = showCond cond . one . bold . header :: Text -> [Entry]
-    partial_last_row = showCond
+    partial_last_row =
+      showCond
         showBuilds
         [ nonZeroBold numRunningBuilds (yellow (label running (disp numRunningBuilds))),
           nonZeroBold numCompletedBuilds (green (label done (disp numCompletedBuilds))),
@@ -117,7 +110,7 @@ stateToText buildState@MkNOMV1State {..} = fmap unPackWindow .> memo printWithSi
           [ nonZeroBold downloadsDone (green (label down (disp downloadsDone))),
             nonZeroBold numPlannedDownloads . blue . label todo . disp $ numPlannedDownloads
           ]
-        <> showCond showUploads [ nonZeroBold uploadsDone (green (label up (disp uploadsDone)))]
+        <> showCond showUploads [nonZeroBold uploadsDone (green (label up (disp uploadsDone)))]
     lastRow time' = partial_last_row `appendr` one (bold (header time'))
 
     showHosts = numHosts > 0
@@ -170,150 +163,141 @@ nonZeroShowBold num = if num > 0 then bold else const dummy
 nonZeroBold :: Int -> Entry -> Entry
 nonZeroBold num = if num > 0 then bold else id
 
-{-
-targetRatio :: Int
-targetRatio = 3
+data TreeNode = DerivationNode DerivationInfo | Link DerivationId | Summary DependencySummary deriving (Generic)
 
-possibleElisions :: [LinkTreeNode -> Bool]
-possibleElisions =
-  [ has (_Right % _Right)
-  , has (_Right % _Left)
-  , has (_Left % _Left % typed % _Just % _2 % _Ctor @"Built")
-  , has (_Left % _Right)
-  , has (_Left % _Left % typed % _Nothing)
-  ]
+data TreeLocation = Root | Twig | Leaf deriving (Eq)
 
-shrinkForestBy :: Int -> SummaryForest -> Forest ElisionTreeNode
-shrinkForestBy linesToElide = fmap (fmap (first Just)) .> go possibleElisions linesToElide
- where
-  go :: [LinkTreeNode -> Bool] -> Int -> Forest ElisionTreeNode -> Forest ElisionTreeNode
-  go [] _ forest = forest
-  go (nextElision : moreElisions) n forest
-    | n <= 0 = forest
-    | nAfter <= 0 = forest''
-    | otherwise = go moreElisions' nAfter forest''
-   where
-    (nAfter, forest'') = collapseForestN (\x -> x |> nextElision .> bool Nothing (Just (either one (const mempty) x))) n forest
-    moreElisions' = moreElisions <|>> \e x -> e x || nextElision x
-
-replaceLinksInForest :: Forest (Either DerivationNode StorePathNode, Summary) -> Forest (LinkTreeNode, Summary)
-replaceLinksInForest = replaceDuplicates mkLink <<.>>> either (first Left) (first Right)
-
-mkLink :: (Either DerivationNode StorePathNode, Summary) -> (Either Derivation StorePath, Summary)
-mkLink (node, summary) = (bimap derivation path node, Set.insert node summary)
-
-linkNodeOrder :: LinkTreeNode -> SortOrder
-linkNodeOrder = either nodeOrder (const SLink)
 printBuilds ::
-  Maybe (Window Int) ->
-  UTCTime ->
   NOMV1State ->
+  Int ->
+  UTCTime ->
   NonEmpty Text
-printBuilds maybeWindow now =
-  fmap (aggregateTree one)
-    .> replaceLinksInForest
-    .> sortForest (fmap fst .> mkOrder linkNodeOrder)
-    .> shrinkForestToScreenSize
-    .> fmap (mapRootsTwigsAndLeafs (printSummariesNode True) (printSummariesNode False) (printSummariesNode True))
-    .> showForest
-    .> (markup bold " Dependency Graph:" :|)
- where
-  maxRows :: Int
-  maxRows = maybe maxBound Window.height maybeWindow `div` targetRatio
-  shrinkForestToScreenSize :: SummaryForest -> Forest ElisionTreeNode
-  shrinkForestToScreenSize forest = shrinkForestBy (length (foldMap Tree.flatten forest) - maxRows) forest
-  printSummariesNode :: Bool -> ElisionTreeNode -> Text
-  printSummariesNode isLeaf = (uncurry . flip) \summary' ->
-    let summary = showCond isLeaf (showSummary summary')
-     in maybe
-          summary
-          ( either
-              (either printDerivation printStorePath .> (<> showCond (isLeaf && not (Text.null summary)) (markup grey " & " <> summary)))
-              printLink
-          )
+printBuilds nomState _maxHeight =
+  \now -> preparedPrintForest |> fmap (fmap (now |>)) .> showForest .> (markup bold " Dependency Graph:" :|)
+  where
+    preparedPrintForest :: Forest (UTCTime -> Text)
+    preparedPrintForest = resizedForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
+    printTreeNode :: TreeLocation -> TreeNode -> UTCTime -> Text
+    printTreeNode location = \case
+      DerivationNode drvInfo ->
+        let summary = showSummary (dependencySummary drvInfo)
+         in \now -> printDerivation drvInfo now <> showCond ((location == Root || location == Leaf) && not (Text.null summary)) (markup grey " & " <> summary)
+      Link drv -> const (printLink drv)
+      Summary summary -> const (showSummary summary)
 
-  showSummary :: Summary -> Text
-  showSummary summaries =
-    [ [totalBar | not (Text.null totalBar)]
-    , memptyIfTrue
-        (null downloads)
-        [ markup
-            cyan
-            ( down
-                <> show fullDownloads
-                <> showCond (length downloads > fullDownloads) ("/" <> show (length downloads))
-            )
-        ]
-    , memptyIfTrue
-        (null uploads)
-        [markup magenta (up <> show (length uploads))]
-    ]
-      |> join .> unwords
-   where
-    totalBar =
-      bar red (has (_Just % _2 % _Ctor @"Failed"))
-        <> bar green (has (_Just % _2 % _Ctor @"Built"))
-        <> bar yellow (has (_Just % _2 % _Ctor @"Building"))
-        <> bar blue (has _Nothing) -- Waiting
-    buildStates = toList summaries |> mapMaybe (preview (_Left % typed))
-    storePathStates = toList summaries |> mapMaybe (preview (_Right % typed)) .> (fmap (toList @NonEmpty) .> join)
-    (uploads, downloads) = partition (has (summing (_Ctor @"Uploading") (_Ctor @"Uploaded"))) storePathStates
-    fullDownloads = length (filter (has (_Ctor @"Downloaded")) downloads)
-    countStates p = buildStates |> filter p .> length
-    bar color (countStates -> c)
-      | c == 0 = ""
-      | c <= 10 = stimesMonoid c lb |> markup color
-      | otherwise = ("▓▓▓┄" <> show c <> "┄▓▓▓") |> markup color
-  printDerivation :: DerivationNode -> Text
-  printDerivation (DerivationNode (toStorePath .> name -> name) status) = case status of
-    Nothing -> markup blue (todo <> " " <> name)
-    Just (host, buildStatus) -> case buildStatus of
-      Building t l ->
+    buildForest :: Seq DerivationId -> NOMState (Forest TreeNode)
+    buildForest drvId = go mempty drvId <|>> snd
+      where
+        mkSummaryNode :: DependencySummary -> Forest TreeNode -> Forest TreeNode
+        mkSummaryNode summary rest
+          | summary == mempty = rest
+          | otherwise = pure (Summary summary) : rest
+
+        go :: DerivationSet -> Seq DerivationId -> NOMState (DerivationSet, Forest TreeNode)
+        go seenIds = \case
+          (thisDrv Seq.:<| restDrvs)
+            | CSet.member thisDrv seenIds -> do
+              (newSeenIds, restForest) <- go seenIds restDrvs
+              let mkSubforest
+                    | (Node (Summary theirSummary) _ : restTail) <- restForest = do
+                      ourSummary <- summaryIncludingRoot thisDrv
+                      pure (mkSummaryNode (ourSummary <> theirSummary) restTail)
+                    | (Node (Link linkId) _ : restTail) <- restForest = do
+                      ourSummary <- summaryIncludingRoot thisDrv
+                      theirSummary <- summaryIncludingRoot linkId
+                      pure (mkSummaryNode (ourSummary <> theirSummary) restTail)
+                    | otherwise = pure [pure (Link thisDrv)]
+              mkSubforest <|>> (newSeenIds,)
+            | hasUnseenBuild thisDrv -> do
+              drvInfo <- getDerivationInfos thisDrv
+              let newSeenIds = CSet.insert thisDrv seenIds
+              (thenSeenIds, subforest) <- go newSeenIds (fmap fst (inputDerivations drvInfo))
+              let subforestToUse
+                    | all (rootLabel .> hasn't (_Ctor @"DerivationNode")) subforest = []
+                    | otherwise = subforest
+              (lastlySeenIds, restforest) <- go thenSeenIds restDrvs
+              pure (lastlySeenIds, Node (DerivationNode drvInfo) subforestToUse : restforest)
+            | otherwise -> do
+              summaries <- mapM summaryIncludingRoot (thisDrv Seq.<| restDrvs) <|>> fold
+              pure (seenIds, mkSummaryNode summaries [])
+          _ -> pure (seenIds, [])
+          where
+            hasUnseenBuild thisDrv =
+              let MkDependencySummary {..} = evalState (summaryIncludingRoot thisDrv) nomState
+               in not (CSet.isSubsetOf (CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seenIds)
+
+    resizedForest :: Forest TreeNode
+    resizedForest = flip evalState nomState $ do
+      gets forestRoots >>= buildForest
+
+    showSummary :: DependencySummary -> Text
+    showSummary MkDependencySummary {..} =
+      [ [totalBar | not (Text.null totalBar)],
+        memptyIfTrue
+          (0 == downloads)
+          [ markup
+              cyan
+              ( down
+                  <> show fullDownloads
+                  <> showCond (downloads > fullDownloads) ("/" <> show downloads)
+              )
+          ],
+        memptyIfTrue
+          (0 == uploads)
+          [markup magenta (up <> show uploads)]
+      ]
+        |> join .> unwords
+      where
+        totalBar =
+          bar red (CMap.size failedBuilds)
+            <> bar green (CMap.size completedBuilds)
+            <> bar yellow (CMap.size runningBuilds)
+            <> bar blue (CSet.size plannedBuilds)
+        uploads = CMap.size completedUploads
+        fullDownloads = CMap.size completedDownloads
+        downloads = fullDownloads + CSet.size plannedDownloads
+        bar color c
+          | c == 0 = ""
+          | c <= 10 = stimesMonoid c lb |> markup color
+          | otherwise = ("▓▓▓┄" <> show c <> "┄▓▓▓") |> markup color
+
+    printDerivation :: DerivationInfo -> UTCTime -> Text
+    printDerivation MkDerivationInfo {..} = case buildStatus of
+      Unknown -> const drvName
+      Planned -> const (markup blue (todo <> " " <> drvName))
+      Building MkBuildInfo {..} -> \now ->
         unwords $
-          [markups [yellow, bold] (running <> " " <> name)]
-            <> hostMarkup host
-            <> [clock, timeDiff now t]
-            <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) l
-      Failed dur code _at ->
-        unwords $
-          [markups [red, bold] (warning <> " " <> name)]
-            <> hostMarkup host
-            <> [markups [red, bold] (unwords ["failed with exit code", show code, "after", clock, timeDiffSeconds dur])]
-      Built dur _at ->
-        unwords $
-          [markup green (done <> " " <> name)]
-            <> hostMarkup host
-            <> [markup grey (clock <> " " <> timeDiffSeconds dur)]
+          [markups [yellow, bold] (running <> " " <> drvName)]
+            <> hostMarkup buildHost
+            <> [clock, timeDiff now buildStart]
+            <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildEstimate
+      Failed MkBuildInfo {..} ->
+        const $
+          unwords $
+            [markups [red, bold] (warning <> " " <> drvName)]
+              <> hostMarkup buildHost
+              <> [markups [red, bold] (unwords ["failed with exit code", show (snd buildEnd), "after", clock, timeDiff (fst buildEnd) buildStart])]
+      Built MkBuildInfo {..} ->
+        const $
+          unwords $
+            [markup green (done <> " " <> drvName)]
+              <> hostMarkup buildHost
+              <> [markup grey (clock <> " " <> timeDiff buildEnd buildStart)]
+      where
+        drvName = derivationName |> toStorePath .> name
 
-printStorePath :: StorePathNode -> Text
-printStorePath (StorePathNode path _ states) = foldMap (printStorePathState .> (<> " ")) states <> markup color (name path)
- where
-  color = case last states of
-    DownloadPlanned -> cyan
-    (Downloading _) -> cyan
-    (Downloaded _) -> cyan
-    (Uploading _) -> magenta
-    (Uploaded _) -> magenta
+    printLink :: DerivationId -> Text
+    printLink drvId =
+      flip evalState nomState $
+        getDerivationInfos drvId <|>> derivationName
+          .> toStorePath
+          .> name
+          .> (<> " ↴")
+          .> markup grey
 
-printStorePathState :: StorePathState -> Text
-printStorePathState = \case
-  DownloadPlanned -> markup cyan down <> markup blue todo
-  (Downloading _) -> markup cyan down <> markup yellow running
-  (Uploading _) -> markup magenta up <> markup yellow running
-  (Downloaded _) -> markup cyan down <> markup green done
-  (Uploaded _) -> markup magenta up <> markup green done
-
-printLink :: Link -> Text
-printLink link =
-  link
-    |> either toStorePath id
-    .> name
-    .> (<> " ↴")
-    .> markup grey
 hostMarkup :: Host -> [Text]
 hostMarkup Localhost = mempty
 hostMarkup host = ["on " <> markup magenta (toText host)]
--}
 
 timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff =

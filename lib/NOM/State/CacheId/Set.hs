@@ -38,3 +38,6 @@ size = coerce IntSet.size
 
 isSubsetOf :: CacheIdSet b -> CacheIdSet b -> Bool
 isSubsetOf = coerce IntSet.isSubsetOf
+
+member :: CacheId b -> CacheIdSet b -> Bool
+member = coerce IntSet.member

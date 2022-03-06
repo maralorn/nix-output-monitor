@@ -1,11 +1,7 @@
 module NOM.State where
 
-import Control.Monad.Extra (pureIf)
 import Data.Generics.Product (HasField (field))
-import Data.List.Extra (firstJust)
 import qualified Data.Map.Strict as Map
-import Data.MemoTrie (memo)
-import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Time (UTCTime)
 import NOM.Parser (Derivation (..), Host (..), StorePath (..))
@@ -21,9 +17,8 @@ import NOM.Update.Monad
     getNow,
   )
 import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
-import Optics ((%~), (.~))
+import Optics ((%~))
 import Relude
-import Safe.Foldable (maximumMay, minimumMay)
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
   deriving stock (Show, Eq, Ord, Read, Generic)
@@ -270,89 +265,8 @@ getStorePathInfos storePathId =
     .> CMap.lookup storePathId
     .> fromMaybe (error "BUG: storePathId is no key in storePathInfos")
 
-updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus) -> NOMState ()
-updateDerivationState drvId updateStatus = do
-  -- Update derivationInfo for this Derivation
-  derivation_infos <- getDerivationInfos drvId
-  let oldStatus = buildStatus derivation_infos
-      newStatus = updateStatus oldStatus
-  modify (field @"derivationInfos" %~ CMap.adjust (field @"buildStatus" .~ newStatus) drvId)
-
-  let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
-
-  -- Update summaries of all parents and sort them
-  updateParents update_summary (derivationParents derivation_infos)
-
-  -- Update fullSummary
-  modify (field @"fullSummary" %~ update_summary)
-  currentState <- get
-  modify (field @"forestRoots" %~ Seq.sortOn (sortKey currentState))
-
-sortParents :: DerivationSet -> NOMState ()
-sortParents parents = do
-  currentState <- get
-  let sort_parent :: DerivationId -> NOMState ()
-      sort_parent drvId = do
-        drvInfo <- getDerivationInfos drvId
-        let newDrvInfo = (field @"inputDerivations" %~ sort_derivations) drvInfo
-        modify (field @"derivationInfos" %~ CMap.insert drvId newDrvInfo)
-      sort_derivations :: Seq (DerivationId, Set Text) -> Seq (DerivationId, Set Text)
-      sort_derivations = Seq.sortOn (fst .> sort_key)
-
-      sort_key :: DerivationId -> SortKey
-      sort_key = memo (sortKey currentState)
-  parents |> CSet.toList .> mapM_ sort_parent
-
--- We order by type and disambiguate by the number of a) waiting builds, b) running builds
-type SortKey =
-  ( SortOrder,
-    Down Int, -- Waiting Builds
-    Down Int, -- Running Builds
-    Down Int, -- Waiting Downloads
-    Down Int -- Completed Downloads
-  )
-
-data SortOrder
-  = -- First the failed builds starting with the earliest failures
-    SFailed UTCTime
-  | -- Second the running builds starting with longest running
-    -- For one build prefer the tree with the longest prefix for the highest probability of few permutations over time
-    SBuilding UTCTime
-  | SDownloading
-  | SUploading
-  | SWaiting
-  | SDownloadWaiting
-  | -- The longer a build is completed the less it matters
-    SDone (Down UTCTime)
-  | SDownloaded
-  | SUploaded
-  | SUnknown
-  deriving (Eq, Show, Ord)
-
-sortKey :: NOMV1State -> DerivationId -> SortKey
-sortKey currentState drvId = flip evalState currentState do
-  MkDerivationInfo {dependencySummary, buildStatus} <- getDerivationInfos drvId
-  let MkDependencySummary {..} = updateSummaryForDerivation Unknown buildStatus drvId dependencySummary
-      sort_entries =
-        [ minimumMay (failedBuilds <|>> buildEnd .> fst) <|>> SFailed,
-          minimumMay (runningBuilds <|>> buildStart) <|>> SBuilding,
-          pureIf (not (CSet.null plannedBuilds)) SWaiting,
-          pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting,
-          maximumMay (completedBuilds <|>> buildEnd) <|>> Down .> SDone,
-          pureIf (not (CMap.null completedDownloads)) SDownloaded,
-          pureIf (not (CMap.null completedUploads)) SUploaded
-        ]
-  pure (fromMaybe SUnknown (firstJust id sort_entries), Down (CSet.size plannedBuilds), Down (CMap.size runningBuilds), Down (CSet.size plannedDownloads), Down (CMap.size completedDownloads))
-
-updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
-updateParents update_func = go mempty
-  where
-    go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
-      Nothing -> sortParents updated_parents
-      Just (parentToUpdate, restToUpdate) -> do
-        modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
-        next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
-        go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
+reportError :: Text -> NOMState ()
+reportError msg = modify' (field @"errors" %~ (msg :))
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
@@ -391,34 +305,3 @@ updateSummaryForStorePath oldStates newStates pathId =
       Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
     deletedStates = Set.difference oldStates newStates |> toList
     addedStates = Set.difference newStates oldStates |> toList
-
-updateStorePathStates :: StorePathState -> Set StorePathState -> Set StorePathState
-updateStorePathStates newState = localFilter .> Set.insert newState
-  where
-    localFilter = case newState of
-      DownloadPlanned -> id
-      Downloading _ -> Set.filter (DownloadPlanned /=)
-      Downloaded h -> Set.filter (Downloading h /=) .> Set.filter (DownloadPlanned /=)
-      Uploading _ -> id
-      Uploaded h -> Set.filter (Uploading h /=)
-
-insertStorePathState :: StorePathId -> StorePathState -> NOMState ()
-insertStorePathState storePathId newStorePathState = do
-  -- Update storePathInfos for this Storepath
-  store_path_infos <- getStorePathInfos storePathId
-  let oldStatus = storePathStates store_path_infos
-      newStatus = updateStorePathStates newStorePathState oldStatus
-  modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathStates" .~ newStatus) storePathId)
-
-  let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
-
-  -- Update summaries of all parents
-  updateParents update_summary (maybe id CSet.insert (storePathProducer store_path_infos) (storePathInputFor store_path_infos))
-
-  -- Update fullSummary
-  modify (field @"fullSummary" %~ update_summary)
-
--- TODO: Sort parents, update Linkshow status
-
-reportError :: Text -> NOMState ()
-reportError msg = modify' (field @"errors" %~ (msg :))
