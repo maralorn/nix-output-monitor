@@ -8,7 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import Data.Time (UTCTime, diffUTCTime)
+import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
 
 -- optics
 
@@ -46,13 +46,21 @@ setInputReceived = do
   pure change
 
 maintainState :: NOMV1State -> NOMV1State
-maintainState = id
+maintainState = execState $ do
+  currentState@MkNOMV1State{touchedIds} <- get
+  unless (CSet.null touchedIds) $ do
+    sortDepsOfSet touchedIds
+    modify (field @"forestRoots" %~ Seq.sortOn (sortKey currentState))
+    modify (field @"touchedIds" .~ mempty)
+
+minTimeBetweenPollingNixStore :: NominalDiffTime
+minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
 updateState :: UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m (Maybe UTCTime, Maybe NOMV1State)
 updateState result (inputAccessTime, inputState) = do
   now <- getNow
   let (outputAccessTime, check)
-        | maybe True (diffUTCTime now .> (>= 0.2)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
+        | maybe True (diffUTCTime now .> (>= minTimeBetweenPollingNixStore)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
   (hasChanged, outputState) <-
     runStateT
@@ -232,14 +240,12 @@ updateDerivationState drvId updateStatus = do
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)
-  currentState <- get
-  modify (field @"forestRoots" %~ Seq.sortOn (sortKey currentState))
 
 updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
 updateParents update_func = go mempty
  where
   go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
-    Nothing -> sortDepsOfSet updated_parents
+    Nothing -> modify (field @"touchedIds" %~ CSet.union updated_parents)
     Just (parentToUpdate, restToUpdate) -> do
       modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
       next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
@@ -270,5 +276,3 @@ insertStorePathState storePathId newStorePathState = do
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)
-  currentState <- get
-  modify (field @"forestRoots" %~ Seq.sortOn (sortKey currentState))

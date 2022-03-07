@@ -89,6 +89,7 @@ data NOMV1State = MkNOMV1State
   , processState :: ProcessState
   , storePathIds :: Map StorePath StorePathId
   , derivationIds :: Map Derivation DerivationId
+  , touchedIds :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving anyclass (NFData)
@@ -129,6 +130,7 @@ initalState = do
       now
       mempty
       JustStarted
+      mempty
       mempty
       mempty
 
