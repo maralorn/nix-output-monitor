@@ -1,8 +1,7 @@
-{ seed }:
+{ seed, system ? builtins.currentSystem }:
 let
   mkBuild = name: deps: derivation {
-    system = builtins.currentSystem;
-    inherit name deps seed;
+    inherit name deps seed system;
     builder = ./golden1-builder.sh;
   };
 in

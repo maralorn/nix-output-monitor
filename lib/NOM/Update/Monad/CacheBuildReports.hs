@@ -49,7 +49,7 @@ instance MonadCacheBuildReports IO where
   updateBuildReports updateFunc = catch (tryUpdateBuildReports updateFunc) memptyOnLockFail
 instance MonadCacheBuildReports m => MonadCacheBuildReports (StateT a m) where
   getCachedBuildReports = lift getCachedBuildReports
-  updateBuildReports =updateBuildReports .> lift
+  updateBuildReports = updateBuildReports .> lift
 
 -- Implementation
 

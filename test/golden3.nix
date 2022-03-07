@@ -15,5 +15,5 @@ rec {
   builda2 = mkBuild "builda2" [ builda1 ];
   builda3 = mkBuild "builda3" [ builda1 builda2 ];
   builda4 = mkBuild "builda4" [ builda2 builda3 ];
-  build5 = mkBuild "build5" [build4 builda4];
+  build5 = mkBuild "build5" [ build4 builda4 ];
 }

@@ -1,4 +1,5 @@
 dist-newstyle
 .envrc
 .direnv
+.pre-commit-config.yaml
 result*

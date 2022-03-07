@@ -1,53 +1,55 @@
 module Main where
 
+import Relude
+
 import qualified Data.String as String
 import Data.Tuple.Extra (secondM)
-import NOM.IO (processTextStream)
-import NOM.Parser (parser)
-import NOM.State
-  ( DependencySummary
-      ( MkDependencySummary,
-        completedBuilds,
-        completedDownloads,
-        completedUploads,
-        failedBuilds,
-        plannedBuilds,
-        plannedDownloads,
-        runningBuilds
-      ),
-    DerivationId,
-    NOMV1State (MkNOMV1State, fullSummary),
-    getStorePathId,
-    initalState,
-    out2drv,
-  )
-import qualified NOM.State.CacheId.Map as CMap
-import qualified NOM.State.CacheId.Set as CSet
-import NOM.Update
-  ( detectLocalFinishedBuilds,
-    parseStorePath,
-    updateState,
-  )
-import NOM.Update.Monad (UpdateMonad)
-import NOM.Util
-  ( forMaybeM,
-    passThroughBuffer,
-    (<.>>),
-    (|>),
-  )
-import Relude
 import System.Environment (lookupEnv)
 import System.Process (readProcessWithExitCode)
 import System.Random (randomIO)
-import Test.HUnit
-  ( Counts (errors, failures),
-    Test,
-    Testable (test),
-    assertBool,
-    assertEqual,
-    runTestTT,
-    (~:),
-  )
+import Test.HUnit (
+  Counts (errors, failures),
+  Test,
+  Testable (test),
+  assertBool,
+  assertEqual,
+  runTestTT,
+  (~:),
+ )
+
+import NOM.IO (processTextStream)
+import NOM.Parser (parser)
+import NOM.State (
+  DependencySummary (
+    MkDependencySummary,
+    completedBuilds,
+    completedDownloads,
+    completedUploads,
+    failedBuilds,
+    plannedBuilds,
+    plannedDownloads,
+    runningBuilds
+  ),
+  DerivationId,
+  NOMV1State (MkNOMV1State, fullSummary),
+  getStorePathId,
+  initalState,
+  out2drv,
+ )
+import qualified NOM.State.CacheId.Map as CMap
+import qualified NOM.State.CacheId.Set as CSet
+import NOM.Update (
+  detectLocalFinishedBuilds,
+  parseStorePath,
+  updateState,
+ )
+import NOM.Update.Monad (UpdateMonad)
+import NOM.Util (
+  forMaybeM,
+  passThroughBuffer,
+  (<.>>),
+  (|>),
+ )
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -90,7 +92,7 @@ preserveStateSnd :: Functor m => ((istate, state) -> m (istate, Maybe state)) ->
 preserveStateSnd update (i, s) = (i, s) |> update <.>> second (fromMaybe s)
 
 golden1 :: Bool -> Test
-golden1 = testBuild "golden1" $ \output endState@MkNOMV1State {fullSummary = summary@MkDependencySummary {..}} -> do
+golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = summary@MkDependencySummary{..}} -> do
   let noOfBuilds = 4
   assertBool "Everything built" (CSet.null plannedBuilds)
   print summary

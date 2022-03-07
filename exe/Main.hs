@@ -1,9 +1,17 @@
 module Main where
 
+import Relude
+
 import Data.Generics.Product (typed)
 import Data.Text.IO (hPutStrLn)
 import Data.Time (UTCTime, ZonedTime)
 import Data.Version (showVersion)
+
+import Optics (view, (.~), _3)
+import Paths_nix_output_monitor (version)
+import System.Console.Terminal.Size (Window)
+import System.Environment (getArgs)
+
 import NOM.IO (interact)
 import NOM.Parser (ParseResult, parser)
 import NOM.Print (stateToText)
@@ -12,11 +20,6 @@ import qualified NOM.State.CacheId.Map as CMap
 import NOM.Update (detectLocalFinishedBuilds, updateState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
-import Optics (view, (.~), _3)
-import Paths_nix_output_monitor (version)
-import Relude
-import System.Console.Terminal.Size (Window)
-import System.Environment (getArgs)
 
 main :: IO ()
 main = do
@@ -60,13 +63,13 @@ finalizer (n, oldState, _) = do
 helpText :: Text
 helpText =
   unlines
-    [ "Usage: nix-build |& nom",
-      "",
-      "Run any nix command (nixos-rebuild,nix-build,home-manager switch,",
-      "not nix build.) and pipe stderr and stdout into nom.",
-      "",
-      "Don‘t forget to redirect stderr, too. That's what the & does.",
-      "",
-      "Please see the readme for more details:",
-      "https://github.com/maralorn/nix-output-monitor"
+    [ "Usage: nix-build |& nom"
+    , ""
+    , "Run any nix command (nixos-rebuild,nix-build,home-manager switch,"
+    , "not nix build.) and pipe stderr and stdout into nom."
+    , ""
+    , "Don‘t forget to redirect stderr, too. That's what the & does."
+    , ""
+    , "Please see the readme for more details:"
+    , "https://github.com/maralorn/nix-output-monitor"
     ]

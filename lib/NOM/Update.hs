@@ -1,14 +1,23 @@
 module NOM.Update where
 
+import Relude
+
 import Control.Monad.Except (liftEither)
 import Data.Attoparsec.Text (endOfInput, parseOnly)
-import Data.Generics.Product (field, typed)
-import Data.Generics.Sum (_As)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
+
+-- optics
+
+import Data.Generics.Product (field, typed)
+import Data.Generics.Sum (_As)
+import Optics (preview, (%), (%~), (.~), (?~))
+
+import qualified Nix.Derivation as Nix
+
 import NOM.Parser (Derivation (..), FailType, Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
 import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, reportError, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
@@ -16,18 +25,15 @@ import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
 import NOM.State.Sorting (sortDepsOfSet, sortKey)
-import NOM.Update.Monad
-  ( BuildReportMap,
-    MonadCacheBuildReports (..),
-    MonadCheckStorePath (..),
-    MonadNow (..),
-    MonadReadDerivation (..),
-    UpdateMonad,
-  )
+import NOM.Update.Monad (
+  BuildReportMap,
+  MonadCacheBuildReports (..),
+  MonadCheckStorePath (..),
+  MonadNow (..),
+  MonadReadDerivation (..),
+  UpdateMonad,
+ )
 import NOM.Util (foldMapEndo, hush, (.>), (<.>>), (<|>>), (|>))
-import qualified Nix.Derivation as Nix
-import Optics (preview, (%), (%~), (.~), (?~))
-import Relude
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -36,7 +42,7 @@ setInputReceived :: NOMState Bool
 setInputReceived = do
   s <- get
   let change = processState s == JustStarted
-  when change (put s {processState = InputReceived})
+  when change (put s{processState = InputReceived})
   pure change
 
 updateState :: UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m (Maybe UTCTime, Maybe NOMV1State)
@@ -50,10 +56,10 @@ updateState result (inputAccessTime, inputState) = do
       ( or
           <$> sequence
             [ -- First check if we this is the first time that we receive input (for error messages)
-              setInputReceived,
-              -- Update the state if any changes where parsed.
-              maybe (pure False) processResult result,
-              -- Check if any local builds have finished, because nix-build would not tell us.
+              setInputReceived
+            , -- Update the state if any changes where parsed.
+              maybe (pure False) processResult result
+            , -- Check if any local builds have finished, because nix-build would not tell us.
               -- If we haven‘t done so in the last 200ms.
               check
             ]
@@ -130,18 +136,18 @@ finishBuilds host builds = do
 
 modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
 modifyBuildReports host = foldMapEndo (uncurry insertBuildReport)
-  where
-    insertBuildReport name =
-      Map.insertWith
-        (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
-        (host, getReportName name)
+ where
+  insertBuildReport name =
+    Map.insertWith
+      (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
+      (host, getReportName name)
 
 failedBuild :: UTCTime -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
-  where
-    update = \case
-      Building a -> State.Failed (a $> (now, code))
-      x -> x
+ where
+  update = \case
+    Building a -> State.Failed (a $> (now, code))
+    x -> x
 
 lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT m DerivationId
 lookupDerivation drv = do
@@ -174,7 +180,7 @@ lookupDerivation drv = do
               pure depId
           pure $ depIdMay <|>> (,outs)
       let inputDerivations = Seq.fromList inputDerivationsList
-      modify (field @"derivationInfos" %~ CMap.adjust (\i -> i {outputs, inputSources, inputDerivations, cached = True}) drvId)
+      modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs, inputSources, inputDerivations, cached = True}) drvId)
       noParents <- getDerivationInfos drvId <|>> derivationParents .> CSet.null
       when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
   pure drvId
@@ -228,23 +234,23 @@ updateDerivationState drvId updateStatus = do
 
 updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
 updateParents update_func = go mempty
-  where
-    go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
-      Nothing -> sortDepsOfSet updated_parents
-      Just (parentToUpdate, restToUpdate) -> do
-        modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
-        next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
-        go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
+ where
+  go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
+    Nothing -> sortDepsOfSet updated_parents
+    Just (parentToUpdate, restToUpdate) -> do
+      modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
+      next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
+      go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
 
 updateStorePathStates :: StorePathState -> Set StorePathState -> Set StorePathState
 updateStorePathStates newState = localFilter .> Set.insert newState
-  where
-    localFilter = case newState of
-      DownloadPlanned -> id
-      State.Downloading _ -> Set.filter (DownloadPlanned /=)
-      Downloaded h -> Set.filter (State.Downloading h /=) .> Set.filter (DownloadPlanned /=)
-      State.Uploading _ -> id
-      Uploaded h -> Set.filter (State.Uploading h /=)
+ where
+  localFilter = case newState of
+    DownloadPlanned -> id
+    State.Downloading _ -> Set.filter (DownloadPlanned /=)
+    Downloaded h -> Set.filter (State.Downloading h /=) .> Set.filter (DownloadPlanned /=)
+    State.Uploading _ -> id
+    Uploaded h -> Set.filter (State.Uploading h /=)
 
 insertStorePathState :: StorePathId -> StorePathState -> NOMState ()
 insertStorePathState storePathId newStorePathState = do

@@ -1,12 +1,11 @@
-
 import Relude
+import qualified Relude.Unsafe as Unsafe
 
 import Data.Attoparsec.Text (IResult (Done), Parser, parse)
 import Data.Set (singleton)
 import Test.HUnit
 
 import NOM.Parser
-import qualified Relude.Unsafe as Unsafe
 
 assertParse :: Parser (Maybe a, Text) -> Text -> IO (Text, a)
 assertParse parser' input = do
@@ -115,6 +114,5 @@ main = do
               (Failed (Derivation $ StorePath "dylih0mw8yisn6nrjc3qlf51knmdkrq1" "local-build-3") (ExitCode 1))
               result
             assertEqual "no rest" "" rest
-
         ]
   if errors counts + failures counts == 0 then exitSuccess else exitFailure

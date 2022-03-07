@@ -54,4 +54,5 @@ with import <nixpkgs> { }; let
     sleep 1s
     echo "test" > $out
   '';
-in build3
+in
+build3

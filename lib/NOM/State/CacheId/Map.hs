@@ -1,10 +1,12 @@
 module NOM.State.CacheId.Map where
 
-import qualified Data.IntMap.Strict as IntMap
-import NOM.State.CacheId (CacheId (MkCacheId))
-import NOM.Util ((.>))
 import Relude
+
+import qualified Data.IntMap.Strict as IntMap
+
+import NOM.State.CacheId (CacheId (MkCacheId))
 import qualified NOM.State.CacheId.Set as CSet
+import NOM.Util ((.>))
 
 newtype CacheIdMap b a = MkCacheIdMap {unCacheIdMap :: IntMap a}
   deriving stock (Show, Eq, Ord, Read, Generic)

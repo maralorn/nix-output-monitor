@@ -1,38 +1,40 @@
 module NOM.State where
 
+import Relude
+
 import Data.Generics.Product (HasField (field))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (UTCTime)
-import NOM.Parser (Derivation (..), Host (..), StorePath (..), FailType)
+import Optics ((%~))
+
+import NOM.Parser (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
 import qualified NOM.State.CacheId.Map as CMap
 import NOM.State.CacheId.Set (CacheIdSet)
 import qualified NOM.State.CacheId.Set as CSet
-import NOM.Update.Monad
-  ( BuildReportMap,
-    MonadCacheBuildReports (getCachedBuildReports),
-    MonadNow,
-    getNow,
-  )
+import NOM.Update.Monad (
+  BuildReportMap,
+  MonadCacheBuildReports (getCachedBuildReports),
+  MonadNow,
+  getNow,
+ )
 import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
-import Optics ((%~))
-import Relude
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving anyclass (NFData)
 
 data DerivationInfo = MkDerivationInfo
-  { derivationName :: Derivation,
-    outputs :: Map Text StorePathId,
-    inputDerivations :: Seq (DerivationId, Set Text),
-    inputSources :: StorePathSet,
-    buildStatus :: BuildStatus,
-    dependencySummary :: DependencySummary,
-    cached :: Bool,
-    derivationParents :: DerivationSet
+  { derivationName :: Derivation
+  , outputs :: Map Text StorePathId
+  , inputDerivations :: Seq (DerivationId, Set Text)
+  , inputSources :: StorePathSet
+  , buildStatus :: BuildStatus
+  , dependencySummary :: DependencySummary
+  , cached :: Bool
+  , derivationParents :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving anyclass (NFData)
@@ -50,10 +52,10 @@ type StorePathSet = CacheIdSet StorePath
 type DerivationSet = CacheIdSet Derivation
 
 data StorePathInfo = MkStorePathInfo
-  { storePathName :: StorePath,
-    storePathStates :: Set StorePathState,
-    storePathProducer :: Maybe DerivationId,
-    storePathInputFor :: DerivationSet
+  { storePathName :: StorePath
+  , storePathStates :: Set StorePathState
+  , storePathProducer :: Maybe DerivationId
+  , storePathInputFor :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving anyclass (NFData)
@@ -65,28 +67,28 @@ type CompletedBuildInfo = BuildInfo UTCTime
 type FailedBuildInfo = BuildInfo (UTCTime, FailType)
 
 data DependencySummary = MkDependencySummary
-  { plannedBuilds :: DerivationSet,
-    runningBuilds :: DerivationMap RunningBuildInfo,
-    completedBuilds :: DerivationMap CompletedBuildInfo,
-    failedBuilds :: DerivationMap FailedBuildInfo,
-    plannedDownloads :: StorePathSet,
-    completedDownloads :: StorePathMap Host,
-    completedUploads :: StorePathMap Host
+  { plannedBuilds :: DerivationSet
+  , runningBuilds :: DerivationMap RunningBuildInfo
+  , completedBuilds :: DerivationMap CompletedBuildInfo
+  , failedBuilds :: DerivationMap FailedBuildInfo
+  , plannedDownloads :: StorePathSet
+  , completedDownloads :: StorePathMap Host
+  , completedUploads :: StorePathMap Host
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving anyclass (NFData)
 
 data NOMV1State = MkNOMV1State
-  { derivationInfos :: DerivationMap DerivationInfo,
-    storePathInfos :: StorePathMap StorePathInfo,
-    fullSummary :: DependencySummary,
-    forestRoots :: Seq DerivationId,
-    buildReports :: BuildReportMap,
-    startTime :: UTCTime,
-    errors :: [Text],
-    processState :: ProcessState,
-    storePathIds :: Map StorePath StorePathId,
-    derivationIds :: Map Derivation DerivationId
+  { derivationInfos :: DerivationMap DerivationInfo
+  , storePathInfos :: StorePathMap StorePathInfo
+  , fullSummary :: DependencySummary
+  , forestRoots :: Seq DerivationId
+  , buildReports :: BuildReportMap
+  , startTime :: UTCTime
+  , errors :: [Text]
+  , processState :: ProcessState
+  , storePathIds :: Map StorePath StorePathId
+  , derivationIds :: Map Derivation DerivationId
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving anyclass (NFData)
@@ -105,10 +107,10 @@ data BuildStatus
   deriving anyclass (NFData)
 
 data BuildInfo a = MkBuildInfo
-  { buildStart :: UTCTime,
-    buildHost :: Host,
-    buildEstimate :: Maybe Int,
-    buildEnd :: a
+  { buildStart :: UTCTime
+  , buildHost :: Host
+  , buildEstimate :: Maybe Int
+  , buildEnd :: a
   }
   deriving (Show, Eq, Ord, Read, Generic, Functor)
   deriving anyclass (NFData)
@@ -205,38 +207,38 @@ reportError msg = modify' (field @"errors" %~ (msg :))
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
-  where
-    removeOld = case oldStatus of
-      Unknown -> id
-      Planned -> field @"plannedBuilds" %~ CSet.delete drvId
-      Building _ -> field @"runningBuilds" %~ CMap.delete drvId
-      Failed _ -> id
-      Built _ -> id
-    addNew = case newStatus of
-      Unknown -> id
-      Planned -> field @"plannedBuilds" %~ CSet.insert drvId
-      Building bi -> field @"runningBuilds" %~ CMap.insert drvId bi
-      Failed bi -> field @"failedBuilds" %~ CMap.insert drvId bi
-      Built bi -> field @"completedBuilds" %~ CMap.insert drvId bi
+ where
+  removeOld = case oldStatus of
+    Unknown -> id
+    Planned -> field @"plannedBuilds" %~ CSet.delete drvId
+    Building _ -> field @"runningBuilds" %~ CMap.delete drvId
+    Failed _ -> id
+    Built _ -> id
+  addNew = case newStatus of
+    Unknown -> id
+    Planned -> field @"plannedBuilds" %~ CSet.insert drvId
+    Building bi -> field @"runningBuilds" %~ CMap.insert drvId bi
+    Failed bi -> field @"failedBuilds" %~ CMap.insert drvId bi
+    Built bi -> field @"completedBuilds" %~ CMap.insert drvId bi
 
 updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 updateSummaryForStorePath oldStates newStates pathId =
   foldMapEndo remove_deleted deletedStates
     .> foldMapEndo insert_added addedStates
-  where
-    remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
-    remove_deleted = \case
-      DownloadPlanned -> field @"plannedDownloads" %~ CSet.delete pathId
-      Downloading _ -> error "BUG: Downloading state is yet unsupported"
-      Uploading _ -> error "BUG: Uploading state is yet unsupported"
-      Downloaded _ -> error "BUG: Don’t remove a completed download"
-      Uploaded _ -> error "BUG: Don‘t remove a completed upload"
-    insert_added :: StorePathState -> DependencySummary -> DependencySummary
-    insert_added = \case
-      DownloadPlanned -> field @"plannedDownloads" %~ CSet.insert pathId
-      Downloading _ -> error "BUG: Downloading state is yet unsupported"
-      Uploading _ -> error "BUG: Uploading state is yet unsupported"
-      Downloaded ho -> field @"completedDownloads" %~ CMap.insert pathId ho
-      Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
-    deletedStates = Set.difference oldStates newStates |> toList
-    addedStates = Set.difference newStates oldStates |> toList
+ where
+  remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
+  remove_deleted = \case
+    DownloadPlanned -> field @"plannedDownloads" %~ CSet.delete pathId
+    Downloading _ -> error "BUG: Downloading state is yet unsupported"
+    Uploading _ -> error "BUG: Uploading state is yet unsupported"
+    Downloaded _ -> error "BUG: Don’t remove a completed download"
+    Uploaded _ -> error "BUG: Don‘t remove a completed upload"
+  insert_added :: StorePathState -> DependencySummary -> DependencySummary
+  insert_added = \case
+    DownloadPlanned -> field @"plannedDownloads" %~ CSet.insert pathId
+    Downloading _ -> error "BUG: Downloading state is yet unsupported"
+    Uploading _ -> error "BUG: Uploading state is yet unsupported"
+    Downloaded ho -> field @"completedDownloads" %~ CMap.insert pathId ho
+    Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
+  deletedStates = Set.difference oldStates newStates |> toList
+  addedStates = Set.difference newStates oldStates |> toList

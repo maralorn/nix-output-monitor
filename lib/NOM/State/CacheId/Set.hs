@@ -1,8 +1,10 @@
 module NOM.State.CacheId.Set where
 
 import Relude
-import NOM.State.CacheId (CacheId (MkCacheId))
+
 import qualified Data.IntSet as IntSet
+
+import NOM.State.CacheId (CacheId (MkCacheId))
 import NOM.Util ((.>), (<.>>))
 
 newtype CacheIdSet b = MkCacheIdSet {cidSet :: IntSet}

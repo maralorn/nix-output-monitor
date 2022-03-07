@@ -1,29 +1,31 @@
 module NOM.State.Sorting where
 
+import Relude
+
 import Control.Monad.Extra (pureIf)
 import Data.Generics.Product (HasField (field))
 import Data.List.Extra (firstJust)
 import Data.MemoTrie (memo)
 import qualified Data.Sequence as Seq
 import Data.Time (UTCTime)
-import NOM.State
-  ( BuildInfo (buildEnd, buildStart),
-    BuildStatus (Unknown),
-    DependencySummary (..),
-    DerivationId,
-    DerivationInfo (..),
-    DerivationSet,
-    NOMState,
-    NOMV1State,
-    getDerivationInfos,
-    updateSummaryForDerivation,
-  )
+import Optics ((%~))
+import Safe.Foldable (maximumMay, minimumMay)
+
+import NOM.State (
+  BuildInfo (buildEnd, buildStart),
+  BuildStatus (Unknown),
+  DependencySummary (..),
+  DerivationId,
+  DerivationInfo (..),
+  DerivationSet,
+  NOMState,
+  NOMV1State,
+  getDerivationInfos,
+  updateSummaryForDerivation,
+ )
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
 import NOM.Util ((.>), (<|>>), (|>))
-import Optics ((%~))
-import Relude
-import Safe.Foldable (maximumMay, minimumMay)
 
 sortDepsOfSet :: DerivationSet -> NOMState ()
 sortDepsOfSet parents = do
@@ -42,11 +44,11 @@ sortDepsOfSet parents = do
 
 -- We order by type and disambiguate by the number of a) waiting builds, b) running builds
 type SortKey =
-  ( SortOrder,
-    Down Int, -- Waiting Builds
-    Down Int, -- Running Builds
-    Down Int, -- Waiting Downloads
-    Down Int -- Completed Downloads
+  ( SortOrder
+  , Down Int -- Waiting Builds
+  , Down Int -- Running Builds
+  , Down Int -- Waiting Downloads
+  , Down Int -- Completed Downloads
   )
 
 data SortOrder
@@ -68,19 +70,19 @@ data SortOrder
 
 summaryIncludingRoot :: DerivationId -> NOMState DependencySummary
 summaryIncludingRoot drvId = do
-  MkDerivationInfo {dependencySummary, buildStatus} <- getDerivationInfos drvId
+  MkDerivationInfo{dependencySummary, buildStatus} <- getDerivationInfos drvId
   pure (updateSummaryForDerivation Unknown buildStatus drvId dependencySummary)
 
 sortKey :: NOMV1State -> DerivationId -> SortKey
 sortKey nom_state drvId =
-  let MkDependencySummary {..} = evalState (summaryIncludingRoot drvId) nom_state
+  let MkDependencySummary{..} = evalState (summaryIncludingRoot drvId) nom_state
       sort_entries =
-        [ minimumMay (failedBuilds <|>> buildEnd .> fst) <|>> SFailed,
-          minimumMay (runningBuilds <|>> buildStart) <|>> SBuilding,
-          pureIf (not (CSet.null plannedBuilds)) SWaiting,
-          pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting,
-          maximumMay (completedBuilds <|>> buildEnd) <|>> Down .> SDone,
-          pureIf (not (CMap.null completedDownloads)) SDownloaded,
-          pureIf (not (CMap.null completedUploads)) SUploaded
+        [ minimumMay (failedBuilds <|>> buildEnd .> fst) <|>> SFailed
+        , minimumMay (runningBuilds <|>> buildStart) <|>> SBuilding
+        , pureIf (not (CSet.null plannedBuilds)) SWaiting
+        , pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting
+        , maximumMay (completedBuilds <|>> buildEnd) <|>> Down .> SDone
+        , pureIf (not (CMap.null completedDownloads)) SDownloaded
+        , pureIf (not (CMap.null completedUploads)) SUploaded
         ]
    in (fromMaybe SUnknown (firstJust id sort_entries), Down (CSet.size plannedBuilds), Down (CMap.size runningBuilds), Down (CSet.size plannedDownloads), Down (CMap.size completedDownloads))
