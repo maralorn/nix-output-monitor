@@ -7,7 +7,7 @@ import NOM.Util ((.>), (<.>>))
 
 newtype CacheIdSet b = MkCacheIdSet {cidSet :: IntSet}
   deriving stock (Show, Eq, Ord, Read, Generic)
-  deriving newtype (Semigroup, Monoid)
+  deriving newtype (Semigroup, Monoid, NFData)
 
 insert :: CacheId b -> CacheIdSet b -> CacheIdSet b
 insert (MkCacheId x) = cidSet .> IntSet.insert x .> MkCacheIdSet

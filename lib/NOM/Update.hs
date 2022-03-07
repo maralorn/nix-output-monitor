@@ -61,7 +61,7 @@ updateState result (inputAccessTime, inputState) = do
       )
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
-  (if hasChanged then Just outputState else Nothing) |> (outputAccessTime,) .> pure
+  deepseq outputState ((if hasChanged then Just outputState else Nothing) |> (outputAccessTime,) .> pure)
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do

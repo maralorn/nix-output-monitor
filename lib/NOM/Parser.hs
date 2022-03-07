@@ -30,7 +30,8 @@ data ParseResult
   deriving (Show, Eq, Read)
 
 data FailType = ExitCode !Int | HashMismatch
-  deriving (Show, Eq, Ord, Read)
+  deriving (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 parser :: Parser (Maybe ParseResult, Text)
 parser = swap <$> match (Just <$> updateParser <|> Nothing <$ noMatch)
@@ -43,9 +44,11 @@ data StorePath = StorePath
     name :: !Text
   }
   deriving stock (Show, Ord, Eq, Read, Generic)
+  deriving anyclass (NFData)
 
 newtype Derivation = Derivation {toStorePath :: StorePath}
-  deriving stock (Show, Ord, Eq, Read, Generic)
+  deriving stock (Show, Read, Generic)
+  deriving newtype (Eq, Ord, NFData)
 
 instance ToText Derivation where
   toText = (<> ".drv") . toText . toStorePath
@@ -63,8 +66,8 @@ instance ToString StorePath where
   toString = toString . toText
 
 data Host = Localhost | Host !Text
-  deriving stock (Ord, Eq)
-  deriving stock (Show, Read)
+  deriving stock (Ord, Eq, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 instance ToText Host where
   toText (Host name) = name
@@ -141,9 +144,11 @@ planDownloadLine = indent *> storePath <* endOfLine
 
 failed :: Parser ParseResult
 -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
-failed = Failed <$> (choice [string "error: ", pure ""] *> string "builder for " *> inTicks derivation <* string " failed with exit code ") <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine]) <|>
--- error: hash mismatch in fixed-output derivation '/nix/store/nrx4swgzs3iy049fqfx51vhnbb9kzkyv-source.drv':
-         Failed <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":") <*> pure HashMismatch <* endOfLine
+failed =
+  Failed <$> (choice [string "error: ", pure ""] *> string "builder for " *> inTicks derivation <* string " failed with exit code ") <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine])
+    <|>
+    -- error: hash mismatch in fixed-output derivation '/nix/store/nrx4swgzs3iy049fqfx51vhnbb9kzkyv-source.drv':
+    Failed <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":") <*> pure HashMismatch <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser ParseResult

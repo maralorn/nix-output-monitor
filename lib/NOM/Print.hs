@@ -7,7 +7,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
 import Data.Tree (Forest, Tree (Node))
-import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name), FailType (HashMismatch, ExitCode))
+import NOM.Parser (Derivation (toStorePath), FailType (ExitCode, HashMismatch), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildInfo (MkBuildInfo), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (Finished, JustStarted), buildEnd, buildEstimate, buildHost, buildStart, getDerivationInfos)

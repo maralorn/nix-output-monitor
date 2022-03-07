@@ -22,6 +22,7 @@ import Relude
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
   deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 data DerivationInfo = MkDerivationInfo
   { derivationName :: Derivation,
@@ -34,6 +35,7 @@ data DerivationInfo = MkDerivationInfo
     derivationParents :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 type StorePathId = CacheId StorePath
 
@@ -54,6 +56,7 @@ data StorePathInfo = MkStorePathInfo
     storePathInputFor :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 type RunningBuildInfo = BuildInfo ()
 
@@ -71,6 +74,7 @@ data DependencySummary = MkDependencySummary
     completedUploads :: StorePathMap Host
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 data NOMV1State = MkNOMV1State
   { derivationInfos :: DerivationMap DerivationInfo,
@@ -85,9 +89,11 @@ data NOMV1State = MkNOMV1State
     derivationIds :: Map Derivation DerivationId
   }
   deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 data ProcessState = JustStarted | InputReceived | Finished
   deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 data BuildStatus
   = Unknown
@@ -96,6 +102,7 @@ data BuildStatus
   | Failed (BuildInfo (UTCTime, FailType)) -- End
   | Built (BuildInfo UTCTime) -- End
   deriving (Show, Eq, Ord, Read, Generic)
+  deriving anyclass (NFData)
 
 data BuildInfo a = MkBuildInfo
   { buildStart :: UTCTime,
@@ -104,6 +111,7 @@ data BuildInfo a = MkBuildInfo
     buildEnd :: a
   }
   deriving (Show, Eq, Ord, Read, Generic, Functor)
+  deriving anyclass (NFData)
 
 initalState :: (MonadCacheBuildReports m, MonadNow m) => m NOMV1State
 initalState = do
