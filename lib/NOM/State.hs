@@ -202,8 +202,8 @@ updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
       Unknown -> id
       Planned -> field @"plannedBuilds" %~ CSet.delete drvId
       Building _ -> field @"runningBuilds" %~ CMap.delete drvId
-      Failed _ -> error "BUG: Failed builds need to stay failed"
-      Built _ -> error "BUG: Completed builds need to stay completed"
+      Failed _ -> id
+      Built _ -> id
     addNew = case newStatus of
       Unknown -> id
       Planned -> field @"plannedBuilds" %~ CSet.insert drvId
