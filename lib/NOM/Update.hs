@@ -9,13 +9,13 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
-import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..), FailType)
+import NOM.Parser (Derivation (..), FailType, Host (..), ParseResult (..), StorePath (..))
 import qualified NOM.Parser as Parser
 import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, reportError, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
-import NOM.State.Sorting (sortKey, sortDepsOfSet)
+import NOM.State.Sorting (sortDepsOfSet, sortKey)
 import NOM.Update.Monad
   ( BuildReportMap,
     MonadCacheBuildReports (..),
@@ -42,10 +42,9 @@ setInputReceived = do
 updateState :: UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m (Maybe UTCTime, Maybe NOMV1State)
 updateState result (inputAccessTime, inputState) = do
   now <- getNow
-  let (outputAccessTime, check) =
-        if maybe True (diffUTCTime now .> (>= 0.2)) inputAccessTime
-          then (Just now, detectLocalFinishedBuilds)
-          else (inputAccessTime, pure False)
+  let (outputAccessTime, check)
+        | maybe True (diffUTCTime now .> (>= 0.2)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
+        | otherwise = (inputAccessTime, pure False)
   (hasChanged, outputState) <-
     runStateT
       ( or
@@ -61,7 +60,8 @@ updateState result (inputAccessTime, inputState) = do
       )
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
-  deepseq outputState ((if hasChanged then Just outputState else Nothing) |> (outputAccessTime,) .> pure)
+  let retval = (outputAccessTime, if hasChanged then Just outputState else Nothing)
+  deepseq retval (pure retval)
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
