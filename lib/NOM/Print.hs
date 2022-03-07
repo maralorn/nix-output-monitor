@@ -1,23 +1,22 @@
 module NOM.Print (stateToText) where
 
-import Data.Generics.Sum (_Ctor)
 import Data.List.NonEmpty.Extra (appendr)
 import Data.MemoTrie (memo)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
-import Data.Tree (Forest, Tree (Node, rootLabel))
+import Data.Tree (Forest, Tree (Node))
 import NOM.Parser (Derivation (toStorePath), Host (Localhost), StorePath (name))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildInfo (MkBuildInfo), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (Finished, JustStarted), buildEnd, buildEstimate, buildHost, buildStart, getDerivationInfos)
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
-import NOM.State.Sorting (summaryIncludingRoot)
+import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
-import Optics.Fold (hasn't)
+import Optics (itoList, view, _2)
 import Relude
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
@@ -157,7 +156,7 @@ nonZeroShowBold num = if num > 0 then bold else const dummy
 nonZeroBold :: Int -> Entry -> Entry
 nonZeroBold num = if num > 0 then bold else id
 
-data TreeNode = DerivationNode DerivationInfo | Link DerivationId | Summary DependencySummary deriving (Generic)
+data TreeNode = DerivationNode DerivationInfo Bool deriving (Generic)
 
 data TreeLocation = Root | Twig | Leaf deriving (Eq)
 
@@ -166,63 +165,83 @@ printBuilds ::
   Int ->
   UTCTime ->
   NonEmpty Text
-printBuilds nomState _maxHeight =
-  \now -> preparedPrintForest |> fmap (fmap (now |>)) .> showForest .> (markup bold " Dependency Graph:" :|)
+printBuilds nomState@MkNOMV1State {..} maxHeight = printBuildsWithTime
   where
+    printBuildsWithTime :: UTCTime -> NonEmpty Text
+    printBuildsWithTime now = preparedPrintForest |> fmap (fmap (now |>)) .> showForest .> (markup bold " Dependency Graph:" :|)
     preparedPrintForest :: Forest (UTCTime -> Text)
-    preparedPrintForest = resizedForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
+    preparedPrintForest = buildForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
     printTreeNode :: TreeLocation -> TreeNode -> UTCTime -> Text
     printTreeNode location = \case
-      DerivationNode drvInfo ->
+      DerivationNode drvInfo with_summary ->
         let summary = showSummary (dependencySummary drvInfo)
-         in \now -> printDerivation drvInfo now <> showCond ((location == Root || location == Leaf) && not (Text.null summary)) (markup grey " & " <> summary)
-      Link drv -> const (printLink drv)
-      Summary summary -> const (showSummary summary)
+         in \now -> printDerivation drvInfo now <> showCond ((location == Root || location == Leaf || with_summary) && not (Text.null summary)) (markup grey " & " <> summary)
 
-    buildForest :: Seq DerivationId -> NOMState (Forest TreeNode)
-    buildForest drvId = go mempty drvId <|>> snd
-      where
-        mkSummaryNode :: DependencySummary -> Forest TreeNode -> Forest TreeNode
-        mkSummaryNode summary rest
-          | summary == mempty = rest
-          | otherwise = pure (Summary summary) : rest
+    buildForest :: Forest TreeNode
+    buildForest = evalState (goBuildForest forestRoots) mempty
 
-        go :: DerivationSet -> Seq DerivationId -> NOMState (DerivationSet, Forest TreeNode)
-        go seenIds = \case
-          (thisDrv Seq.:<| restDrvs)
-            | CSet.member thisDrv seenIds -> do
-              (newSeenIds, restForest) <- go seenIds restDrvs
-              let mkSubforest
-                    | (Node (Summary theirSummary) _ : restTail) <- restForest = do
-                      ourSummary <- summaryIncludingRoot thisDrv
-                      pure (mkSummaryNode (ourSummary <> theirSummary) restTail)
-                    | (Node (Link linkId) _ : restTail) <- restForest = do
-                      ourSummary <- summaryIncludingRoot thisDrv
-                      theirSummary <- summaryIncludingRoot linkId
-                      pure (mkSummaryNode (ourSummary <> theirSummary) restTail)
-                    | otherwise = pure [pure (Link thisDrv)]
-              mkSubforest <|>> (newSeenIds,)
-            | hasUnseenBuild thisDrv -> do
-              drvInfo <- getDerivationInfos thisDrv
-              let newSeenIds = CSet.insert thisDrv seenIds
-              (thenSeenIds, subforest) <- go newSeenIds (fmap fst (inputDerivations drvInfo))
-              let subforestToUse
-                    | all (rootLabel .> hasn't (_Ctor @"DerivationNode")) subforest = []
-                    | otherwise = subforest
-              (lastlySeenIds, restforest) <- go thenSeenIds restDrvs
-              pure (lastlySeenIds, Node (DerivationNode drvInfo) subforestToUse : restforest)
-            | otherwise -> do
-              summaries <- mapM summaryIncludingRoot (thisDrv Seq.<| restDrvs) <|>> fold
-              pure (seenIds, mkSummaryNode summaries [])
-          _ -> pure (seenIds, [])
-          where
-            hasUnseenBuild thisDrv =
-              let MkDependencySummary {..} = evalState (summaryIncludingRoot thisDrv) nomState
-               in not (CSet.isSubsetOf (CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seenIds)
+    goBuildForest :: Seq DerivationId -> State DerivationSet (Forest TreeNode)
+    goBuildForest = \case
+      (thisDrv Seq.:<| restDrvs) -> do
+        seen_ids <- get
+        let mkNode
+              | not (CSet.member thisDrv seen_ids) && CSet.member thisDrv derivationsToShow = do
+                let drvInfo = get' (getDerivationInfos thisDrv)
+                    childs = children thisDrv
+                modify (CSet.insert thisDrv)
+                subforest <- goBuildForest childs
+                let with_summary = length subforest < length (Seq.filter (\x -> get' (summaryIncludingRoot x) /= mempty) childs)
+                pure (Node (DerivationNode drvInfo with_summary) subforest :)
+              | otherwise = pure id
+        prepend_node <- mkNode
+        goBuildForest restDrvs <|>> prepend_node
+      _ -> pure []
+    derivationsToShow :: DerivationSet
+    derivationsToShow =
+      let should_be_shown (index, (can_be_hidden, _, _)) = not can_be_hidden || index < maxHeight
+          (_, sorted_set) = execState (goDerivationsToShow forestRoots) mempty
+       in sorted_set
+            |> Set.toAscList
+            .> itoList
+            .> takeWhile should_be_shown
+            .> fmap (\(_, (_, _, drvId)) -> drvId)
+            .> CSet.fromFoldable
 
-    resizedForest :: Forest TreeNode
-    resizedForest = flip evalState nomState $ do
-      gets forestRoots >>= buildForest
+    children :: DerivationId -> Seq DerivationId
+    children drv_id = get' (getDerivationInfos drv_id) |> inputDerivations <.>> fst
+
+    goDerivationsToShow ::
+      Seq DerivationId ->
+      State
+        ( DerivationSet, -- seenIds
+          Set
+            ( Bool, -- is allowed to be hidden,
+              SortKey,
+              DerivationId
+            )
+        )
+        ()
+    goDerivationsToShow = \case
+      (thisDrv Seq.:<| restDrvs) -> do
+        (seen_ids, sorted_set) <- get
+        let sort_key = sortKey nomState thisDrv
+            summary@MkDependencySummary {..} = get' (summaryIncludingRoot thisDrv)
+            may_hide = CSet.isSubsetOf (CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
+            new_seen_ids = CSet.insert thisDrv seen_ids
+            new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
+            show_this_node =
+              summary /= mempty
+                && not (CSet.member thisDrv seen_ids)
+                && ( not may_hide
+                       || Set.size sorted_set < maxHeight
+                       || sort_key < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
+                   )
+        when show_this_node $ put (new_seen_ids, new_sorted_set) >> goDerivationsToShow (children thisDrv)
+        goDerivationsToShow restDrvs
+      _ -> pass
+
+    get' :: NOMState b -> b
+    get' = flip evalState nomState
 
     showSummary :: DependencySummary -> Text
     showSummary MkDependencySummary {..} =
@@ -279,15 +298,6 @@ printBuilds nomState _maxHeight =
               <> [markup grey (clock <> " " <> timeDiff buildEnd buildStart)]
       where
         drvName = derivationName |> toStorePath .> name
-
-    printLink :: DerivationId -> Text
-    printLink drvId =
-      flip evalState nomState $
-        getDerivationInfos drvId <|>> derivationName
-          .> toStorePath
-          .> name
-          .> (<> " ↴")
-          .> markup grey
 
 hostMarkup :: Host -> [Text]
 hostMarkup Localhost = mempty
