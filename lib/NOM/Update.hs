@@ -15,7 +15,7 @@ import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), Depende
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
-import NOM.State.Sorting (sortKey, sortParents)
+import NOM.State.Sorting (sortKey, sortDepsOfSet)
 import NOM.Update.Monad
   ( BuildReportMap,
     MonadCacheBuildReports (..),
@@ -230,7 +230,7 @@ updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NO
 updateParents update_func = go mempty
   where
     go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
-      Nothing -> sortParents updated_parents
+      Nothing -> sortDepsOfSet updated_parents
       Just (parentToUpdate, restToUpdate) -> do
         modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
         next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents

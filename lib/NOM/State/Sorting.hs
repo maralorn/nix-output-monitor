@@ -25,8 +25,8 @@ import Optics ((%~))
 import Relude
 import Safe.Foldable (maximumMay, minimumMay)
 
-sortParents :: DerivationSet -> NOMState ()
-sortParents parents = do
+sortDepsOfSet :: DerivationSet -> NOMState ()
+sortDepsOfSet parents = do
   currentState <- get
   let sort_parent :: DerivationId -> NOMState ()
       sort_parent drvId = do
@@ -72,9 +72,9 @@ summaryIncludingRoot drvId = do
   pure (updateSummaryForDerivation Unknown buildStatus drvId dependencySummary)
 
 sortKey :: NOMV1State -> DerivationId -> SortKey
-sortKey currentState drvId = flip evalState currentState do
-  MkDependencySummary {..} <- summaryIncludingRoot drvId
-  let sort_entries =
+sortKey nom_state drvId =
+  let MkDependencySummary {..} = evalState (summaryIncludingRoot drvId) nom_state
+      sort_entries =
         [ minimumMay (failedBuilds <|>> buildEnd .> fst) <|>> SFailed,
           minimumMay (runningBuilds <|>> buildStart) <|>> SBuilding,
           pureIf (not (CSet.null plannedBuilds)) SWaiting,
@@ -83,4 +83,4 @@ sortKey currentState drvId = flip evalState currentState do
           pureIf (not (CMap.null completedDownloads)) SDownloaded,
           pureIf (not (CMap.null completedUploads)) SUploaded
         ]
-  pure (fromMaybe SUnknown (firstJust id sort_entries), Down (CSet.size plannedBuilds), Down (CMap.size runningBuilds), Down (CSet.size plannedDownloads), Down (CMap.size completedDownloads))
+   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CSet.size plannedBuilds), Down (CMap.size runningBuilds), Down (CSet.size plannedDownloads), Down (CMap.size completedDownloads))
