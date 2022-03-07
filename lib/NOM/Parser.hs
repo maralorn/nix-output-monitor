@@ -26,8 +26,11 @@ data ParseResult
   | PlanBuilds (Set Derivation) !Derivation
   | PlanDownloads !Double !Double (Set StorePath)
   | Checking !Derivation
-  | Failed !Derivation !Int
+  | Failed !Derivation !FailType
   deriving (Show, Eq, Read)
+
+data FailType = ExitCode !Int | HashMismatch
+  deriving (Show, Eq, Ord, Read)
 
 parser :: Parser (Maybe ParseResult, Text)
 parser = swap <$> match (Just <$> updateParser <|> Nothing <$ noMatch)
@@ -136,9 +139,11 @@ planDownloads =
 planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePath <* endOfLine
 
--- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed :: Parser ParseResult
-failed = Failed <$> (choice [string "error: ", pure ""] *> string "builder for " *> inTicks derivation <* string " failed with exit code ") <*> (decimal <* choice [endOfLine, char ';' *> endOfLine])
+-- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
+failed = Failed <$> (choice [string "error: ", pure ""] *> string "bulder for " *> inTicks derivation <* string " failed with exit code ") <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine]) <|>
+-- error: hash mismatch in fixed-output derivation '/nix/store/nrx4swgzs3iy049fqfx51vhnbb9kzkyv-source.drv':
+         Failed <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":") <*> pure HashMismatch
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser ParseResult

@@ -9,7 +9,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time (UTCTime, diffUTCTime)
-import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..))
+import NOM.Parser (Derivation (..), Host (..), ParseResult (..), StorePath (..), FailType)
 import qualified NOM.Parser as Parser
 import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, reportError, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
 import qualified NOM.State as State
@@ -136,7 +136,7 @@ modifyBuildReports host = foldMapEndo (uncurry insertBuildReport)
         (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
         (host, getReportName name)
 
-failedBuild :: UTCTime -> DerivationId -> Int -> NOMState ()
+failedBuild :: UTCTime -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
   where
     update = \case

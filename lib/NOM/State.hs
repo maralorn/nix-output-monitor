@@ -4,7 +4,7 @@ import Data.Generics.Product (HasField (field))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time (UTCTime)
-import NOM.Parser (Derivation (..), Host (..), StorePath (..))
+import NOM.Parser (Derivation (..), Host (..), StorePath (..), FailType)
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
 import qualified NOM.State.CacheId.Map as CMap
@@ -59,7 +59,7 @@ type RunningBuildInfo = BuildInfo ()
 
 type CompletedBuildInfo = BuildInfo UTCTime
 
-type FailedBuildInfo = BuildInfo (UTCTime, Int)
+type FailedBuildInfo = BuildInfo (UTCTime, FailType)
 
 data DependencySummary = MkDependencySummary
   { plannedBuilds :: DerivationSet,
@@ -93,7 +93,7 @@ data BuildStatus
   = Unknown
   | Planned
   | Building (BuildInfo ())
-  | Failed (BuildInfo (UTCTime, Int)) -- End and ExitCode
+  | Failed (BuildInfo (UTCTime, FailType)) -- End
   | Built (BuildInfo UTCTime) -- End
   deriving (Show, Eq, Ord, Read, Generic)
 
