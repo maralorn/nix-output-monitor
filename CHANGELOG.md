@@ -1,5 +1,11 @@
 # Revision history for nix-output-monitor
 
+## 1.1.0.0 -- 2022-03-07
+ * Replace list of running and failed builds with a continually updated dependency graph
+ * A lot of small convenience improvements e.g. nicer timestamps
+ * Make input parsing more robust via using streamly. This hopefully fixes #23.
+ * Symbols: Change a few used symbols and force text representation
+
 ## 1.0.5.0 -- 2022-03-05
  * Make the parser for storepath accept more storepaths which actually occur in the wild.
 
