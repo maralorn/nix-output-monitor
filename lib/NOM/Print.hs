@@ -25,23 +25,23 @@ import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
 
-lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average, goal :: Text
+textRep, lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
+textRep = fromString [toEnum 0xFE0E]
 vertical = "┃"
 lowerleft = "┗"
 upperleft = "┏"
 leftT = "┣"
 horizontal = "━"
-down = "⬇"
-up = "⬆"
-clock = "⏲"
-running = "▶"
-goal = "🏁"
-done = "✔"
-todo = "⏳"
-warning = "⚠"
+down = "⬇" <> textRep
+up = "⬆" <> textRep
+clock = "⏱" <> textRep
+running = "▶" <> textRep
+done = "✔" <> textRep
+todo = "⏳︎︎" <> textRep
+warning = "⚠" <> textRep
 average = "∅"
 bigsum = "∑"
-lb = "▓"
+lb = "▒"
 
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
@@ -123,7 +123,7 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
   totalBuilds = numPlannedBuilds + numRunningBuilds + numCompletedBuilds
   downloadsDone = CMap.size completedDownloads
   uploadsDone = CMap.size completedUploads
-  finishMarkup = if numFailedBuilds == 0 then ((goal <> "Finished") <>) .> markup green else ((warning <> " Exited with failures") <>) .> markup red
+  finishMarkup = if numFailedBuilds == 0 then ("Finished" <>) .> markup green else ((warning <> " Exited with failures") <>) .> markup red
 
   printHosts :: [NonEmpty Entry]
   printHosts =
@@ -284,7 +284,9 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     bar color c
       | c == 0 = ""
       | c <= 10 = stimesMonoid c lb |> markup color
-      | otherwise = ("▓▓▓┄" <> show c <> "┄▓▓▓") |> markup color
+      | otherwise =
+        let blocks = stimesMonoid (3 :: Int) lb
+         in (blocks <> "┄" <> show c <> "┄" <> blocks) |> markup color
 
   printDerivation :: DerivationInfo -> UTCTime -> Text
   printDerivation MkDerivationInfo{..} = case buildStatus of
