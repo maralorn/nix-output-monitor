@@ -78,8 +78,11 @@ An example remote build:
 An example failing remote build:
 [![asciicast](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65.svg)](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65)
 
-An example really large build:
+An example really large build (`haskell-language-server`):
 [![asciicast](https://asciinema.org/a/DDdRLAaiL65PsYUS4dvEaFWBm.svg)](https://asciinema.org/a/DDdRLAaiL65PsYUS4dvEaFWBm)
+
+An example running `sudo nixos-rebuild switch`:
+[![asciicast](https://asciinema.org/a/fQTfaxCjNQoNz9eJYGGrLZTcw.svg)](https://asciinema.org/a/fQTfaxCjNQoNz9eJYGGrLZTcw)
 
 ## Implementation
 
