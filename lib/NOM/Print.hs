@@ -168,7 +168,15 @@ printBuilds ::
 printBuilds nomState@MkNOMV1State {..} maxHeight = printBuildsWithTime
   where
     printBuildsWithTime :: UTCTime -> NonEmpty Text
-    printBuildsWithTime now = preparedPrintForest |> fmap (fmap (now |>)) .> showForest .> (markup bold " Dependency Graph:" :|)
+    printBuildsWithTime now = preparedPrintForest |> fmap (fmap (now |>)) .> showForest .> (graphHeader :|)
+    num_raw_roots = length forestRoots
+    num_roots = length preparedPrintForest
+    graphTitle = markup bold "Dependency Graph"
+    graphHeader = " " <> graphHeaderInner <> ":"
+    graphHeaderInner
+      | num_raw_roots <= 1 = graphTitle
+      | num_raw_roots == num_roots = unwords [graphTitle,"with", show num_roots, "roots"]
+      | otherwise = unwords [graphTitle, "showing", show num_roots, "of", show num_raw_roots, "roots"]
     preparedPrintForest :: Forest (UTCTime -> Text)
     preparedPrintForest = buildForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
     printTreeNode :: TreeLocation -> TreeNode -> UTCTime -> Text
@@ -301,8 +309,8 @@ printBuilds nomState@MkNOMV1State {..} maxHeight = printBuildsWithTime
 
 printFailType :: FailType -> Text
 printFailType = \case
-   ExitCode i -> "exit code " <> show i
-   HashMismatch -> "hash mismatch"
+  ExitCode i -> "exit code " <> show i
+  HashMismatch -> "hash mismatch"
 
 hostMarkup :: Host -> [Text]
 hostMarkup Localhost = mempty
