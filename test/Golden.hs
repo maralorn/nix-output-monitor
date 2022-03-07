@@ -20,18 +20,9 @@ import Test.HUnit (
 import NOM.IO (processTextStream)
 import NOM.Parser (parser)
 import NOM.State (
-  DependencySummary (
-    MkDependencySummary,
-    completedBuilds,
-    completedDownloads,
-    completedUploads,
-    failedBuilds,
-    plannedBuilds,
-    plannedDownloads,
-    runningBuilds
-  ),
+  DependencySummary (..),
   DerivationId,
-  NOMV1State (MkNOMV1State, fullSummary),
+  NOMV1State (..),
   getStorePathId,
   initalState,
   out2drv,
