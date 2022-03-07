@@ -64,16 +64,18 @@ runUpdates stateVar bufferVar updater = FL.drainBy \input -> do
     writeTVar stateVar newState
     modifyTVar' bufferVar (<> output')
 
-writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar Output -> OutputFunc state -> IO ()
-writeStateToScreen linesVar stateVar bufferVar printer = do
+writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar Output -> (state -> state) -> OutputFunc state -> IO ()
+writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
   now <- getZonedTime
   terminalSize <- size
 
   -- Do this strictly so that rendering the output does not flicker
   (!writtenLines, !buffer, !linesToWrite, !output) <- atomically $ do
-    buildState <- readTVar stateVar
-    let output = truncateOutput terminalSize (printer buildState terminalSize now)
+    unprepared_nom_state <- readTVar stateVar
+    let prepared_nom_state = maintenance unprepared_nom_state
+        output = truncateOutput terminalSize (printer prepared_nom_state terminalSize now)
         linesToWrite = length (Text.lines output)
+    writeTVar stateVar prepared_nom_state
     writtenLines <- swapTVar linesVar linesToWrite
     buffer <- swapTVar bufferVar mempty
     pure (writtenLines, buffer, linesToWrite, output)
@@ -92,24 +94,26 @@ interact ::
   forall update state.
   Parser update ->
   UpdateFunc update state Output ->
+  (state -> state) ->
   OutputFunc state ->
   Finalizer state ->
   state ->
   IO state
-interact parser updater printer finalize initialState =
+interact parser updater maintenance printer finalize initialState =
   S.unfold readTextChunks stdin
-    |> processTextStream parser updater (Just printer) finalize initialState
+    |> processTextStream parser updater maintenance (Just printer) finalize initialState
 
 processTextStream ::
   forall update state.
   Parser update ->
   UpdateFunc update state Output ->
+  (state -> state) ->
   Maybe (OutputFunc state) ->
   Finalizer state ->
   state ->
   Stream Text ->
   IO state
-processTextStream parser updater printerMay finalize initialState inputStream = do
+processTextStream parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
   let keepProcessing :: IO ()
@@ -122,7 +126,7 @@ processTextStream parser updater printerMay finalize initialState inputStream = 
   printerMay |> maybe keepProcessing \printer -> do
     linesVar <- newTVarIO 0
     let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen linesVar stateVar bufferVar printer
+        writeToScreen = writeStateToScreen linesVar stateVar bufferVar maintenance printer
         keepPrinting :: IO ()
         keepPrinting = forever do
           race_ (concurrently_ (threadDelay 20000) waitForInput) (threadDelay 1000000)

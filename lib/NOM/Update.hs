@@ -45,6 +45,9 @@ setInputReceived = do
   when change (put s{processState = InputReceived})
   pure change
 
+maintainState :: NOMV1State -> NOMV1State
+maintainState = id
+
 updateState :: UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m (Maybe UTCTime, Maybe NOMV1State)
 updateState result (inputAccessTime, inputState) = do
   now <- getNow

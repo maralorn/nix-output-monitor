@@ -40,6 +40,7 @@ import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
 import NOM.Update (
   detectLocalFinishedBuilds,
+  maintainState,
   parseStorePath,
   updateState,
  )
@@ -82,7 +83,7 @@ testBuild name asserts withNix =
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalState
-    endState <- processTextStream parser (passThroughBuffer (preserveStateSnd . updateState)) Nothing finalizer (Nothing, firstState) (pure $ toText errors)
+    endState <- processTextStream parser (passThroughBuffer (preserveStateSnd . updateState)) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ toText errors)
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => (a, NOMV1State) -> m (a, NOMV1State)

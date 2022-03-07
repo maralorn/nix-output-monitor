@@ -7,7 +7,7 @@ import Data.Text.IO (hPutStrLn)
 import Data.Time (UTCTime, ZonedTime)
 import Data.Version (showVersion)
 
-import Optics (view, (.~), _3)
+import Optics (view, (%~), (.~), _2, _3)
 import Paths_nix_output_monitor (version)
 import System.Console.Terminal.Size (Window)
 import System.Environment (getArgs)
@@ -17,7 +17,7 @@ import NOM.Parser (ParseResult, parser)
 import NOM.Print (stateToText)
 import NOM.State (NOMV1State, ProcessState (..), failedBuilds, fullSummary, initalState)
 import qualified NOM.State.CacheId.Map as CMap
-import NOM.Update (detectLocalFinishedBuilds, updateState)
+import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
 
@@ -35,7 +35,7 @@ main = do
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
   firstState <- initalState
   let firstCompoundState = (Nothing, firstState, stateToText firstState)
-  (_, finalState, _) <- interact parser compoundStateUpdater compoundStateToText finalizer firstCompoundState
+  (_, finalState, _) <- interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer firstCompoundState
   if (finalState |> fullSummary .> failedBuilds .> CMap.size) == 0
     then exitSuccess
     else exitFailure
