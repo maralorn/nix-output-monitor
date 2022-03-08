@@ -54,13 +54,14 @@ stateToText :: NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
 stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSize
  where
   printWithSize :: Maybe Int -> ZonedTime -> Text
-  printWithSize maybeWindow = printWithTime
+  printWithSize maybeWindow = printWithTime .> (<> errorList)
    where
     printWithTime :: ZonedTime -> Text
     printWithTime
       | processState == JustStarted = \now -> time now <> showCond (diffUTCTime (zonedTimeToUTC now) startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
       | not anythingGoingOn = time
-      | otherwise = \now -> buildsDisplay now <> table (time now) <> errorList
+      | showBuildGraph = \now -> buildsDisplay now <> table (time now)
+      | otherwise = time .> table
     maxHeight = case maybeWindow of
       Just limit -> limit `div` targetRatio
       Nothing -> defaultTreeMax
@@ -80,10 +81,11 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
   runningBuilds' = runningBuilds <|>> buildHost
   completedBuilds' = completedBuilds <|>> buildHost
   numFailedBuilds = CMap.size failedBuilds
-  anythingGoingOn = totalBuilds + downloadsDone + numPlannedDownloads + numFailedBuilds > 0
+  anythingGoingOn = fullSummary /= mempty
+  showBuildGraph = not (Seq.null forestRoots)
   table time' =
     prependLines
-      (leftT <> stimes (3 :: Int) horizontal <> " ")
+      ((if showBuildGraph then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
       (vertical <> "    ")
       (lowerleft <> horizontal <> " " <> bigsum <> " ")
       $ printAlignedSep (innerTable `appendr` one (lastRow time'))
@@ -133,7 +135,7 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
     labelForHost h =
       showCond
         showBuilds
-        [ nonZeroShowBold numRunningBuilds (yellow (label running (disp numRunningBuildsOnHost)))
+        [ nonZeroShowBold numRunningBuildsOnHost (yellow (label running (disp numRunningBuildsOnHost)))
         , nonZeroShowBold doneBuilds (green (label done (disp doneBuilds)))
         , dummy
         ]
