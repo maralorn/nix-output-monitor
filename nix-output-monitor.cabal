@@ -85,8 +85,8 @@ library
     NOM.State.CacheId
     NOM.State.CacheId.Map
     NOM.State.CacheId.Set
-    NOM.State.Tree
     NOM.State.Sorting
+    NOM.State.Tree
     NOM.Update
     NOM.Update.Monad
     NOM.Update.Monad.CacheBuildReports
