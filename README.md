@@ -2,7 +2,7 @@
 
 Pipe your nix-build output through the nix-output-monitor (aka nom) to get additional information while building.
 
-While your build runes nom will draw something like this at the bottom of your build log:
+While your build runs nom will draw something like this at the bottom of your build log:
 
 ![](example-screenshot.png)
 
@@ -17,7 +17,7 @@ This program relies on the output of the v1 nix commands (i.e. `nix-build` and n
 
 ## Installing
 
-* nixpkgs: nom is in nixpkgs/nixos unstable just install `pkgs.nix-output-monitor` in the usual way.
+* nixpkgs: nom is in nixpkgs. Just install `pkgs.nix-output-monitor` in the usual way. You might want to install it from nixos-unstable to get the newest version.
 * cabal: Install `cabal-install` and run `cabal install` in the checked out repo.
 * nix: or run `nix-build` or `nix-env` or include the `default.nix` of this repo in your nixos config.
 
