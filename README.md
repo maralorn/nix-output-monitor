@@ -2,6 +2,10 @@
 
 Pipe your nix-build output through the nix-output-monitor (aka nom) to get additional information while building.
 
+While your build runes nom will draw something like this at the bottom of your build log:
+
+![](example-screenshot.png)
+
 [![Packaging status](https://repology.org/badge/vertical-allrepos/nix-output-monitor.svg)](https://repology.org/project/nix-output-monitor/versions)
 
 ## Status
