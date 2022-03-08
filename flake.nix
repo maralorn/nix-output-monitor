@@ -9,27 +9,32 @@
       flake = false;
     };
   };
-  outputs = inputs@{ self, flake-utils, ... }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" ] (
-      system:
-      let
+  outputs = inputs @ {
+    self,
+    flake-utils,
+    ...
+  }:
+    flake-utils.lib.eachSystem ["x86_64-linux"] (
+      system: let
         pkgs = inputs.nixpkgs.legacyPackages.${system};
         inherit (pkgs) lib haskellPackages haskell;
-        golden-test = import ./test/golden1.nix { seed = "1"; inherit system; };
-      in
-      rec
+        golden-test = import ./test/golden1.nix {
+          seed = "1";
+          inherit system;
+        };
+      in rec
       {
         defaultPackage = packages.nix-output-monitor;
         packages = {
           nix-output-monitor =
             haskell.lib.overrideCabal
-              (haskellPackages.callCabal2nix "nix-output-monitor" ./. { })
-              {
-                preCheck = ''
-                  # ${lib.concatStringsSep ", " ((lib.attrValues golden-test) ++ map (x: x.drvPath) (lib.attrValues golden-test))}
-                  export TESTS_FROM_FILE=true;
-                '';
-              };
+            (haskellPackages.callCabal2nix "nix-output-monitor" ./. {})
+            {
+              preCheck = ''
+                # ${lib.concatStringsSep ", " ((lib.attrValues golden-test) ++ map (x: x.drvPath) (lib.attrValues golden-test))}
+                export TESTS_FROM_FILE=true;
+              '';
+            };
         };
         checks = {
           pre-commit-check = inputs.pre-commit-hooks.lib.${system}.run {
@@ -40,13 +45,15 @@
             ];
             hooks = {
               hlint.enable = true;
-              nixpkgs-fmt.enable = true;
+              cabal-fmt.enable = true;
+              alejandra.enable = true;
               fourmolu.enable = true;
             };
           };
         };
         devShell = haskellPackages.shellFor {
-          packages = p: [ defaultPackage ];
+          packages = p: [defaultPackage];
+          buildInputs = [inputs.pre-commit-hooks.defaultPackage.${system}];
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;
         };
