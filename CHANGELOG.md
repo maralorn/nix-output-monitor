@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## 1.1.1.0 -- 2022-03-08
+* Only show dependency graph when necessary
+* Only show build counts for host, when not zero
+
 ## 1.1.0.0 -- 2022-03-07
  * Replace list of running and failed builds with a continually updated dependency graph
  * A lot of small convenience improvements e.g. nicer timestamps
