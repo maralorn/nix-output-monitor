@@ -26,6 +26,7 @@ with import <nixpkgs> {}; let
   build2 = pkgs.runCommand "build2" {} ''
     sleep 3s
     cat ${build5}
+    cat ${build6}
     cat ${build1}
     echo "test" > $out
   '';

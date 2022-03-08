@@ -5,7 +5,7 @@
     pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
     flake-utils.url = "github:numtide/flake-utils";
     flake-compat = {
-      url = github:edolstra/flake-compat;
+      url = "github:edolstra/flake-compat";
       flake = false;
     };
   };
@@ -16,8 +16,7 @@
   }:
     flake-utils.lib.eachSystem ["x86_64-linux"] (
       system: let
-        pkgs = inputs.nixpkgs.legacyPackages.${system};
-        inherit (pkgs) lib haskellPackages haskell;
+        inherit (inputs.nixpkgs.legacyPackages.${system}) lib haskellPackages haskell;
         golden-test = import ./test/golden1.nix {
           seed = "1";
           inherit system;
@@ -45,14 +44,17 @@
             ];
             hooks = {
               hlint.enable = true;
-              cabal-fmt.enable = true;
               alejandra.enable = true;
+              nix-linter.enable = true;
+              statix.enable = true;
               fourmolu.enable = true;
+              cabal-fmt.enable = true;
+              shellcheck.enable = true;
             };
           };
         };
         devShell = haskellPackages.shellFor {
-          packages = p: [defaultPackage];
+          packages = _: [defaultPackage];
           buildInputs = [inputs.pre-commit-hooks.defaultPackage.${system}];
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;
