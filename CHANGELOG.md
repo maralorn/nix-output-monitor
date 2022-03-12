@@ -1,5 +1,8 @@
 # Revision history for nix-output-monitor
 
+## 1.1.2.0 -- 2022-03-12
+* Fix the bug that the colored errors of newer nix version didn‘t get parsed as errors.
+
 ## 1.1.1.0 -- 2022-03-08
 * Only show dependency graph when necessary
 * Only show build counts for host, when not zero
