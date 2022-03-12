@@ -4,10 +4,9 @@ import Relude
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
-import Control.Concurrent.STM (check, swapTVar)
+import Control.Concurrent.STM (check, modifyTVar, swapTVar)
 import Control.Exception (IOException, try)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as TextIO
 import Data.Time (ZonedTime, getZonedTime)
 import System.IO (hFlush)
 
@@ -20,51 +19,64 @@ import qualified Streamly.Prelude as S
 
 import Data.Attoparsec.Text (IResult (..), Parser, Result, feed, parse)
 
+import qualified Data.ByteString as ByteString
 import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
 
+import qualified Data.Word8 as Word8
 import NOM.Print.Table as Table (displayWidth, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (|>))
 
 type Stream = S.SerialT IO
 type Output = Text
-type UpdateFunc update state output = forall m. UpdateMonad m => (update -> state -> m (state, output))
+type UpdateFunc update state = forall m. UpdateMonad m => (update -> StateT state m ())
 type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
-type Finalizer state = forall m. UpdateMonad m => state -> m state
+type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 
-parseStream :: forall update. Parser update -> Stream Text -> Stream update
+parseStream :: forall update. Parser update -> Stream ByteString -> Stream update
 parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, mempty)
  where
-  step :: (Maybe (Text -> Result update), Stream update) -> Text -> (Maybe (Text -> Result update), Stream update)
-  step (maybe parseFresh (feed . Partial) . fst -> parse') = fix process mempty . parse'
+  step :: (Maybe (Text -> Result update), Stream update) -> ByteString -> (Maybe (Text -> Result update), Stream update)
+  step (maybe parseFresh (feed . Partial) . fst -> parse') = fix process mempty . parse' . decodeUtf8
+  process ::
+    (Stream update -> Result update -> (Maybe (Text -> Result update), Stream update)) ->
+    Stream update ->
+    Result update ->
+    (Maybe (Text -> Result update), Stream update)
   process = \parseRest acc -> \case
     Done "" result -> (Nothing, acc <> pure result)
     Done rest result -> parseRest (acc <> pure result) (parseFresh rest)
     Fail{} -> (Nothing, acc)
     Partial cont -> (Just cont, acc)
 
-readTextChunks :: UF.Unfold IO Handle Text
-readTextChunks = UF.fromStream1 \handle -> fix \(streamTail :: Stream Text) ->
-  liftIO (try @IOException (TextIO.hGetChunk handle)) >>= either (const streamTail) \case
+readTextChunks :: UF.Unfold IO Handle ByteString
+readTextChunks = UF.fromStream1 \handle -> fix \(streamTail :: Stream ByteString) ->
+  liftIO (try @IOException (ByteString.hGetSome handle 3072)) >>= either (const streamTail) \case
     "" -> mempty
     input -> input .: streamTail
 
-runUpdates ::
-  forall update state output.
-  Semigroup output =>
-  TVar state ->
-  TVar output ->
-  UpdateFunc update state output ->
-  FL.Fold IO update ()
-runUpdates stateVar bufferVar updater = FL.drainBy \input -> do
-  oldState <- readTVarIO stateVar
-  (newState, output') <- updater input oldState
-  atomically do
-    writeTVar stateVar newState
-    modifyTVar' bufferVar (<> output')
+filterANSICodes :: ByteString -> ByteString
+filterANSICodes = go ""
+ where
+  csi = "\27["
+  go acc "" = acc
+  go acc remaining = go (acc <> filtered) (stripCode unfiltered)
+   where
+    (filtered, unfiltered) = ByteString.breakSubstring csi remaining
+    stripCode bs = ByteString.drop 1 (ByteString.dropWhile (not . Word8.isLetter) bs)
 
-writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar Output -> (state -> state) -> OutputFunc state -> IO ()
+runUpdates ::
+  forall update state.
+  TVar state ->
+  UpdateFunc update state ->
+  FL.Fold IO update ()
+runUpdates stateVar updater = FL.drainBy \input -> do
+  oldState <- readTVarIO stateVar
+  newState <- execStateT (updater input) oldState
+  atomically $ writeTVar stateVar newState
+
+writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> IO ()
 writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
   now <- getZonedTime
   terminalSize <- size
@@ -86,14 +98,14 @@ writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
     clearLine
 
   -- Write new output to screen.
-  putText buffer
+  ByteString.putStr buffer
   when (linesToWrite > 0) $ putTextLn output
   hFlush stdout
 
 interact ::
   forall update state.
   Parser update ->
-  UpdateFunc update state Output ->
+  UpdateFunc update state ->
   (state -> state) ->
   OutputFunc state ->
   Finalizer state ->
@@ -106,12 +118,12 @@ interact parser updater maintenance printer finalize initialState =
 processTextStream ::
   forall update state.
   Parser update ->
-  UpdateFunc update state Output ->
+  UpdateFunc update state ->
   (state -> state) ->
   Maybe (OutputFunc state) ->
   Finalizer state ->
   state ->
-  Stream Text ->
+  Stream ByteString ->
   IO state
 processTextStream parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
@@ -119,10 +131,12 @@ processTextStream parser updater maintenance printerMay finalize initialState in
   let keepProcessing :: IO ()
       keepProcessing =
         inputStream
-          |> parseStream parser
-          .> S.fold (runUpdates stateVar bufferVar updater)
+          |> S.tap (saveInputIntoBuffer bufferVar)
+          .> fmap filterANSICodes
+          .> parseStream parser
+          .> S.fold (runUpdates stateVar updater)
       waitForInput :: IO ()
-      waitForInput = atomically $ check . not . Text.null =<< readTVar bufferVar
+      waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay |> maybe keepProcessing \printer -> do
     linesVar <- newTVarIO 0
     let writeToScreen :: IO ()
@@ -132,9 +146,12 @@ processTextStream parser updater maintenance printerMay finalize initialState in
           race_ (concurrently_ (threadDelay 20000) waitForInput) (threadDelay 1000000)
           writeToScreen
     race_ keepProcessing keepPrinting
-    readTVarIO stateVar >>= finalize >>= writeTVar stateVar .> atomically
+    readTVarIO stateVar >>= execStateT finalize >>= writeTVar stateVar .> atomically
     writeToScreen
-  readTVarIO stateVar |> (if isNothing printerMay then (>>= finalize) else id)
+  readTVarIO stateVar |> (if isNothing printerMay then (>>= execStateT finalize) else id)
+
+saveInputIntoBuffer :: TVar ByteString -> FL.Fold IO ByteString ()
+saveInputIntoBuffer bufferVar = FL.drainBy (\input -> atomically $ modifyTVar bufferVar (<> input))
 
 truncateOutput :: Maybe (Window Int) -> Text -> Text
 truncateOutput win output = maybe output go win

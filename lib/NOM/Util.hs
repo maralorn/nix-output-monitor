@@ -6,9 +6,6 @@ import Relude.Extra (toSnd)
 foldMapEndo :: Foldable f => (b -> a -> a) -> f b -> a -> a
 foldMapEndo f = foldMap (f .> Endo) .> appEndo
 
-passThroughBuffer :: Functor m => (update -> state -> m state) -> (update, buffer) -> state -> m (state, buffer)
-passThroughBuffer updater (update, buffer) = updater update <.>> (,buffer)
-
 forMaybeM :: Monad m => [a] -> (a -> m (Maybe b)) -> m [b]
 forMaybeM = flip mapMaybeM
 

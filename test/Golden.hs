@@ -3,7 +3,6 @@ module Main where
 import Relude
 
 import qualified Data.String as String
-import Data.Tuple.Extra (secondM)
 import System.Environment (lookupEnv)
 import System.Process (readProcessWithExitCode)
 import System.Random (randomIO)
@@ -36,12 +35,7 @@ import NOM.Update (
   updateState,
  )
 import NOM.Update.Monad (UpdateMonad)
-import NOM.Util (
-  forMaybeM,
-  passThroughBuffer,
-  (<.>>),
-  (|>),
- )
+import NOM.Util (forMaybeM)
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -74,14 +68,20 @@ testBuild name asserts withNix =
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalState
-    endState <- processTextStream parser (passThroughBuffer (preserveStateSnd . updateState)) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ toText errors)
+    endState <- processTextStream parser (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ encodeUtf8 errors)
     asserts output (snd endState)
 
-finalizer :: UpdateMonad m => (a, NOMV1State) -> m (a, NOMV1State)
-finalizer = secondM (execStateT detectLocalFinishedBuilds)
+finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()
+finalizer = do
+  (a, oldState) <- get
+  newState <- execStateT detectLocalFinishedBuilds oldState
+  put (a, newState)
 
-preserveStateSnd :: Functor m => ((istate, state) -> m (istate, Maybe state)) -> (istate, state) -> m (istate, state)
-preserveStateSnd update (i, s) = (i, s) |> update <.>> second (fromMaybe s)
+preserveStateSnd :: Monad m => ((istate, state) -> m (istate, Maybe state)) -> StateT (istate, state) m ()
+preserveStateSnd update = do
+  (i, s) <- get
+  (newI, newS) <- lift $ update (i, s)
+  put (newI, fromMaybe s newS)
 
 golden1 :: Bool -> Test
 golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = summary@MkDependencySummary{..}} -> do

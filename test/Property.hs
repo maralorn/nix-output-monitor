@@ -7,7 +7,7 @@ import Test.HUnit
 
 import NOM.Parser
 
-assertParse :: Parser (Maybe a, Text) -> Text -> IO (Text, a)
+assertParse :: Parser (Maybe a) -> Text -> IO (Text, a)
 assertParse parser' input = do
   let res = p $ parse parser' input
   assertBool "parsing succeeds" (isJust res)
@@ -15,7 +15,7 @@ assertParse parser' input = do
   assertBool "parsing succeeds with an actual match" (isJust res')
   pure (t, Unsafe.fromJust res')
  where
-  p (Done x (a, _)) = Just (x, a)
+  p (Done x a) = Just (x, a)
   p _ = Nothing
 
 main :: IO ()

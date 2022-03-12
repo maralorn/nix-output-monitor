@@ -19,7 +19,7 @@ import NOM.State (NOMV1State, ProcessState (..), failedBuilds, fullSummary, init
 import qualified NOM.State.CacheId.Map as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
-import NOM.Util (addPrintCache, passThroughBuffer, (.>), (<|>>), (<||>), (|>))
+import NOM.Util (addPrintCache, (.>), (<|>>), (<||>), (|>))
 
 main :: IO ()
 main = do
@@ -47,18 +47,19 @@ compoundStateToText = view _3
 
 compoundStateUpdater ::
   UpdateMonad m =>
-  (Maybe ParseResult, Text) ->
-  CompoundState ->
-  m (CompoundState, Text)
-compoundStateUpdater = passThroughBuffer (addPrintCache updateState stateToText)
+  Maybe ParseResult ->
+  StateT CompoundState m ()
+compoundStateUpdater input = do
+  oldState <- get
+  newState <- addPrintCache updateState stateToText input oldState
+  put newState
 
 finalizer ::
-  UpdateMonad m =>
-  CompoundState ->
-  m CompoundState
-finalizer (n, oldState, _) = do
+  UpdateMonad m => StateT CompoundState m ()
+finalizer = do
+  (n, oldState, _) <- get
   newState <- execStateT detectLocalFinishedBuilds oldState <|>> (typed .~ Finished)
-  pure (n, newState, stateToText newState)
+  put (n, newState, stateToText newState)
 
 helpText :: Text
 helpText =

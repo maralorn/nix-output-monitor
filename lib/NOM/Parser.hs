@@ -11,7 +11,6 @@ import Data.Attoparsec.Text (
   endOfLine,
   inClass,
   isEndOfLine,
-  match,
   string,
   take,
   takeTill,
@@ -34,8 +33,8 @@ data FailType = ExitCode !Int | HashMismatch
   deriving (Show, Eq, Ord, Read, Generic)
   deriving anyclass (NFData)
 
-parser :: Parser (Maybe ParseResult, Text)
-parser = swap <$> match (Just <$> updateParser <|> Nothing <$ noMatch)
+parser :: Parser (Maybe ParseResult)
+parser = Just <$> updateParser <|> Nothing <$ noMatch
 
 updateParser :: Parser ParseResult
 updateParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking

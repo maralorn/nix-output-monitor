@@ -45,6 +45,7 @@ common common-config
     , async
     , attoparsec
     , base
+    , bytestring
     , cassava
     , containers
     , data-default
@@ -68,6 +69,7 @@ common common-config
     , unix
     , vector
     , wcwidth
+    , word8
 
   default-language:   Haskell2010
   ghc-options:        -Wall
