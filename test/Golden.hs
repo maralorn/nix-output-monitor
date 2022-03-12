@@ -84,10 +84,9 @@ preserveStateSnd update = do
   put (newI, fromMaybe s newS)
 
 golden1 :: Bool -> Test
-golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = summary@MkDependencySummary{..}} -> do
+golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do
   let noOfBuilds = 4
   assertBool "Everything built" (CSet.null plannedBuilds)
-  print summary
   assertBool "No running builds" (CMap.null runningBuilds)
   assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)
   let outputStorePaths = mapMaybe parseStorePath (String.lines output)
