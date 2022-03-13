@@ -16,7 +16,10 @@
 ## 1.0.5.0 -- 2022-03-05
  * Make the parser for storepath accept more storepaths which actually occur in the wild.
 
-## 1.0.4.1 & 1.0.4.2 -- 2022-02-25
+## 1.0.4.2 -- 2022-02-25
+ * Other fixes for relude 1.0 compat
+
+## 1.0.4.1 -- 2022-02-25
  * Rename an internal variable for relude 1.0 compat
 
 ## 1.0.4.0 -- 2021-12-03
@@ -43,7 +46,7 @@
 * Introduce proper file locking for build times DB. Multiple running nom instances should work now with every single build time being recorded.
 * Improved the parser for failed build messages. Should now correctly work with `nix-build -k`.
 
-## 1.0.1.0 -- 2021-02-21
+## 1.0.1.1 -- 2021-02-21
 
 * Use a different symbol for the total
 
