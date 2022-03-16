@@ -62,7 +62,7 @@ common common-config
     , relude
     , safe
     , stm
-    , streamly        <0.8
+    , streamly
     , terminal-size
     , text
     , time

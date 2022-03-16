@@ -10,11 +10,8 @@ import qualified Data.Text as Text
 import Data.Time (ZonedTime, getZonedTime)
 import System.IO (hFlush)
 
-import qualified Streamly as S
+import Streamly (SerialT) -- Keep this import for streamly < 0.8 compat
 import qualified Streamly.Data.Fold as FL
-import qualified Streamly.Data.Unfold as UF
-import qualified Streamly.Internal.Data.Unfold as UF
-import Streamly.Prelude ((.:))
 import qualified Streamly.Prelude as S
 
 import Data.Attoparsec.Text (IResult (..), Parser, Result, feed, parse)
@@ -27,8 +24,9 @@ import qualified Data.Word8 as Word8
 import NOM.Print.Table as Table (displayWidth, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (|>))
+import Streamly.Prelude ((.:))
 
-type Stream = S.SerialT IO
+type Stream = SerialT IO
 type Output = Text
 type UpdateFunc update state = forall m. UpdateMonad m => (update -> StateT state m ())
 type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
@@ -50,11 +48,20 @@ parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, me
     Fail{} -> (Nothing, acc)
     Partial cont -> (Just cont, acc)
 
-readTextChunks :: UF.Unfold IO Handle ByteString
-readTextChunks = UF.fromStream1 \handle -> fix \(streamTail :: Stream ByteString) ->
-  liftIO (try @IOException (ByteString.hGetSome handle 3072)) >>= either (const streamTail) \case
-    "" -> mempty
-    input -> input .: streamTail
+readTextChunks :: Handle -> Stream ByteString
+readTextChunks handle = loop
+ where
+  -- We read up-to 4kb of input at once. We will rarely need more than that for one succesful parse.
+  bufferSize :: Int
+  bufferSize = 4096
+  tryRead :: Stream (Either IOException ByteString)
+  tryRead = liftIO $ try @IOException $ ByteString.hGetSome handle bufferSize
+  loop :: Stream ByteString
+  loop =
+    tryRead >>= \case
+      Left _ -> loop -- Ignore Exception
+      Right "" -> mempty -- EOF
+      Right input -> input .: loop
 
 filterANSICodes :: ByteString -> ByteString
 filterANSICodes = go ""
@@ -112,7 +119,7 @@ interact ::
   state ->
   IO state
 interact parser updater maintenance printer finalize initialState =
-  S.unfold readTextChunks stdin
+  readTextChunks stdin
     |> processTextStream parser updater maintenance (Just printer) finalize initialState
 
 processTextStream ::
