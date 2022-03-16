@@ -40,7 +40,7 @@ sortDepsOfSet parents = do
 
       sort_key :: DerivationId -> SortKey
       sort_key = memo (sortKey currentState)
-  parents |> CSet.toList .> mapM_ sort_parent
+  parents |> CSet.toList .> mapM_ \drvId -> sort_parent drvId
 
 -- We order by type and disambiguate by the number of a) waiting builds, b) running builds
 type SortKey =

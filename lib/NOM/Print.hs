@@ -255,7 +255,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     _ -> pass
 
   get' :: NOMState b -> b
-  get' = flip evalState nomState
+  get' procedure = evalState procedure nomState
 
   showSummary :: DependencySummary -> Text
   showSummary MkDependencySummary{..} =

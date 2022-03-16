@@ -8,7 +8,7 @@ import Control.Concurrent.STM (check, modifyTVar, swapTVar)
 import Control.Exception (IOException, try)
 import qualified Data.Text as Text
 import Data.Time (ZonedTime, getZonedTime)
-import System.IO (hFlush)
+import qualified System.IO
 
 import Streamly (SerialT) -- Keep this import for streamly < 0.8 compat
 import qualified Streamly.Data.Fold as FL
@@ -42,7 +42,7 @@ parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, me
     Stream update ->
     Result update ->
     (Maybe (Text -> Result update), Stream update)
-  process = \parseRest acc -> \case
+  process parseRest acc = \case
     Done "" result -> (Nothing, acc <> pure result)
     Done rest result -> parseRest (acc <> pure result) (parseFresh rest)
     Fail{} -> (Nothing, acc)
@@ -107,7 +107,7 @@ writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
   -- Write new output to screen.
   ByteString.putStr buffer
   when (linesToWrite > 0) $ putTextLn output
-  hFlush stdout
+  System.IO.hFlush stdout
 
 interact ::
   forall update state.

@@ -20,7 +20,7 @@ import NOM.Update.Monad (
   MonadNow,
   getNow,
  )
-import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
+import NOM.Util (foldMapEndo, (.>), (<|>>), (|>))
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
   deriving stock (Show, Eq, Ord, Read, Generic)
@@ -147,10 +147,10 @@ getRunningBuildsByHost :: Host -> NOMState (DerivationMap RunningBuildInfo)
 getRunningBuildsByHost host = getRunningBuilds <|>> CMap.filter (buildHost .> (== host))
 
 lookupStorePathId :: StorePathId -> NOMState StorePath
-lookupStorePathId = getStorePathInfos <.>> storePathName
+lookupStorePathId pathId = getStorePathInfos pathId <|>> storePathName
 
 lookupDerivationId :: DerivationId -> NOMState Derivation
-lookupDerivationId = getDerivationInfos <.>> derivationName
+lookupDerivationId drvId = getDerivationInfos drvId <|>> derivationName
 
 type NOMState a = forall m. MonadState NOMV1State m => m a
 
@@ -183,7 +183,7 @@ getDerivationId drv = do
 drv2out :: DerivationId -> NOMState (Maybe StorePath)
 drv2out drv =
   gets (derivationInfos .> CMap.lookup drv >=> outputs .> Map.lookup "out")
-    >>= mapM lookupStorePathId
+    >>= mapM (\pathId -> lookupStorePathId pathId)
 
 out2drv :: StorePathId -> NOMState (Maybe DerivationId)
 out2drv path = gets (storePathInfos .> CMap.lookup path >=> storePathProducer)

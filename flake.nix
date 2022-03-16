@@ -55,7 +55,7 @@
         };
         devShell = haskellPackages.shellFor {
           packages = _: [defaultPackage];
-          buildInputs = [inputs.pre-commit-hooks.defaultPackage.${system}];
+          buildInputs = [inputs.pre-commit-hooks.defaultPackage.${system} haskellPackages.haskell-language-server];
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;
         };

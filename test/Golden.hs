@@ -3,7 +3,7 @@ module Main where
 import Relude
 
 import qualified Data.String as String
-import System.Environment (lookupEnv)
+import qualified System.Environment
 import System.Process (readProcessWithExitCode)
 import System.Random (randomIO)
 import Test.HUnit (
@@ -45,7 +45,7 @@ label withNix name = name <> if withNix then " with nix" else " with log from fi
 
 main :: IO ()
 main = do
-  withNix <- isNothing <$> lookupEnv "TESTS_FROM_FILE"
+  withNix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
   counts <- runTestTT $
     test $ do
       test' <- tests
@@ -94,7 +94,8 @@ golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDe
   let outputDerivations :: [DerivationId]
       outputDerivations =
         flip evalState endState $
-          forMaybeM outputStorePaths $
-            getStorePathId >=> out2drv
+          forMaybeM outputStorePaths \path -> do
+            pathId <- getStorePathId path
+            out2drv pathId
   assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
   assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))

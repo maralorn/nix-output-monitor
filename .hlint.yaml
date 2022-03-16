@@ -1,0 +1,2 @@
+ - ignore: {name: Avoid lambda}
+ - ignore: {name: Avoid lambda using `infix`}

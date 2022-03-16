@@ -69,7 +69,9 @@ updateState result (inputAccessTime, inputState) = do
             [ -- First check if we this is the first time that we receive input (for error messages)
               setInputReceived
             , -- Update the state if any changes where parsed.
-              maybe (pure False) processResult result
+              case result of
+                Just result' -> processResult result'
+                Nothing -> pure False
             , -- Check if any local builds have finished, because nix-build would not tell us.
               -- If we haven‘t done so in the last 200ms.
               check
@@ -98,29 +100,31 @@ processResult result = do
       noChange = pure False
   now <- getNow
   case result of
-    Parser.Uploading path host ->
-      withChange $
-        getStorePathId path >>= uploaded host
-    Parser.Downloading path host ->
-      withChange $
-        getStorePathId path
-          >>= downloaded host
-          >>= maybeToList
-          .> finishBuilds host
+    Parser.Uploading path host -> withChange do
+      pathId <- getStorePathId path
+      uploaded host pathId
+    Parser.Downloading path host -> withChange do
+      pathId <- getStorePathId path
+      finishedRemoteBuild <- downloaded host pathId
+      whenJust finishedRemoteBuild \build -> finishBuilds host [build]
     PlanCopies _ -> noChange
     Build drv host -> withChange do
-      lookupDerivation drv >>= flip (building host) now
+      drvId <- lookupDerivation drv
+      building host drvId now
     PlanBuilds plannedBuilds _lastBuild -> withChange do
-      mapM lookupDerivation (toList plannedBuilds) >>= fromList .> planBuilds
-    PlanDownloads _download _unpacked plannedDownloads ->
-      withChange $
-        mapM getStorePathId (toList plannedDownloads) >>= fromList .> planDownloads
-    Checking drv ->
-      withChange $
-        lookupDerivation drv >>= flip (building Localhost) now
-    Parser.Failed drv code ->
-      withChange $
-        lookupDerivation drv >>= flip (failedBuild now) code
+      plannedDrvIds <- forM (toList plannedBuilds) \drv ->
+        lookupDerivation drv
+      planBuilds (fromList plannedDrvIds)
+    PlanDownloads _download _unpacked plannedDownloads -> withChange do
+      plannedDownloadIds <- forM (toList plannedDownloads) \path ->
+        getStorePathId path
+      planDownloads (fromList plannedDownloadIds)
+    Checking drv -> withChange do
+      drvId <- lookupDerivation drv
+      building Localhost drvId now
+    Parser.Failed drv code -> withChange do
+      drvId <- lookupDerivation drv
+      failedBuild now drvId code
 
 movingAverage :: Double
 movingAverage = 0.5
@@ -164,8 +168,8 @@ lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT m Derivatio
 lookupDerivation drv = do
   drvId <- getDerivationId drv
   isCached <- gets (derivationInfos .> CMap.lookup drvId .> maybe False cached)
-  unless isCached $
-    either reportError pure =<< runExceptT do
+  unless isCached do
+    potentialError <- runExceptT do
       parsedDerivation <- getDerivation drv >>= liftEither
       outputs <-
         Nix.outputs parsedDerivation |> Map.traverseMaybeWithKey \_ path -> do
@@ -194,6 +198,7 @@ lookupDerivation drv = do
       modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs, inputSources, inputDerivations, cached = True}) drvId)
       noParents <- getDerivationInfos drvId <|>> derivationParents .> CSet.null
       when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
+    whenLeft_ potentialError \error' -> reportError error'
   pure drvId
 
 parseStorePath :: FilePath -> Maybe StorePath
@@ -203,10 +208,12 @@ parseDerivation :: FilePath -> Maybe Derivation
 parseDerivation = hush . parseOnly (Parser.derivation <* endOfInput) . fromString
 
 planBuilds :: Set DerivationId -> NOMState ()
-planBuilds = mapM_ \drv -> updateDerivationState drv (const Planned)
+planBuilds drvIds = forM_ drvIds \drvId ->
+  updateDerivationState drvId (const Planned)
 
 planDownloads :: Set StorePathId -> NOMState ()
-planDownloads = mapM_ (`insertStorePathState` DownloadPlanned)
+planDownloads pathIds = forM_ pathIds \pathId ->
+  insertStorePathState pathId DownloadPlanned
 
 downloaded :: Host -> StorePathId -> NOMState (Maybe (DerivationId, RunningBuildInfo))
 downloaded host pathId = do
@@ -217,7 +224,7 @@ downloaded host pathId = do
     MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (drvId,)))
 
 uploaded :: Host -> StorePathId -> NOMState ()
-uploaded host = flip insertStorePathState (Uploaded host)
+uploaded host pathId = insertStorePathState pathId (Uploaded host)
 
 building :: Host -> DerivationId -> UTCTime -> NOMState ()
 building host drv now = do
@@ -244,6 +251,7 @@ updateDerivationState drvId updateStatus = do
 updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
 updateParents update_func = go mempty
  where
+  go :: DerivationSet -> DerivationSet -> NOMState ()
   go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
     Nothing -> modify (field @"touchedIds" %~ CSet.union updated_parents)
     Just (parentToUpdate, restToUpdate) -> do
