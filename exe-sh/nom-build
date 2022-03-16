@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+unbuffer nix-build "$@" 2>&1 | exec nom
