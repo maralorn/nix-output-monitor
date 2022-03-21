@@ -4,6 +4,7 @@ import Relude hiding (take, takeWhile)
 
 import Data.Attoparsec.Text (
   Parser,
+  anyChar,
   char,
   choice,
   decimal,
@@ -11,6 +12,7 @@ import Data.Attoparsec.Text (
   endOfLine,
   inClass,
   isEndOfLine,
+  manyTill',
   string,
   take,
   takeTill,
@@ -145,10 +147,21 @@ planDownloadLine = indent *> storePath <* endOfLine
 failed :: Parser ParseResult
 -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed =
-  Failed <$> (choice [string "error: ", pure ""] *> string "builder for " *> inTicks derivation <* string " failed with exit code ") <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine])
+  Failed
+    <$> ( choice
+            [ string "error: build of " <* inTicks derivation <* manyTill' anyChar (string "failed: error: ")
+            , string "error: "
+            , pure ""
+            ]
+            *> string "builder for "
+            *> inTicks derivation
+            <* string " failed with exit code "
+        )
+      <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine])
     <|>
     -- error: hash mismatch in fixed-output derivation '/nix/store/nrx4swgzs3iy049fqfx51vhnbb9kzkyv-source.drv':
-    Failed <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":") <*> pure HashMismatch <* endOfLine
+    Failed
+    <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":") <*> pure HashMismatch <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser ParseResult
