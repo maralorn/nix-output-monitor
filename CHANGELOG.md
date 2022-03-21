@@ -12,31 +12,31 @@
 * Only show build counts for host, when not zero
 
 ## 1.1.0.0 -- 2022-03-07
- * Replace list of running and failed builds with a continually updated dependency graph
- * A lot of small convenience improvements e.g. nicer timestamps
- * Make input parsing more robust via using streamly. This hopefully fixes #23.
- * Symbols: Change a few used symbols and force text representation
+* Replace list of running and failed builds with a continually updated dependency graph
+* A lot of small convenience improvements e.g. nicer timestamps
+* Make input parsing more robust via using streamly. This hopefully fixes #23.
+* Symbols: Change a few used symbols and force text representation
 
 ## 1.0.5.0 -- 2022-03-05
- * Make the parser for storepath accept more storepaths which actually occur in the wild.
+* Make the parser for storepath accept more storepaths which actually occur in the wild.
 
 ## 1.0.4.2 -- 2022-02-25
- * Other fixes for relude 1.0 compat
+* Other fixes for relude 1.0 compat
 
 ## 1.0.4.1 -- 2022-02-25
- * Rename an internal variable for relude 1.0 compat
+* Rename an internal variable for relude 1.0 compat
 
 ## 1.0.4.0 -- 2021-12-03
- * Make parsing a bit more flexible for better nix 2.4 compatibility.
+* Make parsing a bit more flexible for better nix 2.4 compatibility.
 
 ## 1.0.3.3 -- 2021-09-24
- * Reduce flickering for some terminal emulators. Thanks @pennae
+* Reduce flickering for some terminal emulators. Thanks @pennae
 
 ## 1.0.3.2 -- 2021-09-17
- * Improve warning when nom received no input, again.
+* Improve warning when nom received no input, again.
 
 ## 1.0.3.1 -- 2021-04-30
- * Improve warning when nom received no input
+* Improve warning when nom received no input
 
 ## 1.0.3.0 -- 2021-03-04
 
