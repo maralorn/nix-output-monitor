@@ -1,5 +1,8 @@
 # Revision history for nix-output-monitor
 
+## 1.1.3.0 -- 2022-03-21
+* Update parser to correctly detect failed builds on nix 2.7
+
 ## 1.1.2.1 -- 2022-03-16
 * Move nom-build and zsh completion files from nixpkgs into this repo
 * Internal refactoring for streamly >= 0.8 and ghc 9.0 compat
