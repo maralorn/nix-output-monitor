@@ -23,9 +23,8 @@
         };
       in rec
       {
-        defaultPackage = packages.nix-output-monitor;
         packages = {
-          nix-output-monitor =
+          default =
             haskell.lib.overrideCabal
             (haskellPackages.callCabal2nix "nix-output-monitor" ./. {})
             {
@@ -54,7 +53,7 @@
           };
         };
         devShell = haskellPackages.shellFor {
-          packages = _: [defaultPackage];
+          packages = _: [packages.default];
           buildInputs = [inputs.pre-commit-hooks.defaultPackage.${system} haskellPackages.haskell-language-server];
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;
