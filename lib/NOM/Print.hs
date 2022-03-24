@@ -15,7 +15,7 @@ import Optics (itoList, view, _2)
 import System.Console.Terminal.Size (Window)
 import qualified System.Console.Terminal.Size as Window
 
-import NOM.Parser (Derivation (toStorePath), FailType (ExitCode, HashMismatch), Host (Localhost), StorePath (name))
+import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildInfo (MkBuildInfo), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (Finished, JustStarted), buildEnd, buildEstimate, buildHost, buildStart, getDerivationInfos)

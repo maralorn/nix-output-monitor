@@ -17,7 +17,7 @@ import Test.HUnit (
  )
 
 import NOM.IO (processTextStream)
-import NOM.Parser (parser)
+import NOM.Parser (parseStorePath, parser)
 import NOM.State (
   DependencySummary (..),
   DerivationId,
@@ -31,7 +31,6 @@ import qualified NOM.State.CacheId.Set as CSet
 import NOM.Update (
   detectLocalFinishedBuilds,
   maintainState,
-  parseStorePath,
   updateState,
  )
 import NOM.Update.Monad (UpdateMonad)

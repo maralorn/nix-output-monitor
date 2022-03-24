@@ -8,7 +8,7 @@ import qualified Data.Set as Set
 import Data.Time (UTCTime)
 import Optics ((%~))
 
-import NOM.Parser (Derivation (..), FailType, Host (..), StorePath (..))
+import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
 import qualified NOM.State.CacheId.Map as CMap

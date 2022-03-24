@@ -19,7 +19,7 @@ import Data.Attoparsec.Text (eitherResult, parse)
 -- nix-derivation
 import qualified Nix.Derivation as Nix
 
-import NOM.Parser (Derivation, StorePath)
+import NOM.Builds (Derivation, StorePath)
 import NOM.Update.Monad.CacheBuildReports
 import NOM.Util ((.>), (<.>>))
 

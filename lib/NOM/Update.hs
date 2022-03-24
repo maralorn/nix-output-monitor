@@ -3,7 +3,6 @@ module NOM.Update where
 import Relude
 
 import Control.Monad.Except (liftEither)
-import Data.Attoparsec.Text (endOfInput, parseOnly)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -11,14 +10,14 @@ import qualified Data.Text as Text
 import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
 
 -- optics
-
 import Data.Generics.Product (field, typed)
 import Data.Generics.Sum (_As)
 import Optics (preview, (%), (%~), (.~), (?~))
 
 import qualified Nix.Derivation as Nix
 
-import NOM.Parser (Derivation (..), FailType, Host (..), ParseResult (..), StorePath (..))
+import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
+import NOM.Parser (ParseResult (..), parseDerivation, parseStorePath)
 import qualified NOM.Parser as Parser
 import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, reportError, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
 import qualified NOM.State as State
@@ -33,7 +32,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (foldMapEndo, hush, (.>), (<.>>), (<|>>), (|>))
+import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
 
 getReportName :: Derivation -> Text
 getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
@@ -200,12 +199,6 @@ lookupDerivation drv = do
       when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
     whenLeft_ potentialError \error' -> reportError error'
   pure drvId
-
-parseStorePath :: FilePath -> Maybe StorePath
-parseStorePath = hush . parseOnly (Parser.storePath <* endOfInput) . fromString
-
-parseDerivation :: FilePath -> Maybe Derivation
-parseDerivation = hush . parseOnly (Parser.derivation <* endOfInput) . fromString
 
 planBuilds :: Set DerivationId -> NOMState ()
 planBuilds drvIds = forM_ drvIds \drvId ->

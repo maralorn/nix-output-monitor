@@ -1,13 +1,14 @@
 import Relude
 import qualified Relude.Unsafe as Unsafe
 
-import Data.Attoparsec.Text (IResult (Done), Parser, parse)
+import Data.Attoparsec.ByteString (IResult (Done), Parser, parse)
 import Data.Set (singleton)
 import Test.HUnit
 
+import NOM.Builds
 import NOM.Parser
 
-assertParse :: Parser (Maybe a) -> Text -> IO (Text, a)
+assertParse :: Parser (Maybe a) -> ByteString -> IO (ByteString, a)
 assertParse parser' input = do
   let res = p $ parse parser' input
   assertBool "parsing succeeds" (isJust res)

@@ -78,6 +78,7 @@ library
   import:          common-config
   hs-source-dirs:  lib
   exposed-modules:
+    NOM.Builds
     NOM.IO
     NOM.Parser
     NOM.Print

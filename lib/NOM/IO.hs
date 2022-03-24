@@ -14,7 +14,7 @@ import Streamly (SerialT) -- Keep this import for streamly < 0.8 compat
 import qualified Streamly.Data.Fold as FL
 import qualified Streamly.Prelude as S
 
-import Data.Attoparsec.Text (IResult (..), Parser, Result, feed, parse)
+import Data.Attoparsec.ByteString (IResult (..), Parser, Result, feed, parse)
 
 import qualified Data.ByteString as ByteString
 import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
@@ -32,19 +32,17 @@ type UpdateFunc update state = forall m. UpdateMonad m => (update -> StateT stat
 type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 
+type ContParser update = Maybe (ByteString -> Result update)
+
 parseStream :: forall update. Parser update -> Stream ByteString -> Stream update
 parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, mempty)
  where
-  step :: (Maybe (Text -> Result update), Stream update) -> ByteString -> (Maybe (Text -> Result update), Stream update)
-  step (maybe parseFresh (feed . Partial) . fst -> parse') = fix process mempty . parse' . decodeUtf8
-  process ::
-    (Stream update -> Result update -> (Maybe (Text -> Result update), Stream update)) ->
-    Stream update ->
-    Result update ->
-    (Maybe (Text -> Result update), Stream update)
-  process parseRest acc = \case
+  step :: (ContParser update, Stream update) -> ByteString -> (ContParser update, Stream update)
+  step (maybe parseFresh (feed . Partial) . fst -> parse') = process mempty . parse'
+  process :: Stream update -> Result update -> (ContParser update, Stream update)
+  process acc = \case
     Done "" result -> (Nothing, acc <> pure result)
-    Done rest result -> parseRest (acc <> pure result) (parseFresh rest)
+    Done rest result -> process (acc <> pure result) (parseFresh rest)
     Fail{} -> (Nothing, acc)
     Partial cont -> (Just cont, acc)
 

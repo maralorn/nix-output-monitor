@@ -1,24 +1,38 @@
-module NOM.Parser where
+module NOM.Parser (parser, ParseResult (..), parseStorePath, parseDerivation) where
 
 import Relude hiding (take, takeWhile)
 
-import Data.Attoparsec.Text (
+import Data.Attoparsec.ByteString (
   Parser,
+  choice,
+  endOfInput,
+  inClass,
+  manyTill',
+  parseOnly,
+  string,
+  take,
+  takeWhile,
+ )
+import qualified Data.Attoparsec.ByteString as ParseW8
+import Data.Attoparsec.ByteString.Char8 (
   anyChar,
   char,
-  choice,
   decimal,
   double,
   endOfLine,
-  inClass,
   isEndOfLine,
-  manyTill',
-  string,
-  take,
   takeTill,
-  takeWhile,
  )
 import Data.Text (stripSuffix)
+
+import NOM.Builds (
+  Derivation (..),
+  FailType (ExitCode, HashMismatch),
+  Host (..),
+  StorePath (..),
+  storePrefix,
+ )
+import NOM.Util (hush)
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -31,61 +45,23 @@ data ParseResult
   | Failed !Derivation !FailType
   deriving (Show, Eq, Read)
 
-data FailType = ExitCode !Int | HashMismatch
-  deriving (Show, Eq, Ord, Read, Generic)
-  deriving anyclass (NFData)
-
 parser :: Parser (Maybe ParseResult)
 parser = Just <$> updateParser <|> Nothing <$ noMatch
 
 updateParser :: Parser ParseResult
 updateParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
-data StorePath = StorePath
-  { hash :: !Text
-  , name :: !Text
-  }
-  deriving stock (Show, Ord, Eq, Read, Generic)
-  deriving anyclass (NFData)
-
-newtype Derivation = Derivation {toStorePath :: StorePath}
-  deriving stock (Show, Read, Generic)
-  deriving newtype (Eq, Ord, NFData)
-
-instance ToText Derivation where
-  toText = (<> ".drv") . toText . toStorePath
-
-instance ToString Derivation where
-  toString = toString . toText
-
-storePrefix :: Text
-storePrefix = "/nix/store/"
-
-instance ToText StorePath where
-  toText (StorePath hash name) = storePrefix <> hash <> "-" <> name
-
-instance ToString StorePath where
-  toString = toString . toText
-
-data Host = Localhost | Host !Text
-  deriving stock (Ord, Eq, Show, Read, Generic)
-  deriving anyclass (NFData)
-
-instance ToText Host where
-  toText (Host name) = name
-  toText Localhost = "localhost"
-
-instance ToString Host where
-  toString = toString . toText
+storePrefixBS :: ByteString
+storePrefixBS = encodeUtf8 storePrefix
 
 noMatch :: Parser ()
-noMatch = () <$ takeTill isEndOfLine <* endOfLine
+noMatch = () <$ ParseW8.takeTill isEndOfLine <* endOfLine
 
 storePath :: Parser StorePath
 storePath =
   StorePath
-    <$> (string storePrefix *> take 32)
-    <*> (char '-' *> takeWhile (inClass "a-zA-Z0-9?=_.+-"))
+    <$> (decodeUtf8 <$> (string storePrefixBS *> take 32))
+    <*> (decodeUtf8 <$> (char '-' *> takeWhile (inClass "a-zA-Z0-9?=_.+-")))
 
 derivation :: Parser Derivation
 derivation =
@@ -99,11 +75,11 @@ inTicks x = tick *> x <* tick
 tick :: Parser ()
 tick = () <$ char '\''
 
-noTicks :: Parser Text
+noTicks :: Parser ByteString
 noTicks = takeTill (== '\'')
 
 host :: Parser Host
-host = Host <$> inTicks noTicks
+host = Host . decodeUtf8 <$> inTicks noTicks
 
 ellipsisEnd :: Parser ()
 ellipsisEnd = string "..." >> endOfLine
@@ -193,3 +169,9 @@ building :: Parser ParseResult
 building = do
   p <- string "building " *> inTicks derivation
   Build p Localhost <$ ellipsisEnd <|> Build p <$> onHost <* ellipsisEnd
+
+parseStorePath :: FilePath -> Maybe StorePath
+parseStorePath = hush . parseOnly (storePath <* endOfInput) . encodeUtf8
+
+parseDerivation :: FilePath -> Maybe Derivation
+parseDerivation = hush . parseOnly (derivation <* endOfInput) . encodeUtf8

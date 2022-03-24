@@ -28,7 +28,7 @@ import System.IO.LockFile (
   withLockFile,
  )
 
-import NOM.Parser (Host (..))
+import NOM.Builds (Host (..))
 import NOM.Util ((.>))
 
 -- Exposed functions
