@@ -6,25 +6,25 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, modifyTVar, swapTVar)
 import Control.Exception (IOException, try)
+import qualified Data.ByteString as ByteString
 import qualified Data.Text as Text
 import Data.Time (ZonedTime, getZonedTime)
+import qualified Data.Word8 as Word8
 import qualified System.IO
 
 import Streamly (SerialT) -- Keep this import for streamly < 0.8 compat
 import qualified Streamly.Data.Fold as FL
+import Streamly.Prelude ((.:))
 import qualified Streamly.Prelude as S
 
 import Data.Attoparsec.ByteString (IResult (..), Parser, Result, feed, parse)
 
-import qualified Data.ByteString as ByteString
 import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
 
-import qualified Data.Word8 as Word8
 import NOM.Print.Table as Table (displayWidth, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (|>))
-import Streamly.Prelude ((.:))
 
 type Stream = SerialT IO
 type Output = Text
