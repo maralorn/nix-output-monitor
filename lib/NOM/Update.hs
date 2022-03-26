@@ -2,7 +2,8 @@ module NOM.Update where
 
 import Relude
 
-import Control.Monad.Except (liftEither)
+import Control.Monad.Writer (MonadWriter (tell))
+import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -17,9 +18,10 @@ import Optics (preview, (%), (%~), (.~), (?~))
 import qualified Nix.Derivation as Nix
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
+import NOM.Error (NOMError)
 import NOM.Parser (ParseResult (..), parseDerivation, parseStorePath)
 import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, reportError, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
+import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
 import qualified NOM.State as State
 import qualified NOM.State.CacheId.Map as CMap
 import qualified NOM.State.CacheId.Set as CSet
@@ -55,31 +57,33 @@ maintainState = execState $ do
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
-updateState :: UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m (Maybe UTCTime, Maybe NOMV1State)
+updateState :: forall m. UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m ([NOMError], (Maybe UTCTime, Maybe NOMV1State))
 updateState result (inputAccessTime, inputState) = do
   now <- getNow
   let (outputAccessTime, check)
         | maybe True (diffUTCTime now .> (>= minTimeBetweenPollingNixStore)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
-  (hasChanged, outputState) <-
+  ((hasChanged, errors), outputState) <-
     runStateT
-      ( or
-          <$> sequence
-            [ -- First check if we this is the first time that we receive input (for error messages)
-              setInputReceived
-            , -- Update the state if any changes where parsed.
-              case result of
-                Just result' -> processResult result'
-                Nothing -> pure False
-            , -- Check if any local builds have finished, because nix-build would not tell us.
-              -- If we haven‘t done so in the last 200ms.
-              check
-            ]
+      ( runWriterT
+          ( or
+              <$> sequence
+                [ -- First check if this is the first time that we receive input (for error messages).
+                  setInputReceived
+                , -- Update the state if any changes where parsed.
+                  case result of
+                    Just result' -> processResult result'
+                    Nothing -> pure False
+                , -- Check if any local builds have finished, because nix-build would not tell us.
+                  -- If we haven‘t done so in the last 200ms.
+                  check
+                ]
+          )
       )
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
   let retval = (outputAccessTime, if hasChanged then Just outputState else Nothing)
-  deepseq retval (pure retval)
+  deepseq retval (pure (errors, retval))
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
@@ -93,7 +97,7 @@ detectLocalFinishedBuilds = do
   when anyBuildsFinished (finishBuilds Localhost newCompletedOutputs)
   pure anyBuildsFinished
 
-processResult :: UpdateMonad m => ParseResult -> NOMStateT m Bool
+processResult :: UpdateMonad m => ParseResult -> NOMStateT (WriterT [NOMError] m) Bool
 processResult result = do
   let withChange = (True <$)
       noChange = pure False
@@ -163,42 +167,45 @@ failedBuild now drv code = updateDerivationState drv update
     Building a -> State.Failed (a $> (now, code))
     x -> x
 
-lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT m DerivationId
+lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT (WriterT [NOMError] m) DerivationId
 lookupDerivation drv = do
   drvId <- getDerivationId drv
   isCached <- gets (derivationInfos .> CMap.lookup drvId .> maybe False cached)
-  unless isCached do
-    potentialError <- runExceptT do
-      parsedDerivation <- getDerivation drv >>= liftEither
-      outputs <-
-        Nix.outputs parsedDerivation |> Map.traverseMaybeWithKey \_ path -> do
-          parseStorePath (Nix.path path) |> mapM \pathName -> do
-            pathId <- getStorePathId pathName
-            modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathProducer" ?~ drvId) pathId)
-            pure pathId
-      inputSources <-
-        Nix.inputSrcs parsedDerivation |> flip foldlM mempty \acc path -> do
-          pathIdMay <-
-            parseStorePath path |> mapM \pathName -> do
-              pathId <- getStorePathId pathName
-              modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathInputFor" %~ CSet.insert drvId) pathId)
-              pure pathId
-          pure $ maybe id CSet.insert pathIdMay acc
-      inputDerivationsList <-
-        Nix.inputDrvs parsedDerivation |> Map.toList .> mapMaybeM \(drvPath, outs) -> do
-          depIdMay <-
-            parseDerivation drvPath |> mapM \depName -> do
-              depId <- lookupDerivation depName
-              modify (field @"derivationInfos" %~ CMap.adjust (field @"derivationParents" %~ CSet.insert drvId) depId)
-              modify (field @"forestRoots" %~ Seq.filter (/= depId))
-              pure depId
-          pure $ depIdMay <|>> (,outs)
-      let inputDerivations = Seq.fromList inputDerivationsList
-      modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs, inputSources, inputDerivations, cached = True}) drvId)
-      noParents <- getDerivationInfos drvId <|>> derivationParents .> CSet.null
-      when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
-    whenLeft_ potentialError \error' -> reportError error'
+  unless isCached $
+    getDerivation drv >>= \case
+      Left err -> tell [err]
+      Right parsedDrv -> insertDerivation parsedDrv drvId
   pure drvId
+
+insertDerivation :: MonadReadDerivation m => Nix.Derivation FilePath Text -> DerivationId -> NOMStateT (WriterT [NOMError] m) ()
+insertDerivation Nix.Derivation{outputs, inputSrcs, inputDrvs} drvId = do
+  outputs' <-
+    outputs |> Map.traverseMaybeWithKey \_ path -> do
+      parseStorePath (Nix.path path) |> mapM \pathName -> do
+        pathId <- getStorePathId pathName
+        modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathProducer" ?~ drvId) pathId)
+        pure pathId
+  inputSources <-
+    inputSrcs |> flip foldlM mempty \acc path -> do
+      pathIdMay <-
+        parseStorePath path |> mapM \pathName -> do
+          pathId <- getStorePathId pathName
+          modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathInputFor" %~ CSet.insert drvId) pathId)
+          pure pathId
+      pure $ maybe id CSet.insert pathIdMay acc
+  inputDerivationsList <-
+    inputDrvs |> Map.toList .> mapMaybeM \(drvPath, outs) -> do
+      depIdMay <-
+        parseDerivation drvPath |> mapM \depName -> do
+          depId <- lookupDerivation depName
+          modify (field @"derivationInfos" %~ CMap.adjust (field @"derivationParents" %~ CSet.insert drvId) depId)
+          modify (field @"forestRoots" %~ Seq.filter (/= depId))
+          pure depId
+      pure $ depIdMay <|>> (,outs)
+  let inputDerivations = Seq.fromList inputDerivationsList
+  modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs = outputs', inputSources, inputDerivations, cached = True}) drvId)
+  noParents <- getDerivationInfos drvId <|>> derivationParents .> CSet.null
+  when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
 
 planBuilds :: Set DerivationId -> NOMState ()
 planBuilds drvIds = forM_ drvIds \drvId ->

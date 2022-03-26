@@ -8,7 +8,8 @@ module NOM.Update.Monad (
 
 import Relude
 
-import Control.Exception (IOException, try)
+import Control.Exception (try)
+import Control.Monad.Writer.Strict (WriterT)
 import qualified Data.Text.IO as TextIO
 import Data.Time (UTCTime, getCurrentTime)
 import System.Directory (doesPathExist)
@@ -20,6 +21,7 @@ import Data.Attoparsec.Text (eitherResult, parse)
 import qualified Nix.Derivation as Nix
 
 import NOM.Builds (Derivation, StorePath)
+import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
 import NOM.Util ((.>), (<.>>))
 
@@ -33,24 +35,28 @@ instance MonadNow IO where
 
 instance MonadNow m => MonadNow (StateT a m) where
   getNow = lift getNow
+instance (Monoid a, MonadNow m) => MonadNow (WriterT a m) where
+  getNow = lift getNow
 
 class Monad m => MonadReadDerivation m where
-  getDerivation :: Derivation -> m (Either Text (Nix.Derivation FilePath Text))
+  getDerivation :: Derivation -> m (Either NOMError (Nix.Derivation FilePath Text))
 
 instance MonadReadDerivation IO where
   getDerivation =
     toString
       .> TextIO.readFile
-      .> try @IOException
-      <.>> ( first show
+      .> try
+      <.>> ( first DerivationReadError
               >=> parse Nix.parseDerivation
               .> eitherResult
-              .> first toText
+              .> first (DerivationParseError . toText)
            )
 
 instance MonadReadDerivation m => MonadReadDerivation (StateT a m) where
   getDerivation = getDerivation .> lift
 instance MonadReadDerivation m => MonadReadDerivation (ExceptT a m) where
+  getDerivation = getDerivation .> lift
+instance (Monoid a, MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
   getDerivation = getDerivation .> lift
 
 class Monad m => MonadCheckStorePath m where
@@ -58,6 +64,7 @@ class Monad m => MonadCheckStorePath m where
 
 instance MonadCheckStorePath IO where
   storePathExists = doesPathExist . toString
-
 instance MonadCheckStorePath m => MonadCheckStorePath (StateT a m) where
+  storePathExists = storePathExists .> lift
+instance (Monoid a, MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
   storePathExists = storePathExists .> lift

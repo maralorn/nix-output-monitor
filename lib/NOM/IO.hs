@@ -13,29 +13,30 @@ import qualified Data.Word8 as Word8
 import qualified System.IO
 
 import Streamly (SerialT) -- Keep this import for streamly < 0.8 compat
-import qualified Streamly.Data.Fold as FL
+import qualified Streamly.Data.Fold as Fold
 import Streamly.Prelude ((.:))
-import qualified Streamly.Prelude as S
+import qualified Streamly.Prelude as Stream
 
 import Data.Attoparsec.ByteString (IResult (..), Parser, Result, feed, parse)
 
 import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
 
-import NOM.Print.Table as Table (displayWidth, truncate)
+import NOM.Error (NOMError (InputError))
+import NOM.Print.Table as Table (bold, displayWidth, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (|>))
 
 type Stream = SerialT IO
 type Output = Text
-type UpdateFunc update state = forall m. UpdateMonad m => (update -> StateT state m ())
+type UpdateFunc update state = forall m. UpdateMonad m => (update -> StateT state m [NOMError])
 type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 
 type ContParser update = Maybe (ByteString -> Result update)
 
 parseStream :: forall update. Parser update -> Stream ByteString -> Stream update
-parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, mempty)
+parseStream (parse -> parseFresh) = Stream.concatMap snd . Stream.scanl' step (Nothing, mempty)
  where
   step :: (ContParser update, Stream update) -> ByteString -> (ContParser update, Stream update)
   step (maybe parseFresh (feed . Partial) . fst -> parse') = process mempty . parse'
@@ -46,20 +47,21 @@ parseStream (parse -> parseFresh) = S.concatMap snd . S.scanl' step (Nothing, me
     Fail{} -> (Nothing, acc)
     Partial cont -> (Just cont, acc)
 
-readTextChunks :: Handle -> Stream ByteString
+readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle = loop
  where
   -- We read up-to 4kb of input at once. We will rarely need more than that for one succesful parse.
+  -- I don‘t know much about computers, but 4k seems like something which would be cached efficiently.
   bufferSize :: Int
   bufferSize = 4096
   tryRead :: Stream (Either IOException ByteString)
-  tryRead = liftIO $ try @IOException $ ByteString.hGetSome handle bufferSize
-  loop :: Stream ByteString
+  tryRead = liftIO $ try $ ByteString.hGetSome handle bufferSize
+  loop :: Stream (Either NOMError ByteString)
   loop =
     tryRead >>= \case
-      Left _ -> loop -- Ignore Exception
+      Left err -> Left (InputError err) .: loop -- Ignore Exception
       Right "" -> mempty -- EOF
-      Right input -> input .: loop
+      Right input -> Right input .: loop
 
 filterANSICodes :: ByteString -> ByteString
 filterANSICodes = go ""
@@ -73,13 +75,16 @@ filterANSICodes = go ""
 
 runUpdates ::
   forall update state.
+  TVar ByteString ->
   TVar state ->
   UpdateFunc update state ->
-  FL.Fold IO update ()
-runUpdates stateVar updater = FL.drainBy \input -> do
+  Fold.Fold IO update ()
+runUpdates bufferVar stateVar updater = Fold.drainBy \input -> do
   oldState <- readTVarIO stateVar
-  newState <- execStateT (updater input) oldState
-  atomically $ writeTVar stateVar newState
+  (errors, newState) <- runStateT (updater input) oldState
+  atomically $ do
+    forM_ errors (\error' -> modifyTVar bufferVar (<> printError error'))
+    writeTVar stateVar newState
 
 writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> IO ()
 writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
@@ -128,7 +133,7 @@ processTextStream ::
   Maybe (OutputFunc state) ->
   Finalizer state ->
   state ->
-  Stream ByteString ->
+  Stream (Either NOMError ByteString) ->
   IO state
 processTextStream parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
@@ -136,10 +141,11 @@ processTextStream parser updater maintenance printerMay finalize initialState in
   let keepProcessing :: IO ()
       keepProcessing =
         inputStream
-          |> S.tap (saveInputIntoBuffer bufferVar)
+          |> Stream.tap (saveInputIntoBuffer bufferVar)
+          .> Stream.mapMaybe rightToMaybe
           .> fmap filterANSICodes
           .> parseStream parser
-          .> S.fold (runUpdates stateVar updater)
+          .> Stream.fold (runUpdates bufferVar stateVar updater)
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay |> maybe keepProcessing \printer -> do
@@ -155,18 +161,33 @@ processTextStream parser updater maintenance printerMay finalize initialState in
     writeToScreen
   readTVarIO stateVar |> (if isNothing printerMay then (>>= execStateT finalize) else id)
 
-saveInputIntoBuffer :: TVar ByteString -> FL.Fold IO ByteString ()
-saveInputIntoBuffer bufferVar = FL.drainBy (\input -> atomically $ modifyTVar bufferVar (<> input))
+saveInputIntoBuffer :: TVar ByteString -> Fold.Fold IO (Either NOMError ByteString) ()
+saveInputIntoBuffer bufferVar = Fold.drainBy saveInput
+ where
+  saveInput :: Either NOMError ByteString -> IO ()
+  saveInput input = atomically $ modifyTVar bufferVar (<> either printError id input)
+
+printError :: NOMError -> ByteString
+printError err = "\n" <> nomError <> show err <> "\n"
+
+nomError :: ByteString
+nomError = encodeUtf8 (markup (red . bold) "NOMError: ")
 
 truncateOutput :: Maybe (Window Int) -> Text -> Text
 truncateOutput win output = maybe output go win
  where
+  go :: Window Int -> Text
   go (Window rows columns) = Text.intercalate "\n" $ truncateColumns columns <$> truncatedRows rows
+
+  truncateColumns :: Int -> Text -> Text
   truncateColumns columns line = if displayWidth line > columns then Table.truncate (columns - 1) line <> "…" <> toText (setSGRCode [Reset]) else line
-  truncatedRows rows =
-    if length outputLines >= rows - outputLinesToAlwaysShow
-      then take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + outputLinesToAlwaysShow + 2 - rows) outputLines
-      else outputLines
+
+  truncatedRows :: Int -> [Text]
+  truncatedRows rows
+    | length outputLines >= rows - outputLinesToAlwaysShow = take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + outputLinesToAlwaysShow + 2 - rows) outputLines
+    | otherwise = outputLines
+
+  outputLines :: [Text]
   outputLines = Text.lines output
 
 outputLinesToAlwaysShow :: Int

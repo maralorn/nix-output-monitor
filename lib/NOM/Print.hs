@@ -54,7 +54,7 @@ stateToText :: NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
 stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSize
  where
   printWithSize :: Maybe Int -> ZonedTime -> Text
-  printWithSize maybeWindow = printWithTime .> (<> errorList)
+  printWithSize maybeWindow = printWithTime
    where
     printWithTime :: ZonedTime -> Text
     printWithTime
@@ -76,7 +76,6 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
   time
     | processState == Finished = \now -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> runTime now)
     | otherwise = \now -> clock <> " " <> runTime now
-  errorList = if null errors then "" else "\n" <> unlines errors
   MkDependencySummary{..} = fullSummary
   runningBuilds' = runningBuilds <|>> buildHost
   completedBuilds' = completedBuilds <|>> buildHost

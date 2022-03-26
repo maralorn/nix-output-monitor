@@ -85,7 +85,6 @@ data NOMV1State = MkNOMV1State
   , forestRoots :: Seq DerivationId
   , buildReports :: BuildReportMap
   , startTime :: UTCTime
-  , errors :: [Text]
   , processState :: ProcessState
   , storePathIds :: Map StorePath StorePathId
   , derivationIds :: Map Derivation DerivationId
@@ -128,7 +127,6 @@ initalState = do
       mempty
       buildReports
       now
-      mempty
       JustStarted
       mempty
       mempty
@@ -203,9 +201,6 @@ getStorePathInfos storePathId =
     <|>> storePathInfos
     .> CMap.lookup storePathId
     .> fromMaybe (error "BUG: storePathId is no key in storePathInfos")
-
-reportError :: Text -> NOMState ()
-reportError msg = modify' (field @"errors" %~ (msg :))
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew

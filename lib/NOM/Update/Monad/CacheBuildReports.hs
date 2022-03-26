@@ -7,6 +7,7 @@ module NOM.Update.Monad.CacheBuildReports (
 import Relude
 
 import Control.Exception (IOException, catch)
+import Control.Monad.Writer.Strict (WriterT)
 import qualified Data.Map.Strict as Map
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory, removeFile)
 
@@ -47,7 +48,11 @@ instance MonadCacheBuildReports IO where
     dir <- buildReportsDir
     loadBuildReports dir
   updateBuildReports updateFunc = catch (tryUpdateBuildReports updateFunc) memptyOnLockFail
+
 instance MonadCacheBuildReports m => MonadCacheBuildReports (StateT a m) where
+  getCachedBuildReports = lift getCachedBuildReports
+  updateBuildReports = updateBuildReports .> lift
+instance (Monoid a, MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = updateBuildReports .> lift
 

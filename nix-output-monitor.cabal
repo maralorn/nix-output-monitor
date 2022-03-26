@@ -30,6 +30,7 @@ common common-config
     GeneralizedNewtypeDeriving
     KindSignatures
     LambdaCase
+    MonoLocalBinds
     NamedFieldPuns
     OverloadedStrings
     PartialTypeSignatures
@@ -79,6 +80,7 @@ library
   hs-source-dirs:  lib
   exposed-modules:
     NOM.Builds
+    NOM.Error
     NOM.IO
     NOM.Parser
     NOM.Print

@@ -67,7 +67,7 @@ testBuild name asserts withNix =
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalState
-    endState <- processTextStream parser (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ encodeUtf8 errors)
+    endState <- processTextStream parser (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()
@@ -76,11 +76,12 @@ finalizer = do
   newState <- execStateT detectLocalFinishedBuilds oldState
   put (a, newState)
 
-preserveStateSnd :: Monad m => ((istate, state) -> m (istate, Maybe state)) -> StateT (istate, state) m ()
+preserveStateSnd :: Monad m => ((istate, state) -> m (errors, (istate, Maybe state))) -> StateT (istate, state) m errors
 preserveStateSnd update = do
   (i, s) <- get
-  (newI, newS) <- lift $ update (i, s)
+  (errors, (newI, newS)) <- lift $ update (i, s)
   put (newI, fromMaybe s newS)
+  pure errors
 
 golden1 :: Bool -> Test
 golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do

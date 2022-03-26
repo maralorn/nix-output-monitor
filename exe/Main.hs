@@ -12,6 +12,7 @@ import Paths_nix_output_monitor (version)
 import System.Console.Terminal.Size (Window)
 import System.Environment (getArgs)
 
+import NOM.Error (NOMError)
 import NOM.IO (interact)
 import NOM.Parser (ParseResult, parser)
 import NOM.Print (stateToText)
@@ -48,11 +49,12 @@ compoundStateToText = view _3
 compoundStateUpdater ::
   UpdateMonad m =>
   Maybe ParseResult ->
-  StateT CompoundState m ()
+  StateT CompoundState m [NOMError]
 compoundStateUpdater input = do
   oldState <- get
-  newState <- addPrintCache updateState stateToText input oldState
+  (errors, newState) <- addPrintCache updateState stateToText input oldState
   put newState
+  pure errors
 
 finalizer ::
   UpdateMonad m => StateT CompoundState m ()
