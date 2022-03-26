@@ -34,7 +34,6 @@
               '';
             };
         };
-        defaultPackage = self.packages.${system}.default;
         checks = {
           pre-commit-check = inputs.pre-commit-hooks.lib.${system}.run {
             src = ./.;
