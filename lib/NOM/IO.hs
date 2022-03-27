@@ -12,12 +12,11 @@ import Data.Time (ZonedTime, getZonedTime)
 import qualified Data.Word8 as Word8
 import qualified System.IO
 
-import Streamly (SerialT) -- Keep this import for streamly < 0.8 compat
 import qualified Streamly.Data.Fold as Fold
 import Streamly.Prelude ((.:))
 import qualified Streamly.Prelude as Stream
 
-import Data.Attoparsec.ByteString (IResult (..), Parser, Result, feed, parse)
+import Data.Attoparsec.ByteString (IResult (..), Parser, Result, parse)
 
 import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
@@ -27,30 +26,28 @@ import NOM.Print.Table as Table (bold, displayWidth, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (|>))
 
-type Stream = SerialT IO
+type Stream = Stream.SerialT IO
 type Output = Text
-type UpdateFunc update state = forall m. UpdateMonad m => (update -> StateT state m [NOMError])
+type UpdateFunc update state = forall m. UpdateMonad m => (update, ByteString) -> StateT state m ([NOMError], ByteString)
 type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 
-type ContParser update = Maybe (ByteString -> Result update)
+type ContParser update = (ByteString -> Result update, ByteString)
 
-parseStream :: forall update. Parser update -> Stream ByteString -> Stream update
-parseStream (parse -> parseFresh) = Stream.concatMap snd . Stream.scanl' step (Nothing, mempty)
- where
-  step :: (ContParser update, Stream update) -> ByteString -> (ContParser update, Stream update)
-  step (maybe parseFresh (feed . Partial) . fst -> parse') = process mempty . parse'
-  process :: Stream update -> Result update -> (ContParser update, Stream update)
-  process acc = \case
-    Done "" result -> (Nothing, acc <> pure result)
-    Done rest result -> process (acc <> pure result) (parseFresh rest)
-    Fail{} -> (Nothing, acc)
-    Partial cont -> (Just cont, acc)
+parseChunk :: forall update. ContParser update -> (ByteString, ByteString) -> Stream.SerialT (StateT (ContParser update) IO) (update, ByteString)
+parseChunk initState (strippedInput, rawInput) = join $ state \(currentParser, consumed) ->
+  case currentParser strippedInput of
+    Done "" result -> (pure (result, consumed <> rawInput), initState)
+    Done rest result ->
+      let (consumedNow, rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
+       in ((result, consumed <> consumedNow) .: parseChunk initState (rest, rawLeft), initState)
+    Fail{} -> (Stream.nil, second (const (consumed <> rawInput)) initState)
+    Partial cont -> (Stream.nil, (cont, consumed <> rawInput))
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle = loop
  where
-  -- We read up-to 4kb of input at once. We will rarely need more than that for one succesful parse.
+  -- We read up-to 4kb of input at once. We will rarely need more than that for one succesful parse (i.e. a line).
   -- I don‘t know much about computers, but 4k seems like something which would be cached efficiently.
   bufferSize :: Int
   bufferSize = 4096
@@ -63,28 +60,33 @@ readTextChunks handle = loop
       Right "" -> mempty -- EOF
       Right input -> Right input .: loop
 
-filterANSICodes :: ByteString -> ByteString
-filterANSICodes = go ""
- where
-  csi = "\27["
-  go acc "" = acc
-  go acc remaining = go (acc <> filtered) (stripCode unfiltered)
-   where
-    (filtered, unfiltered) = ByteString.breakSubstring csi remaining
-    stripCode bs = ByteString.drop 1 (ByteString.dropWhile (not . Word8.isLetter) bs)
+csi :: ByteString
+csi = "\27["
+breakOnANSIStartCode :: ByteString -> (ByteString, ByteString)
+breakOnANSIStartCode = ByteString.breakSubstring csi
+streamANSIChunks :: ByteString -> Stream (ByteString, ByteString)
+streamANSIChunks input =
+  let (filtered, unfiltered) = breakOnANSIStartCode input
+      (codeParts, rest) = ByteString.break Word8.isLetter unfiltered
+      (code, restOfStream) = case ByteString.uncons rest of
+        Just (headOfRest, tailOfRest) -> (ByteString.snoc codeParts headOfRest, streamANSIChunks tailOfRest)
+        Nothing -> (codeParts, Stream.nil)
+   in (filtered, filtered <> code) .: restOfStream
 
-runUpdates ::
+runUpdate ::
   forall update state.
   TVar ByteString ->
   TVar state ->
   UpdateFunc update state ->
-  Fold.Fold IO update ()
-runUpdates bufferVar stateVar updater = Fold.drainBy \input -> do
+  (update, ByteString) ->
+  IO ByteString
+runUpdate bufferVar stateVar updater input = do
   oldState <- readTVarIO stateVar
-  (errors, newState) <- runStateT (updater input) oldState
+  ((errors, output), newState) <- runStateT (updater input) oldState
   atomically $ do
     forM_ errors (\error' -> modifyTVar bufferVar (<> printError error'))
     writeTVar stateVar newState
+  pure output
 
 writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> IO ()
 writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
@@ -138,14 +140,18 @@ processTextStream ::
 processTextStream parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
+  let parserInitState = (parse parser, mempty)
   let keepProcessing :: IO ()
       keepProcessing =
         inputStream
-          |> Stream.tap (saveInputIntoBuffer bufferVar)
+          |> Stream.tap (writeErrorsToBuffer bufferVar)
           .> Stream.mapMaybe rightToMaybe
-          .> fmap filterANSICodes
-          .> parseStream parser
-          .> Stream.fold (runUpdates bufferVar stateVar updater)
+          .> Stream.concatMap streamANSIChunks
+          .> Stream.liftInner
+          .> Stream.concatMap (parseChunk parserInitState)
+          .> Stream.runStateT (pure parserInitState)
+          .> Stream.mapM (snd .> runUpdate bufferVar stateVar updater >=> flip (<>) .> modifyTVar bufferVar .> atomically)
+          .> Stream.drain
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay |> maybe keepProcessing \printer -> do
@@ -161,11 +167,13 @@ processTextStream parser updater maintenance printerMay finalize initialState in
     writeToScreen
   readTVarIO stateVar |> (if isNothing printerMay then (>>= execStateT finalize) else id)
 
-saveInputIntoBuffer :: TVar ByteString -> Fold.Fold IO (Either NOMError ByteString) ()
-saveInputIntoBuffer bufferVar = Fold.drainBy saveInput
+writeErrorsToBuffer :: TVar ByteString -> Fold.Fold IO (Either NOMError ByteString) ()
+writeErrorsToBuffer bufferVar = Fold.drainBy saveInput
  where
   saveInput :: Either NOMError ByteString -> IO ()
-  saveInput input = atomically $ modifyTVar bufferVar (<> either printError id input)
+  saveInput = \case
+    Left error' -> atomically $ modifyTVar bufferVar (<> printError error')
+    _ -> pass
 
 printError :: NOMError -> ByteString
 printError err = "\n" <> nomError <> show err <> "\n"

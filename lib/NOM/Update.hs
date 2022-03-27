@@ -57,8 +57,8 @@ maintainState = execState $ do
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
-updateState :: forall m. UpdateMonad m => Maybe ParseResult -> (Maybe UTCTime, NOMV1State) -> m ([NOMError], (Maybe UTCTime, Maybe NOMV1State))
-updateState result (inputAccessTime, inputState) = do
+updateState :: forall m. UpdateMonad m => (Maybe ParseResult, ByteString) -> (Maybe UTCTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe UTCTime, Maybe NOMV1State))
+updateState (result, input) (inputAccessTime, inputState) = do
   now <- getNow
   let (outputAccessTime, check)
         | maybe True (diffUTCTime now .> (>= minTimeBetweenPollingNixStore)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
@@ -83,7 +83,7 @@ updateState result (inputAccessTime, inputState) = do
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
   let retval = (outputAccessTime, if hasChanged then Just outputState else Nothing)
-  deepseq retval (pure (errors, retval))
+  deepseq retval (pure ((errors, input), retval))
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do

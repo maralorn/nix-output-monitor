@@ -48,8 +48,8 @@ compoundStateToText = view _3
 
 compoundStateUpdater ::
   UpdateMonad m =>
-  Maybe ParseResult ->
-  StateT CompoundState m [NOMError]
+  (Maybe ParseResult, ByteString) ->
+  StateT CompoundState m ([NOMError], ByteString)
 compoundStateUpdater input = do
   oldState <- get
   (errors, newState) <- addPrintCache updateState stateToText input oldState
