@@ -16,7 +16,7 @@
   }:
     flake-utils.lib.eachSystem ["x86_64-linux"] (
       system: let
-        inherit (inputs.nixpkgs.legacyPackages.${system}) lib haskellPackages haskell;
+        inherit (inputs.nixpkgs.legacyPackages.${system}) lib haskellPackages haskell pkgs;
         golden-test = import ./test/golden1.nix {
           seed = "1";
           inherit system;
@@ -31,6 +31,7 @@
               preCheck = ''
                 # ${lib.concatStringsSep ", " ((lib.attrValues golden-test) ++ map (x: x.drvPath) (lib.attrValues golden-test))}
                 export TESTS_FROM_FILE=true;
+                exit 1
               '';
             };
         };
@@ -54,7 +55,7 @@
         };
         devShell = haskellPackages.shellFor {
           packages = _: [packages.default];
-          buildInputs = [inputs.pre-commit-hooks.defaultPackage.${system} haskellPackages.haskell-language-server];
+          buildInputs = [inputs.pre-commit-hooks.defaultPackage.${system} haskellPackages.haskell-language-server pkgs.expect];
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;
         };
