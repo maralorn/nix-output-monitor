@@ -84,7 +84,7 @@ runUpdate bufferVar stateVar updater input = do
   oldState <- readTVarIO stateVar
   ((errors, output), newState) <- runStateT (updater input) oldState
   atomically $ do
-    forM_ errors (\error' -> modifyTVar bufferVar (<> printError error'))
+    forM_ errors (\error' -> modifyTVar bufferVar (appendError error'))
     writeTVar stateVar newState
   pure output
 
@@ -172,14 +172,14 @@ writeErrorsToBuffer bufferVar = Fold.drainBy saveInput
  where
   saveInput :: Either NOMError ByteString -> IO ()
   saveInput = \case
-    Left error' -> atomically $ modifyTVar bufferVar (<> printError error')
+    Left error' -> atomically $ modifyTVar bufferVar (appendError error')
     _ -> pass
 
-printError :: NOMError -> ByteString
-printError err = "\n" <> nomError <> show err <> "\n"
+appendError :: NOMError -> ByteString -> ByteString
+appendError err prev = (if ByteString.null prev || ByteString.isSuffixOf "\n" prev then "" else "\n") <> nomError <> show err <> "\n"
 
 nomError :: ByteString
-nomError = encodeUtf8 (markup (red . bold) "NOMError: ")
+nomError = encodeUtf8 (markup (red . bold) "nix-output-monitor internal error: ")
 
 truncateOutput :: Maybe (Window Int) -> Text -> Text
 truncateOutput win output = maybe output go win

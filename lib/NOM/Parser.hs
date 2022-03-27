@@ -32,7 +32,10 @@ import NOM.Builds (
   StorePath (..),
   storePrefix,
  )
+import NOM.Error (NOMError (ParseInternalJSONError))
 import NOM.Util (hush)
+
+data InternalJSON = InternalJSON deriving (Show, Eq, Read)
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -43,19 +46,23 @@ data ParseResult
   | PlanDownloads !Double !Double (Set StorePath)
   | Checking !Derivation
   | Failed !Derivation !FailType
-  deriving (Show, Eq, Read)
+  | JSONMessage !(Either NOMError InternalJSON)
+  deriving (Show, Eq)
 
 parser :: Parser (Maybe ParseResult)
 parser = Just <$> updateParser <|> Nothing <$ noMatch
 
 updateParser :: Parser ParseResult
-updateParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
+updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
+
+jsonMessage :: Parser ParseResult
+jsonMessage = JSONMessage (Left ParseInternalJSONError) <$ string "@nix " <* noMatch
 
 storePrefixBS :: ByteString
 storePrefixBS = encodeUtf8 storePrefix
 
 noMatch :: Parser ()
-noMatch = () <$ ParseW8.takeTill isEndOfLine <* endOfLine
+noMatch = void $ ParseW8.takeTill isEndOfLine <* endOfLine
 
 storePath :: Parser StorePath
 storePath =

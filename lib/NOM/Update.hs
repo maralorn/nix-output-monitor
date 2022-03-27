@@ -60,7 +60,12 @@ minTimeBetweenPollingNixStore = 0.2 -- in seconds
 updateState :: forall m. UpdateMonad m => (Maybe ParseResult, ByteString) -> (Maybe UTCTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe UTCTime, Maybe NOMV1State))
 updateState (result, input) (inputAccessTime, inputState) = do
   now <- getNow
-  let (outputAccessTime, check)
+
+  let (processing, printOutput) = case result of
+        Just result'@(JSONMessage _) -> (processResult result', False)
+        Just result' -> (processResult result', True)
+        Nothing -> (pure False, True)
+      (outputAccessTime, check)
         | maybe True (diffUTCTime now .> (>= minTimeBetweenPollingNixStore)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
   ((hasChanged, errors), outputState) <-
@@ -71,9 +76,7 @@ updateState (result, input) (inputAccessTime, inputState) = do
                 [ -- First check if this is the first time that we receive input (for error messages).
                   setInputReceived
                 , -- Update the state if any changes where parsed.
-                  case result of
-                    Just result' -> processResult result'
-                    Nothing -> pure False
+                  processing
                 , -- Check if any local builds have finished, because nix-build would not tell us.
                   -- If we haven‘t done so in the last 200ms.
                   check
@@ -83,7 +86,7 @@ updateState (result, input) (inputAccessTime, inputState) = do
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
   let retval = (outputAccessTime, if hasChanged then Just outputState else Nothing)
-  deepseq retval (pure ((errors, input), retval))
+  deepseq retval (pure ((errors, if printOutput then input else ""), retval))
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
@@ -128,6 +131,9 @@ processResult result = do
     Parser.Failed drv code -> withChange do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
+    JSONMessage msg -> case msg of
+      Left err -> withChange $ tell [err]
+      Right _ -> withChange pass
 
 movingAverage :: Double
 movingAverage = 0.5
