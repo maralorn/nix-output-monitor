@@ -31,7 +31,6 @@
               preCheck = ''
                 # ${lib.concatStringsSep ", " ((lib.attrValues golden-test) ++ map (x: x.drvPath) (lib.attrValues golden-test))}
                 export TESTS_FROM_FILE=true;
-                exit 1
               '';
             };
         };
