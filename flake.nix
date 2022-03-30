@@ -1,7 +1,7 @@
 {
   description = "nix-output-monitor";
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/haskell-updates";
+    nixpkgs.url = "github:nixos/nixpkgs/master";
     pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
     flake-utils.url = "github:numtide/flake-utils";
     flake-compat = {
@@ -16,7 +16,9 @@
   }:
     flake-utils.lib.eachSystem ["x86_64-linux"] (
       system: let
-        inherit (inputs.nixpkgs.legacyPackages.${system}) lib haskellPackages haskell pkgs;
+        inherit (inputs.nixpkgs.legacyPackages.${system}) lib haskell pkgs;
+        haskellPackages = haskell.packages.ghc922;
+        inherit (haskell.lib) doJailbreak dontCheck;
         golden-test = import ./test/golden1.nix {
           seed = "1";
           inherit system;
@@ -25,14 +27,21 @@
       {
         packages = {
           default =
-            haskell.lib.overrideCabal
+            (haskell.lib.overrideCabal
             (haskellPackages.callCabal2nix "nix-output-monitor" ./. {})
             {
               preCheck = ''
-                # ${lib.concatStringsSep ", " ((lib.attrValues golden-test) ++ map (x: x.drvPath) (lib.attrValues golden-test))}
+                # ${lib.concatStringsSep ", " (lib.attrValues golden-test ++ map (x: x.drvPath) (lib.attrValues golden-test))}
                 export TESTS_FROM_FILE=true;
               '';
-            };
+            })
+            .overrideScope (_: prev: {
+              relude = haskell.lib.compose.appendPatch (pkgs.fetchpatch {
+                url = "https://github.com/kowainik/relude/commit/d1fc18690b31b70ebbe68730270b73f53a5c7f12.patch";
+                sha256 = "sha256-tsozpK/AkhUE3tgUqjyDK/tnrujNd7yJdbLIUFZvJHk=";
+              }) (doJailbreak (dontCheck prev.relude));
+              optics = dontCheck prev.optics;
+            });
         };
         checks = {
           pre-commit-check = inputs.pre-commit-hooks.lib.${system}.run {
