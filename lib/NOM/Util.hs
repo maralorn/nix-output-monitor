@@ -1,4 +1,4 @@
-module NOM.Util where
+module NOM.Util (foldMapEndo, forMaybeM, addPrintCache, (<||>), hush, (<|>>), (|>), (<.>>), (.>)) where
 
 import Relude
 import Relude.Extra (toSnd)

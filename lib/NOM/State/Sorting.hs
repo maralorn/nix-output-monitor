@@ -1,4 +1,9 @@
-module NOM.State.Sorting where
+module NOM.State.Sorting (
+  sortDepsOfSet,
+  summaryIncludingRoot,
+  sortKey,
+  SortKey,
+) where
 
 import Relude
 
@@ -6,13 +11,13 @@ import Control.Monad.Extra (pureIf)
 import Data.Generics.Product (HasField (field))
 import Data.List.Extra (firstJust)
 import Data.MemoTrie (memo)
-import qualified Data.Sequence as Seq
+import Data.Sequence qualified as Seq
 import Data.Time (UTCTime)
 import Optics ((%~))
 import Safe.Foldable (maximumMay, minimumMay)
 
 import NOM.State (
-  BuildInfo (buildEnd, buildStart),
+  BuildInfo (..),
   BuildStatus (Unknown),
   DependencySummary (..),
   DerivationId,
@@ -23,8 +28,8 @@ import NOM.State (
   getDerivationInfos,
   updateSummaryForDerivation,
  )
-import qualified NOM.State.CacheId.Map as CMap
-import qualified NOM.State.CacheId.Set as CSet
+import NOM.State.CacheId.Map qualified as CMap
+import NOM.State.CacheId.Set qualified as CSet
 import NOM.Util ((.>), (<|>>), (|>))
 
 sortDepsOfSet :: DerivationSet -> NOMState ()
@@ -66,7 +71,7 @@ data SortOrder
   | SDownloaded
   | SUploaded
   | SUnknown
-  deriving (Eq, Show, Ord)
+  deriving stock (Eq, Show, Ord)
 
 summaryIncludingRoot :: DerivationId -> NOMState DependencySummary
 summaryIncludingRoot drvId = do
@@ -77,11 +82,11 @@ sortKey :: NOMV1State -> DerivationId -> SortKey
 sortKey nom_state drvId =
   let MkDependencySummary{..} = evalState (summaryIncludingRoot drvId) nom_state
       sort_entries =
-        [ minimumMay (failedBuilds <|>> buildEnd .> fst) <|>> SFailed
-        , minimumMay (runningBuilds <|>> buildStart) <|>> SBuilding
+        [ minimumMay (failedBuilds <|>> (.end) .> fst) <|>> SFailed
+        , minimumMay (runningBuilds <|>> (.start)) <|>> SBuilding
         , pureIf (not (CSet.null plannedBuilds)) SWaiting
         , pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting
-        , maximumMay (completedBuilds <|>> buildEnd) <|>> Down .> SDone
+        , maximumMay (completedBuilds <|>> (.end)) <|>> Down .> SDone
         , pureIf (not (CMap.null completedDownloads)) SDownloaded
         , pureIf (not (CMap.null completedUploads)) SUploaded
         ]

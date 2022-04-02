@@ -25,7 +25,7 @@ module NOM.Print.Table (
 import Relude hiding (truncate)
 
 import Control.Exception (assert)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 
 -- wcwidth
 import Data.Char.WCWidth (wcwidth)
@@ -87,7 +87,7 @@ cells width e = e{width}
 label :: Text -> Entry -> Entry
 label t e = e{lcontent = t}
 addCode :: SGR -> Entry -> Entry
-addCode code e = e{codes = code : codes e}
+addCode code e = e{codes = code : e.codes}
 addColor :: Color -> Entry -> Entry
 addColor = addCode . SetColor Foreground Dull
 
@@ -136,7 +136,7 @@ getWidthForColumn :: NonEmpty Entry -> Int
 getWidthForColumn = foldl' max 0 . fmap getRelevantWidthForEntry
 getRelevantWidthForEntry :: Entry -> Int
 getRelevantWidthForEntry entry
-  | width entry == 1 = entryWidth entry
+  | entry.width == 1 = entryWidth entry
 getRelevantWidthForEntry _ = 0
 
 entryWidth :: Entry -> Int

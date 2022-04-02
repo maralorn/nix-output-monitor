@@ -1,9 +1,9 @@
-module Main where
+module Main (main) where
 
 import Relude
 
-import qualified Data.String as String
-import qualified System.Environment
+import Data.String qualified as String
+import System.Environment qualified
 import System.Process (readProcessWithExitCode)
 import System.Random (randomIO)
 import Test.HUnit (
@@ -26,8 +26,8 @@ import NOM.State (
   initalState,
   out2drv,
  )
-import qualified NOM.State.CacheId.Map as CMap
-import qualified NOM.State.CacheId.Set as CSet
+import NOM.State.CacheId.Map qualified as CMap
+import NOM.State.CacheId.Set qualified as CSet
 import NOM.Update (
   detectLocalFinishedBuilds,
   maintainState,
@@ -85,7 +85,8 @@ preserveStateSnd update = do
 
 golden1 :: Bool -> Test
 golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do
-  let noOfBuilds = 4
+  let noOfBuilds :: Int
+      noOfBuilds = 4
   assertBool "Everything built" (CSet.null plannedBuilds)
   assertBool "No running builds" (CMap.null runningBuilds)
   assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)

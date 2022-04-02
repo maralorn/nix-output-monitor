@@ -1,5 +1,5 @@
 import Relude
-import qualified Relude.Unsafe as Unsafe
+import Relude.Unsafe qualified as Unsafe
 
 import Data.Attoparsec.ByteString (IResult (Done), Parser, parse)
 import Data.Set (singleton)
@@ -10,14 +10,13 @@ import NOM.Parser
 
 assertParse :: Parser (Maybe a) -> ByteString -> IO (ByteString, a)
 assertParse parser' input = do
-  let res = p $ parse parser' input
+  let res = case parse parser' input of
+        Done x a -> Just (x, a)
+        _ -> Nothing
   assertBool "parsing succeeds" (isJust res)
   let (t, res') = Unsafe.fromJust res
   assertBool "parsing succeeds with an actual match" (isJust res')
   pure (t, Unsafe.fromJust res')
- where
-  p (Done x a) = Just (x, a)
-  p _ = Nothing
 
 main :: IO ()
 main = do

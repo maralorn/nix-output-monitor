@@ -1,19 +1,47 @@
-module NOM.State where
+module NOM.State (
+  ProcessState (..),
+  RunningBuildInfo,
+  StorePathId,
+  StorePathState (..),
+  StorePathInfo (..),
+  BuildInfo (..),
+  BuildStatus (..),
+  DependencySummary (..),
+  DerivationId,
+  DerivationInfo (..),
+  DerivationSet,
+  NOMState,
+  NOMV1State (..),
+  getDerivationInfos,
+  initalState,
+  updateSummaryForStorePath,
+  getStorePathInfos,
+  NOMStateT,
+  getRunningBuilds,
+  getRunningBuildsByHost,
+  lookupStorePathId,
+  lookupDerivationId,
+  getStorePathId,
+  getDerivationId,
+  out2drv,
+  drv2out,
+  updateSummaryForDerivation,
+) where
 
 import Relude
 
 import Data.Generics.Product (HasField (field))
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Time (UTCTime)
 import Optics ((%~))
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
-import qualified NOM.State.CacheId.Map as CMap
+import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set (CacheIdSet)
-import qualified NOM.State.CacheId.Set as CSet
+import NOM.State.CacheId.Set qualified as CSet
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (getCachedBuildReports),
@@ -23,11 +51,11 @@ import NOM.Update.Monad (
 import NOM.Util (foldMapEndo, (.>), (<|>>), (|>))
 
 data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
 data DerivationInfo = MkDerivationInfo
-  { derivationName :: Derivation
+  { name :: Derivation
   , outputs :: Map Text StorePathId
   , inputDerivations :: Seq (DerivationId, Set Text)
   , inputSources :: StorePathSet
@@ -36,7 +64,7 @@ data DerivationInfo = MkDerivationInfo
   , cached :: Bool
   , derivationParents :: DerivationSet
   }
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
 type StorePathId = CacheId StorePath
@@ -52,12 +80,12 @@ type StorePathSet = CacheIdSet StorePath
 type DerivationSet = CacheIdSet Derivation
 
 data StorePathInfo = MkStorePathInfo
-  { storePathName :: StorePath
-  , storePathStates :: Set StorePathState
-  , storePathProducer :: Maybe DerivationId
-  , storePathInputFor :: DerivationSet
+  { name :: StorePath
+  , states :: Set StorePathState
+  , producer :: Maybe DerivationId
+  , inputFor :: DerivationSet
   }
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
 type RunningBuildInfo = BuildInfo ()
@@ -75,7 +103,7 @@ data DependencySummary = MkDependencySummary
   , completedDownloads :: StorePathMap Host
   , completedUploads :: StorePathMap Host
   }
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
 data NOMV1State = MkNOMV1State
@@ -90,11 +118,11 @@ data NOMV1State = MkNOMV1State
   , derivationIds :: Map Derivation DerivationId
   , touchedIds :: DerivationSet
   }
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
 data ProcessState = JustStarted | InputReceived | Finished
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
 data BuildStatus
@@ -103,16 +131,16 @@ data BuildStatus
   | Building (BuildInfo ())
   | Failed (BuildInfo (UTCTime, FailType)) -- End
   | Built (BuildInfo UTCTime) -- End
-  deriving (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
 data BuildInfo a = MkBuildInfo
-  { buildStart :: UTCTime
-  , buildHost :: Host
-  , buildEstimate :: Maybe Int
-  , buildEnd :: a
+  { start :: UTCTime
+  , host :: Host
+  , estimate :: Maybe Int
+  , end :: a
   }
-  deriving (Show, Eq, Ord, Read, Generic, Functor)
+  deriving stock (Show, Eq, Ord, Generic, Functor)
   deriving anyclass (NFData)
 
 initalState :: (MonadCacheBuildReports m, MonadNow m) => m NOMV1State
@@ -139,16 +167,16 @@ instance Monoid DependencySummary where
   mempty = MkDependencySummary mempty mempty mempty mempty mempty mempty mempty
 
 getRunningBuilds :: NOMState (DerivationMap RunningBuildInfo)
-getRunningBuilds = gets (fullSummary .> runningBuilds)
+getRunningBuilds = gets (.fullSummary.runningBuilds)
 
 getRunningBuildsByHost :: Host -> NOMState (DerivationMap RunningBuildInfo)
-getRunningBuildsByHost host = getRunningBuilds <|>> CMap.filter (buildHost .> (== host))
+getRunningBuildsByHost host = getRunningBuilds <|>> CMap.filter (\x -> x.host == host)
 
 lookupStorePathId :: StorePathId -> NOMState StorePath
-lookupStorePathId pathId = getStorePathInfos pathId <|>> storePathName
+lookupStorePathId pathId = getStorePathInfos pathId <|>> (.name)
 
 lookupDerivationId :: DerivationId -> NOMState Derivation
-lookupDerivationId drvId = getDerivationInfos drvId <|>> derivationName
+lookupDerivationId drvId = getDerivationInfos drvId <|>> (.name)
 
 type NOMState a = forall m. MonadState NOMV1State m => m a
 
@@ -163,34 +191,34 @@ emptyDerivationInfo drv = MkDerivationInfo drv mempty mempty mempty Unknown memp
 getStorePathId :: StorePath -> NOMState StorePathId
 getStorePathId path = do
   let newId = do
-        key <- gets (storePathInfos .> CMap.nextKey)
+        key <- gets ((.storePathInfos) .> CMap.nextKey)
         modify (field @"storePathInfos" %~ CMap.insert key (emptyStorePathInfo path))
         modify (field @"storePathIds" %~ Map.insert path key)
         pure key
-  gets (storePathIds .> Map.lookup path) >>= maybe newId pure
+  gets ((.storePathIds) .> Map.lookup path) >>= maybe newId pure
 
 getDerivationId :: Derivation -> NOMState DerivationId
 getDerivationId drv = do
   let newId = do
-        key <- gets (derivationInfos .> CMap.nextKey)
+        key <- gets ((.derivationInfos) .> CMap.nextKey)
         modify (field @"derivationInfos" %~ CMap.insert key (emptyDerivationInfo drv))
         modify (field @"derivationIds" %~ Map.insert drv key)
         pure key
-  gets (derivationIds .> Map.lookup drv) >>= maybe newId pure
+  gets ((.derivationIds) .> Map.lookup drv) >>= maybe newId pure
 
 drv2out :: DerivationId -> NOMState (Maybe StorePath)
 drv2out drv =
-  gets (derivationInfos .> CMap.lookup drv >=> outputs .> Map.lookup "out")
+  gets ((.derivationInfos) .> CMap.lookup drv >=> (.outputs) .> Map.lookup "out")
     >>= mapM (\pathId -> lookupStorePathId pathId)
 
 out2drv :: StorePathId -> NOMState (Maybe DerivationId)
-out2drv path = gets (storePathInfos .> CMap.lookup path >=> storePathProducer)
+out2drv path = gets ((.storePathInfos) .> CMap.lookup path >=> (.producer))
 
 -- Only do this with derivationIds that you got via lookupDerivation
 getDerivationInfos :: DerivationId -> NOMState DerivationInfo
 getDerivationInfos drvId =
   get
-    <|>> derivationInfos
+    <|>> (.derivationInfos)
     .> CMap.lookup drvId
     .> fromMaybe (error "BUG: drvId is no key in derivationInfos")
 
@@ -198,7 +226,7 @@ getDerivationInfos drvId =
 getStorePathInfos :: StorePathId -> NOMState StorePathInfo
 getStorePathInfos storePathId =
   get
-    <|>> storePathInfos
+    <|>> (.storePathInfos)
     .> CMap.lookup storePathId
     .> fromMaybe (error "BUG: storePathId is no key in storePathInfos")
 

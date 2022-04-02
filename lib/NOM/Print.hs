@@ -4,23 +4,23 @@ import Relude
 
 import Data.List.NonEmpty.Extra (appendr)
 import Data.MemoTrie (memo)
-import qualified Data.Sequence as Seq
-import qualified Data.Set as Set
-import qualified Data.Text as Text
+import Data.Sequence qualified as Seq
+import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
 import Data.Tree (Forest, Tree (Node))
 import Optics (itoList, view, _2)
 
 -- terminal-size
 import System.Console.Terminal.Size (Window)
-import qualified System.Console.Terminal.Size as Window
+import System.Console.Terminal.Size qualified as Window
 
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (MkBuildInfo), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (Finished, JustStarted), buildEnd, buildEstimate, buildHost, buildStart, getDerivationInfos)
-import qualified NOM.State.CacheId.Map as CMap
-import qualified NOM.State.CacheId.Set as CSet
+import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), getDerivationInfos)
+import NOM.State.CacheId.Map qualified as CMap
+import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
@@ -77,8 +77,8 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
     | processState == Finished = \now -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> runTime now)
     | otherwise = \now -> clock <> " " <> runTime now
   MkDependencySummary{..} = fullSummary
-  runningBuilds' = runningBuilds <|>> buildHost
-  completedBuilds' = completedBuilds <|>> buildHost
+  runningBuilds' = runningBuilds <|>> (.host)
+  completedBuilds' = completedBuilds <|>> (.host)
   numFailedBuilds = CMap.size failedBuilds
   anythingGoingOn = fullSummary /= mempty
   showBuildGraph = not (Seq.null forestRoots)
@@ -153,6 +153,7 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
     hosts =
       sort . toList @Set $
         foldMap (foldMap one) [runningBuilds', completedBuilds'] <> foldMap (foldMap one) [completedUploads, completedDownloads]
+    l :: (Host -> CMap.CacheIdMap b Host -> Int)
     l host = CMap.size . CMap.filter (host ==)
 
 nonZeroShowBold :: Int -> Entry -> Entry
@@ -161,9 +162,9 @@ nonZeroShowBold num = if num > 0 then bold else const dummy
 nonZeroBold :: Int -> Entry -> Entry
 nonZeroBold num = if num > 0 then bold else id
 
-data TreeNode = DerivationNode DerivationInfo Bool deriving (Generic)
+data TreeNode = DerivationNode DerivationInfo Bool deriving stock (Generic)
 
-data TreeLocation = Root | Twig | Leaf deriving (Eq)
+data TreeLocation = Root | Twig | Leaf deriving stock (Eq)
 
 printBuilds ::
   NOMV1State ->
@@ -187,7 +188,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   printTreeNode :: TreeLocation -> TreeNode -> UTCTime -> Text
   printTreeNode location = \case
     DerivationNode drvInfo with_summary ->
-      let summary = showSummary (dependencySummary drvInfo)
+      let summary = showSummary drvInfo.dependencySummary
        in \now -> printDerivation drvInfo now <> showCond ((location == Root || location == Leaf || with_summary) && not (Text.null summary)) (markup grey " & " <> summary)
 
   buildForest :: Forest TreeNode
@@ -221,7 +222,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
           .> CSet.fromFoldable
 
   children :: DerivationId -> Seq DerivationId
-  children drv_id = get' (getDerivationInfos drv_id) |> inputDerivations <.>> fst
+  children drv_id = get' (getDerivationInfos drv_id) |> (.inputDerivations) <.>> fst
 
   goDerivationsToShow ::
     Seq DerivationId ->
@@ -282,6 +283,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     uploads = CMap.size completedUploads
     fullDownloads = CMap.size completedDownloads
     downloads = fullDownloads + CSet.size plannedDownloads
+    bar :: (Entry -> Entry) -> Int -> Text
     bar color c
       | c == 0 = ""
       | c <= 10 = stimesMonoid c lb |> markup color
@@ -290,29 +292,32 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
          in (blocks <> "┄" <> show c <> "┄" <> blocks) |> markup color
 
   printDerivation :: DerivationInfo -> UTCTime -> Text
-  printDerivation MkDerivationInfo{..} = case buildStatus of
+  printDerivation drvInfo = case drvInfo.buildStatus of
     Unknown -> const drvName
     Planned -> const (markup blue (todo <> " " <> drvName))
-    Building MkBuildInfo{..} -> \now ->
+    Building buildInfo -> \now ->
       unwords $
         [markups [yellow, bold] (running <> " " <> drvName)]
-          <> hostMarkup buildHost
-          <> [clock, timeDiff now buildStart]
-          <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildEstimate
-    Failed MkBuildInfo{..} ->
+          <> hostMarkup buildInfo.host
+          <> [clock, timeDiff now buildInfo.start]
+          <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
+    Failed buildInfo ->
+      let
+         (endTime, failType) = buildInfo.end
+      in
       const $
         unwords $
           [markups [red, bold] (warning <> " " <> drvName)]
-            <> hostMarkup buildHost
-            <> [markups [red, bold] (unwords ["failed with", printFailType (snd buildEnd), "after", clock, timeDiff (fst buildEnd) buildStart])]
-    Built MkBuildInfo{..} ->
+            <> hostMarkup buildInfo.host
+            <> [markups [red, bold] (unwords ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start])]
+    Built buildInfo ->
       const $
         unwords $
           [markup green (done <> " " <> drvName)]
-            <> hostMarkup buildHost
-            <> [markup grey (clock <> " " <> timeDiff buildEnd buildStart)]
+            <> hostMarkup buildInfo.host
+            <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
    where
-    drvName = derivationName |> toStorePath .> name
+    drvName = drvInfo.name.storePath.name
 
 printFailType :: FailType -> Text
 printFailType = \case

@@ -10,7 +10,7 @@ import Relude
 
 import Control.Exception (try)
 import Control.Monad.Writer.Strict (WriterT)
-import qualified Data.Text.IO as TextIO
+import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime, getCurrentTime)
 import System.Directory (doesPathExist)
 
@@ -18,7 +18,7 @@ import System.Directory (doesPathExist)
 import Data.Attoparsec.Text (eitherResult, parse)
 
 -- nix-derivation
-import qualified Nix.Derivation as Nix
+import Nix.Derivation qualified as Nix
 
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))

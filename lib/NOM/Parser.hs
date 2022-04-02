@@ -13,7 +13,7 @@ import Data.Attoparsec.ByteString (
   take,
   takeWhile,
  )
-import qualified Data.Attoparsec.ByteString as ParseW8
+import Data.Attoparsec.ByteString qualified as ParseW8
 import Data.Attoparsec.ByteString.Char8 (
   anyChar,
   char,
@@ -35,7 +35,7 @@ import NOM.Builds (
 import NOM.Error (NOMError (ParseInternalJSONError))
 import NOM.Util (hush)
 
-data InternalJSON = InternalJSON deriving (Show, Eq, Read)
+data InternalJSON = InternalJSON deriving stock (Show, Eq)
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -47,7 +47,7 @@ data ParseResult
   | Checking !Derivation
   | Failed !Derivation !FailType
   | JSONMessage !(Either NOMError InternalJSON)
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 parser :: Parser (Maybe ParseResult)
 parser = Just <$> updateParser <|> Nothing <$ noMatch
@@ -72,7 +72,7 @@ storePath =
 
 derivation :: Parser Derivation
 derivation =
-  storePath >>= \x -> case stripSuffix ".drv" (name x) of
+  storePath >>= \x -> case stripSuffix ".drv" x.name of
     Just realName -> pure . Derivation $ x{name = realName}
     Nothing -> mzero
 

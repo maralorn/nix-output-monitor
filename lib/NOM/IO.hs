@@ -1,4 +1,4 @@
-module NOM.IO where
+module NOM.IO (interact, processTextStream) where
 
 import Relude
 
@@ -6,15 +6,15 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, modifyTVar, swapTVar)
 import Control.Exception (IOException, try)
-import qualified Data.ByteString as ByteString
-import qualified Data.Text as Text
+import Data.ByteString qualified as ByteString
+import Data.Text qualified as Text
 import Data.Time (ZonedTime, getZonedTime)
-import qualified Data.Word8 as Word8
-import qualified System.IO
+import Data.Word8 qualified as Word8
+import System.IO qualified
 
-import qualified Streamly.Data.Fold as Fold
+import Streamly.Data.Fold qualified as Fold
 import Streamly.Prelude ((.:))
-import qualified Streamly.Prelude as Stream
+import Streamly.Prelude qualified as Stream
 
 import Data.Attoparsec.ByteString (IResult (..), Parser, Result, parse)
 

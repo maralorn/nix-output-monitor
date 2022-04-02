@@ -1,30 +1,43 @@
-module NOM.State.CacheId.Set where
+module NOM.State.CacheId.Set (
+  insert,
+  CacheIdSet (MkCacheIdSet),
+  NOM.State.CacheId.Set.toList,
+  NOM.State.CacheId.Set.null,
+  fromFoldable,
+  maxView,
+  union,
+  difference,
+  delete,
+  size,
+  isSubsetOf,
+  member,
+) where
 
 import Relude
 
-import qualified Data.IntSet as IntSet
+import Data.IntSet qualified as IntSet
 
 import NOM.State.CacheId (CacheId (MkCacheId))
 import NOM.Util ((.>), (<.>>))
 
-newtype CacheIdSet b = MkCacheIdSet {cidSet :: IntSet}
+newtype CacheIdSet b = MkCacheIdSet {ints :: IntSet}
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving newtype (Semigroup, Monoid, NFData)
 
 insert :: CacheId b -> CacheIdSet b -> CacheIdSet b
-insert (MkCacheId x) = cidSet .> IntSet.insert x .> MkCacheIdSet
+insert (MkCacheId x) = (.ints) .> IntSet.insert x .> MkCacheIdSet
 
 toList :: CacheIdSet b -> [CacheId b]
-toList = cidSet .> IntSet.toList <.>> MkCacheId
+toList = (.ints) .> IntSet.toList <.>> MkCacheId
 
 fromFoldable :: Foldable f => f (CacheId b) -> CacheIdSet b
 fromFoldable = foldl' (flip insert) mempty
 
 null :: CacheIdSet b -> Bool
-null = cidSet .> IntSet.null
+null = (.ints) .> IntSet.null
 
 maxView :: CacheIdSet b -> Maybe (CacheId b, CacheIdSet b)
-maxView = cidSet .> IntSet.maxView .> coerce
+maxView = (.ints) .> IntSet.maxView .> coerce
 
 union :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
 union = coerce IntSet.union

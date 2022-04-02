@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-missed-specialisations #-}
+
 module NOM.Update.Monad.CacheBuildReports (
   MonadCacheBuildReports (..),
   BuildReport (..),
@@ -8,7 +10,7 @@ import Relude
 
 import Control.Exception (IOException, catch)
 import Control.Monad.Writer.Strict (WriterT)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory, removeFile)
 
 -- cassava
@@ -38,8 +40,13 @@ class Monad m => MonadCacheBuildReports m where
   getCachedBuildReports :: m BuildReportMap
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
 
-data BuildReport = BuildReport {reportHost :: !Text, reportName :: !Text, reportSeconds :: !Int}
-  deriving (Generic, Show, Read, Eq, FromRecord, ToRecord)
+data BuildReport = BuildReport
+  { host :: !Text
+  , name :: !Text
+  , seconds :: !Int
+  }
+  deriving stock (Generic, Show, Eq)
+  deriving anyclass (FromRecord, ToRecord)
 
 type BuildReportMap = Map (Host, Text) Int
 
@@ -98,7 +105,7 @@ loadBuildReports dir = catch @IOException tryLoad (const (pure mempty))
       <&> either (const mempty) (fromCSV . toList) . decode NoHeader
 
 toCSV :: BuildReportMap -> [BuildReport]
-toCSV = fmap (\((fromHost -> reportHost, reportName), reportSeconds) -> BuildReport{..}) . Map.assocs
+toCSV = fmap (\((fromHost -> host, name), seconds) -> BuildReport{..}) . Map.assocs
 
 fromHost :: Host -> Text
 fromHost = \case
@@ -106,7 +113,7 @@ fromHost = \case
   Host x -> x
 
 fromCSV :: [BuildReport] -> BuildReportMap
-fromCSV = fromList . fmap (\BuildReport{..} -> ((toHost reportHost, reportName), reportSeconds))
+fromCSV = fromList . fmap (\BuildReport{..} -> ((toHost host, name), seconds))
 
 toHost :: Text -> Host
 toHost = \case

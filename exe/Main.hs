@@ -1,4 +1,4 @@
-module Main where
+module Main (main) where
 
 import Relude
 
@@ -17,10 +17,10 @@ import NOM.IO (interact)
 import NOM.Parser (ParseResult, parser)
 import NOM.Print (stateToText)
 import NOM.State (NOMV1State, ProcessState (..), failedBuilds, fullSummary, initalState)
-import qualified NOM.State.CacheId.Map as CMap
+import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
-import NOM.Util (addPrintCache, (.>), (<|>>), (<||>), (|>))
+import NOM.Util (addPrintCache, (<|>>), (<||>))
 
 main :: IO ()
 main = do
@@ -37,7 +37,7 @@ main = do
   firstState <- initalState
   let firstCompoundState = (Nothing, firstState, stateToText firstState)
   (_, finalState, _) <- interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer firstCompoundState
-  if (finalState |> fullSummary .> failedBuilds .> CMap.size) == 0
+  if CMap.size finalState.fullSummary.failedBuilds == 0
     then exitSuccess
     else exitFailure
 

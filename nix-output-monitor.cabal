@@ -17,29 +17,20 @@ extra-source-files: CHANGELOG.md
 common common-config
   default-extensions:
     NoImplicitPrelude
-    BangPatterns
     BlockArguments
-    ConstraintKinds
     DataKinds
     DeriveAnyClass
-    DeriveFunctor
-    DeriveGeneric
     DerivingStrategies
     DuplicateRecordFields
-    FlexibleContexts
-    GeneralizedNewtypeDeriving
-    KindSignatures
+    ImportQualifiedPost
     LambdaCase
-    MonoLocalBinds
-    NamedFieldPuns
     OverloadedStrings
-    PartialTypeSignatures
-    RankNTypes
     RecordWildCards
-    ScopedTypeVariables
-    TupleSections
-    TypeApplications
+    TypeFamilies
+    TypeOperators
     ViewPatterns
+    NoFieldSelectors
+    OverloadedRecordDot
 
   build-depends:
     , ansi-terminal
@@ -59,7 +50,6 @@ common common-config
     , mtl
     , nix-derivation
     , optics
-    , random
     , relude
     , safe
     , stm
@@ -67,13 +57,15 @@ common common-config
     , terminal-size
     , text
     , time
-    , unix
-    , vector
     , wcwidth
     , word8
 
-  default-language:   Haskell2010
-  ghc-options:        -Wall
+  default-language:   GHC2021
+  ghc-options:
+    -Weverything -Wno-missing-import-lists
+    -Wno-missing-safe-haskell-mode -Wno-unsafe
+    -Wno-missing-kind-signatures -fshow-warning-groups
+    -fexpose-all-unfoldings -Wno-all-missed-specialisations
 
 library
   import:          common-config
@@ -99,7 +91,7 @@ library
 
 common exes
   import:      common-config
-  ghc-options: -threaded
+  ghc-options: -threaded -Wno-unused-packages
 
 executable nom
   import:         exes
@@ -124,5 +116,6 @@ test-suite unit-tests
 test-suite golden-tests
   import:         tests
   hs-source-dirs: test
+  build-depends:  random
   type:           exitcode-stdio-1.0
   main-is:        Golden.hs

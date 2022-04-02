@@ -1,7 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-
-module NOM.State.CacheId where
+module NOM.State.CacheId (CacheId (..)) where
 
 import Relude
 
@@ -12,7 +9,7 @@ newtype CacheId b = MkCacheId {unCacheId :: Int}
   deriving newtype (NFData)
 
 instance HasTrie (CacheId b) where
-  newtype CacheId b :->: c = CacheIdTrie {unCacheIdTrie :: Int :->: c}
+  newtype CacheId b :->: c = CacheIdTrie (Int :->: c)
   trie = coerce (trie @Int)
   untrie = coerce (untrie @Int)
   enumerate = coerce (enumerate @Int)

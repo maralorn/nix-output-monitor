@@ -1,7 +1,7 @@
-module NOM.Error where
+module NOM.Error (NOMError (..)) where
 
 import Relude
 
 import Control.Exception (IOException)
 
-data NOMError = InputError IOException | DerivationReadError IOException | DerivationParseError Text | ParseInternalJSONError deriving (Show, Eq)
+data NOMError = InputError IOException | DerivationReadError IOException | DerivationParseError Text | ParseInternalJSONError deriving stock (Show, Eq)

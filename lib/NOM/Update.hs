@@ -1,13 +1,13 @@
-module NOM.Update where
+module NOM.Update (updateState, maintainState, detectLocalFinishedBuilds) where
 
 import Relude
 
 import Control.Monad.Writer (MonadWriter (tell))
 import Control.Monad.Writer.Strict (WriterT (runWriterT))
-import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as Seq
-import qualified Data.Set as Set
-import qualified Data.Text as Text
+import Data.Map.Strict qualified as Map
+import Data.Sequence qualified as Seq
+import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
 
 -- optics
@@ -15,16 +15,40 @@ import Data.Generics.Product (field, typed)
 import Data.Generics.Sum (_As)
 import Optics (preview, (%), (%~), (.~), (?~))
 
-import qualified Nix.Derivation as Nix
+import Nix.Derivation qualified as Nix
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.Error (NOMError)
 import NOM.Parser (ParseResult (..), parseDerivation, parseStorePath)
-import qualified NOM.Parser as Parser
-import NOM.State (BuildInfo (MkBuildInfo, buildStart), BuildStatus (..), DependencySummary, DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMStateT, NOMV1State (..), ProcessState (..), RunningBuildInfo, StorePathId, StorePathState (..), drv2out, getDerivationId, getDerivationInfos, getRunningBuildsByHost, getStorePathId, getStorePathInfos, lookupDerivationId, out2drv, storePathInputFor, storePathProducer, storePathStates, updateSummaryForDerivation, updateSummaryForStorePath)
-import qualified NOM.State as State
-import qualified NOM.State.CacheId.Map as CMap
-import qualified NOM.State.CacheId.Set as CSet
+import NOM.Parser qualified as Parser
+import NOM.State (
+  BuildInfo (..),
+  BuildStatus (..),
+  DependencySummary,
+  DerivationId,
+  DerivationInfo (..),
+  DerivationSet,
+  NOMState,
+  NOMStateT,
+  NOMV1State (..),
+  ProcessState (..),
+  RunningBuildInfo,
+  StorePathId,
+  StorePathState (..),
+  drv2out,
+  getDerivationId,
+  getDerivationInfos,
+  getRunningBuildsByHost,
+  getStorePathId,
+  getStorePathInfos,
+  lookupDerivationId,
+  out2drv,
+  updateSummaryForDerivation,
+  updateSummaryForStorePath,
+ )
+import NOM.State qualified as State
+import NOM.State.CacheId.Map qualified as CMap
+import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (sortDepsOfSet, sortKey)
 import NOM.Update.Monad (
   BuildReportMap,
@@ -37,12 +61,12 @@ import NOM.Update.Monad (
 import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
 
 getReportName :: Derivation -> Text
-getReportName = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") . name . toStorePath
+getReportName drv = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.storePath.name
 
 setInputReceived :: NOMState Bool
 setInputReceived = do
   s <- get
-  let change = processState s == JustStarted
+  let change = s.processState == JustStarted
   when change (put s{processState = InputReceived})
   pure change
 
@@ -91,18 +115,21 @@ updateState (result, input) (inputAccessTime, inputState) = do
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
   runningLocalBuilds <- getRunningBuildsByHost Localhost <|>> CMap.toList -- .> traceShowId
-  let isCompleted (drvId, _) =
+  let isCompleted :: UpdateMonad m => (DerivationId, b) -> NOMStateT m Bool
+      isCompleted (drvId, _) =
         drv2out drvId >>= \case
           Nothing -> pure False -- Derivation has no "out" output.
           Just path -> storePathExists path
-  newCompletedOutputs <- filterM isCompleted runningLocalBuilds -- <|>> traceShowId
+  newCompletedOutputs <- filterM (\x -> isCompleted x) runningLocalBuilds
   let anyBuildsFinished = not (null newCompletedOutputs)
   when anyBuildsFinished (finishBuilds Localhost newCompletedOutputs)
   pure anyBuildsFinished
 
 processResult :: UpdateMonad m => ParseResult -> NOMStateT (WriterT [NOMError] m) Bool
 processResult result = do
-  let withChange = (True <$)
+  let withChange :: Functor f => f b -> f Bool
+      withChange = (True <$)
+      noChange :: Applicative f => f Bool
       noChange = pure False
   now <- getNow
   case result of
@@ -149,7 +176,7 @@ timeDiffInt = diffUTCTime <.>> floor
 finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(DerivationId, BuildInfo ())] -> NOMStateT m ()
 finishBuilds host builds = do
   derivationsWithNames <- forM builds \(drvId, buildInfo) ->
-    lookupDerivationId drvId <|>> (,buildStart buildInfo)
+    lookupDerivationId drvId <|>> (,buildInfo.start)
   nonEmpty derivationsWithNames |> \case
     Nothing -> pass
     Just finishedBuilds -> do
@@ -176,7 +203,7 @@ failedBuild now drv code = updateDerivationState drv update
 lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT (WriterT [NOMError] m) DerivationId
 lookupDerivation drv = do
   drvId <- getDerivationId drv
-  isCached <- gets (derivationInfos .> CMap.lookup drvId .> maybe False cached)
+  isCached <- gets ((.derivationInfos) .> CMap.lookup drvId .> maybe False (.cached))
   unless isCached $
     getDerivation drv >>= \case
       Left err -> tell [err]
@@ -189,14 +216,14 @@ insertDerivation Nix.Derivation{outputs, inputSrcs, inputDrvs} drvId = do
     outputs |> Map.traverseMaybeWithKey \_ path -> do
       parseStorePath (Nix.path path) |> mapM \pathName -> do
         pathId <- getStorePathId pathName
-        modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathProducer" ?~ drvId) pathId)
+        modify (field @"storePathInfos" %~ CMap.adjust (field @"producer" ?~ drvId) pathId)
         pure pathId
   inputSources <-
     inputSrcs |> flip foldlM mempty \acc path -> do
       pathIdMay <-
         parseStorePath path |> mapM \pathName -> do
           pathId <- getStorePathId pathName
-          modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathInputFor" %~ CSet.insert drvId) pathId)
+          modify (field @"storePathInfos" %~ CMap.adjust (field @"inputFor" %~ CSet.insert drvId) pathId)
           pure pathId
       pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
@@ -210,7 +237,7 @@ insertDerivation Nix.Derivation{outputs, inputSrcs, inputDrvs} drvId = do
       pure $ depIdMay <|>> (,outs)
   let inputDerivations = Seq.fromList inputDerivationsList
   modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs = outputs', inputSources, inputDerivations, cached = True}) drvId)
-  noParents <- getDerivationInfos drvId <|>> derivationParents .> CSet.null
+  noParents <- getDerivationInfos drvId <|>> (.derivationParents) .> CSet.null
   when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
 
 planBuilds :: Set DerivationId -> NOMState ()
@@ -226,7 +253,7 @@ downloaded host pathId = do
   insertStorePathState pathId (Downloaded host)
   runMaybeT $ do
     drvId <- MaybeT (out2drv pathId)
-    drvInfos <- MaybeT (gets (derivationInfos .> CMap.lookup drvId))
+    drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
     MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (drvId,)))
 
 uploaded :: Host -> StorePathId -> NOMState ()
@@ -235,21 +262,21 @@ uploaded host pathId = insertStorePathState pathId (Uploaded host)
 building :: Host -> DerivationId -> UTCTime -> NOMState ()
 building host drv now = do
   drvName <- lookupDerivationId drv
-  lastNeeded <- get <|>> buildReports .> Map.lookup (host, getReportName drvName)
+  lastNeeded <- get <|>> (.buildReports) .> Map.lookup (host, getReportName drvName)
   updateDerivationState drv (const (Building (MkBuildInfo now host lastNeeded ())))
 
 updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus) -> NOMState ()
 updateDerivationState drvId updateStatus = do
   -- Update derivationInfo for this Derivation
   derivation_infos <- getDerivationInfos drvId
-  let oldStatus = buildStatus derivation_infos
+  let oldStatus = derivation_infos.buildStatus
       newStatus = updateStatus oldStatus
   modify (field @"derivationInfos" %~ CMap.adjust (field @"buildStatus" .~ newStatus) drvId)
 
   let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
 
   -- Update summaries of all parents and sort them
-  updateParents update_summary (derivationParents derivation_infos)
+  updateParents update_summary (derivation_infos.derivationParents)
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)
@@ -262,7 +289,7 @@ updateParents update_func = go mempty
     Nothing -> modify (field @"touchedIds" %~ CSet.union updated_parents)
     Just (parentToUpdate, restToUpdate) -> do
       modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
-      next_parents <- getDerivationInfos parentToUpdate <|>> derivationParents
+      next_parents <- getDerivationInfos parentToUpdate <|>> (.derivationParents)
       go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
 
 updateStorePathStates :: StorePathState -> Set StorePathState -> Set StorePathState
@@ -278,15 +305,15 @@ updateStorePathStates newState = localFilter .> Set.insert newState
 insertStorePathState :: StorePathId -> StorePathState -> NOMState ()
 insertStorePathState storePathId newStorePathState = do
   -- Update storePathInfos for this Storepath
-  store_path_infos <- getStorePathInfos storePathId
-  let oldStatus = storePathStates store_path_infos
+  store_path_info <- getStorePathInfos storePathId
+  let oldStatus = store_path_info.states
       newStatus = updateStorePathStates newStorePathState oldStatus
-  modify (field @"storePathInfos" %~ CMap.adjust (field @"storePathStates" .~ newStatus) storePathId)
+  modify (field @"storePathInfos" %~ CMap.adjust (field @"states" .~ newStatus) storePathId)
 
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
 
   -- Update summaries of all parents
-  updateParents update_summary (maybe id CSet.insert (storePathProducer store_path_infos) (storePathInputFor store_path_infos))
+  updateParents update_summary (maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)
