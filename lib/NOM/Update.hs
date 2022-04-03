@@ -92,7 +92,7 @@ updateState (result, input) (inputAccessTime, inputState) = do
       (outputAccessTime, check)
         | maybe True (diffUTCTime now .> (>= minTimeBetweenPollingNixStore)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
-  ((hasChanged, errors), outputState) <-
+  ((!hasChanged, !errors), outputState) <-
     runStateT
       ( runWriterT
           ( or

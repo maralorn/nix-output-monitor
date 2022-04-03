@@ -41,9 +41,9 @@ class Monad m => MonadCacheBuildReports m where
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
 
 data BuildReport = BuildReport
-  { host :: !Text
-  , name :: !Text
-  , seconds :: !Int
+  { host :: Text
+  , name :: Text
+  , seconds :: Int
   }
   deriving stock (Generic, Show, Eq)
   deriving anyclass (FromRecord, ToRecord)

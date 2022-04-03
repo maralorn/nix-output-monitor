@@ -52,14 +52,14 @@ compoundStateUpdater ::
   StateT CompoundState m ([NOMError], ByteString)
 compoundStateUpdater input = do
   oldState <- get
-  (errors, newState) <- addPrintCache updateState stateToText input oldState
+  (!errors, !newState) <- addPrintCache updateState stateToText input oldState
   put newState
   pure errors
 
 finalizer ::
   UpdateMonad m => StateT CompoundState m ()
 finalizer = do
-  (n, oldState, _) <- get
+  (n, !oldState, _) <- get
   newState <- execStateT detectLocalFinishedBuilds oldState <|>> (typed .~ Finished)
   put (n, newState, stateToText newState)
 

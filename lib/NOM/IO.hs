@@ -39,7 +39,7 @@ parseChunk initState (strippedInput, rawInput) = join $ state \(currentParser, c
   case currentParser strippedInput of
     Done "" result -> (pure (result, consumed <> rawInput), initState)
     Done rest result ->
-      let (consumedNow, rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
+      let (!consumedNow, !rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
        in ((result, consumed <> consumedNow) .: parseChunk initState (rest, rawLeft), initState)
     Fail{} -> (Stream.nil, second (const (consumed <> rawInput)) initState)
     Partial cont -> (Stream.nil, (cont, consumed <> rawInput))
@@ -66,10 +66,10 @@ breakOnANSIStartCode :: ByteString -> (ByteString, ByteString)
 breakOnANSIStartCode = ByteString.breakSubstring csi
 streamANSIChunks :: ByteString -> Stream (ByteString, ByteString)
 streamANSIChunks input =
-  let (filtered, unfiltered) = breakOnANSIStartCode input
-      (codeParts, rest) = ByteString.break Word8.isLetter unfiltered
-      (code, restOfStream) = case ByteString.uncons rest of
-        Just (headOfRest, tailOfRest) -> (ByteString.snoc codeParts headOfRest, streamANSIChunks tailOfRest)
+  let (!filtered, !unfiltered) = breakOnANSIStartCode input
+      (!codeParts, !rest) = ByteString.break Word8.isLetter unfiltered
+      (!code, !restOfStream) = case ByteString.uncons rest of
+        Just (!headOfRest, !tailOfRest) -> (ByteString.snoc codeParts headOfRest, streamANSIChunks tailOfRest)
         Nothing -> (codeParts, Stream.nil)
    in (filtered, filtered <> code) .: restOfStream
 
@@ -82,7 +82,7 @@ runUpdate ::
   IO ByteString
 runUpdate bufferVar stateVar updater input = do
   oldState <- readTVarIO stateVar
-  ((errors, output), newState) <- runStateT (updater input) oldState
+  ((!errors, !output), !newState) <- runStateT (updater input) oldState
   atomically $ do
     forM_ errors (\error' -> modifyTVar bufferVar (appendError error'))
     writeTVar stateVar newState
@@ -141,7 +141,7 @@ processTextStream parser updater maintenance printerMay finalize initialState in
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
   let parserInitState = (parse parser, mempty)
-  let keepProcessing :: IO ()
+      keepProcessing :: IO ()
       keepProcessing =
         inputStream
           |> Stream.tap (writeErrorsToBuffer bufferVar)

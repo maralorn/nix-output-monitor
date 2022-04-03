@@ -60,9 +60,11 @@ truncate cut = either id (\(x, _, _) -> x) . Text.foldl' (truncateFold cut) (Rig
 
 truncateFold :: Int -> Either Text (Text, Int, Bool) -> Char -> Either Text (Text, Int, Bool)
 truncateFold _ (Left x) _ = Left x
-truncateFold cut (Right (l, x, e)) c = if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
- where
+truncateFold cut (Right (l, x, e)) c = let
   (newX, newE) = widthFold (x, e) c
+  in
+   if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
+
 widthFold :: (Int, Bool) -> Char -> (Int, Bool)
 widthFold (x, True) 'm' = (x, False)
 widthFold (x, True) _ = (x, True)

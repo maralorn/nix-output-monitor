@@ -10,9 +10,9 @@ forMaybeM :: Monad m => [a] -> (a -> m (Maybe b)) -> m [b]
 forMaybeM = flip mapMaybeM
 
 addPrintCache :: Functor m => (update -> (istate, state) -> m (errors, (istate, Maybe state))) -> (state -> cache) -> update -> (istate, state, cache) -> m (errors, (istate, state, cache))
-addPrintCache updater cacher update (oldIState, oldState, oldCache) =
+addPrintCache updater cacher update (!oldIState, !oldState, oldCache) =
   updater update (oldIState, oldState) <|>> \(errors, (istate, stateMay)) ->
-    let (newState, newCache) = maybe (oldState, oldCache) (toSnd cacher) stateMay
+    let (!newState, newCache) = maybe (oldState, oldCache) (toSnd cacher) stateMay
      in (errors, (istate, newState, newCache))
 
 (<||>) :: Applicative f => f Bool -> f Bool -> f Bool

@@ -26,6 +26,7 @@ common common-config
     LambdaCase
     OverloadedStrings
     RecordWildCards
+    Strict
     TypeFamilies
     TypeOperators
     ViewPatterns
