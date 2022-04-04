@@ -13,7 +13,7 @@ import Data.List.Extra (firstJust)
 import Data.MemoTrie (memo)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime)
-import Optics ((%~))
+import Optics ((%~), view, _1)
 import Safe.Foldable (maximumMay, minimumMay)
 
 import NOM.State (
@@ -82,7 +82,7 @@ sortKey :: NOMV1State -> DerivationId -> SortKey
 sortKey nom_state drvId =
   let MkDependencySummary{..} = evalState (summaryIncludingRoot drvId) nom_state
       sort_entries =
-        [ minimumMay (failedBuilds <|>> (.end) .> fst) <|>> SFailed
+        [ minimumMay (failedBuilds <|>> (.end) .> view _1) <|>> SFailed
         , minimumMay (runningBuilds <|>> (.start)) <|>> SBuilding
         , pureIf (not (CSet.null plannedBuilds)) SWaiting
         , pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting

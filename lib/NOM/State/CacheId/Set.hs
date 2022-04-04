@@ -7,6 +7,7 @@ module NOM.State.CacheId.Set (
   maxView,
   union,
   difference,
+  intersection,
   delete,
   size,
   isSubsetOf,
@@ -41,6 +42,9 @@ maxView = (.ints) .> IntSet.maxView .> coerce
 
 union :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
 union = coerce IntSet.union
+
+intersection :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
+intersection = coerce IntSet.intersection
 
 difference :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
 difference = coerce IntSet.difference

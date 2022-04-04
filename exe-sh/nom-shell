@@ -2,5 +2,5 @@
 
 set -e
 
-unbuffer nix-shell "$@" --run "exit" 2>&1 | nom
+nix-shell --log-format internal-json "$@" --run "exit" 2>&1 | nom
 nix-shell "$@"

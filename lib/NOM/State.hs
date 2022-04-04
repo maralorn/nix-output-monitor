@@ -4,6 +4,7 @@ module NOM.State (
   StorePathId,
   StorePathState (..),
   StorePathInfo (..),
+  StorePathSet,
   BuildInfo (..),
   BuildStatus (..),
   DependencySummary (..),
@@ -37,6 +38,8 @@ import Data.Time (UTCTime)
 import Optics ((%~))
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
+import NOM.Parser.JSON (Activity(), ActivityId)
+import NOM.Parser.JSON qualified as JSON
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
 import NOM.State.CacheId.Map qualified as CMap
@@ -92,7 +95,7 @@ type RunningBuildInfo = BuildInfo ()
 
 type CompletedBuildInfo = BuildInfo UTCTime
 
-type FailedBuildInfo = BuildInfo (UTCTime, FailType)
+type FailedBuildInfo = BuildInfo (UTCTime, FailType, Maybe ActivityId)
 
 data DependencySummary = MkDependencySummary
   { plannedBuilds :: DerivationSet
@@ -102,6 +105,8 @@ data DependencySummary = MkDependencySummary
   , plannedDownloads :: StorePathSet
   , completedDownloads :: StorePathMap Host
   , completedUploads :: StorePathMap Host
+  , runningDownloads :: StorePathMap Host
+  , runningUploads :: StorePathMap Host
   }
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
@@ -117,6 +122,8 @@ data NOMV1State = MkNOMV1State
   , storePathIds :: Map StorePath StorePathId
   , derivationIds :: Map Derivation DerivationId
   , touchedIds :: DerivationSet
+  , activities :: IntMap (Activity, Maybe Text, Maybe JSON.ActivityProgress)
+  , nixErrors :: [Text]
   }
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
@@ -128,8 +135,8 @@ data ProcessState = JustStarted | InputReceived | Finished
 data BuildStatus
   = Unknown
   | Planned
-  | Building (BuildInfo ())
-  | Failed (BuildInfo (UTCTime, FailType)) -- End
+  | Building (BuildInfo (Maybe ActivityId))
+  | Failed (BuildInfo (UTCTime, FailType, Maybe ActivityId)) -- End
   | Built (BuildInfo UTCTime) -- End
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
@@ -159,12 +166,14 @@ initalState = do
       mempty
       mempty
       mempty
+      mempty
+      mempty
 
 instance Semigroup DependencySummary where
-  (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7)
+  (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7 lm8 lm9) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7 rm8 rm9) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7) (lm8 <> rm8) (lm9 <> rm9)
 
 instance Monoid DependencySummary where
-  mempty = MkDependencySummary mempty mempty mempty mempty mempty mempty mempty
+  mempty = MkDependencySummary mempty mempty mempty mempty mempty mempty mempty mempty mempty
 
 getRunningBuilds :: NOMState (DerivationMap RunningBuildInfo)
 getRunningBuilds = gets (.fullSummary.runningBuilds)
@@ -242,7 +251,7 @@ updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
   addNew = case newStatus of
     Unknown -> id
     Planned -> field @"plannedBuilds" %~ CSet.insert drvId
-    Building bi -> field @"runningBuilds" %~ CMap.insert drvId bi
+    Building bi -> field @"runningBuilds" %~ CMap.insert drvId (void bi)
     Failed bi -> field @"failedBuilds" %~ CMap.insert drvId bi
     Built bi -> field @"completedBuilds" %~ CMap.insert drvId bi
 
@@ -254,15 +263,15 @@ updateSummaryForStorePath oldStates newStates pathId =
   remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
   remove_deleted = \case
     DownloadPlanned -> field @"plannedDownloads" %~ CSet.delete pathId
-    Downloading _ -> error "BUG: Downloading state is yet unsupported"
-    Uploading _ -> error "BUG: Uploading state is yet unsupported"
+    Downloading _ -> field @"runningDownloads" %~ CMap.delete pathId
+    Uploading _ -> field @"runningUploads" %~ CMap.delete pathId
     Downloaded _ -> error "BUG: Don’t remove a completed download"
     Uploaded _ -> error "BUG: Don‘t remove a completed upload"
   insert_added :: StorePathState -> DependencySummary -> DependencySummary
   insert_added = \case
     DownloadPlanned -> field @"plannedDownloads" %~ CSet.insert pathId
-    Downloading _ -> error "BUG: Downloading state is yet unsupported"
-    Uploading _ -> error "BUG: Uploading state is yet unsupported"
+    Downloading ho -> field @"runningDownloads" %~ CMap.insert pathId ho
+    Uploading ho -> field @"runningUploads" %~ CMap.insert pathId ho
     Downloaded ho -> field @"completedDownloads" %~ CMap.insert pathId ho
     Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
   deletedStates = Set.difference oldStates newStates |> toList

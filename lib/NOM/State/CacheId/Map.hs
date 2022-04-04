@@ -7,6 +7,7 @@ module NOM.State.CacheId.Map (
   nextKey,
   adjust,
   delete,
+  elems,
   size,
   NOM.State.CacheId.Map.null,
   CacheIdMap,
@@ -38,6 +39,9 @@ insert (MkCacheId index) value cmap = IntMap.insert index value cmap.intMap |> M
 
 keysSet :: CacheIdMap b a -> CSet.CacheIdSet b
 keysSet = (.intMap) .> IntMap.keysSet .> coerce
+
+elems :: CacheIdMap b a -> [a]
+elems = (.intMap) .> IntMap.elems
 
 nextKey :: CacheIdMap b a -> CacheId b
 nextKey = (.intMap) .> IntMap.lookupMax .> maybe 0 (fst .> (+ 1)) .> MkCacheId

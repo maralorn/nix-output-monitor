@@ -9,6 +9,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
 import Data.Tree (Forest, Tree (Node))
+import Data.IntMap qualified as IntMap
 import Optics (itoList, view, _2)
 
 -- terminal-size
@@ -23,7 +24,9 @@ import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
+import NOM.Parser.JSON (ActivityId(..))
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
+import Data.Map.Strict qualified as Map
 
 textRep, lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -92,8 +95,8 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
   innerTable = fromMaybe (one (text "")) (nonEmpty headers) : showCond showHosts printHosts
   headers =
     (cells 3 <$> optHeader showBuilds "Builds")
-      <> (cells 2 <$> optHeader showDownloads "Downloads")
-      <> optHeader showUploads "Uploads"
+      <> (cells 3 <$> optHeader showDownloads "Downloads")
+      <> (cells 2 <$> optHeader showUploads "Uploads")
       <> optHeader showHosts "Host"
   optHeader cond = showCond cond . one . bold . header :: Text -> [Entry]
   partial_last_row =
@@ -105,10 +108,14 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
       ]
       <> showCond
         showDownloads
-        [ nonZeroBold downloadsDone (green (label down (disp downloadsDone)))
+        [ nonZeroBold downloadsRunning (yellow (label down (disp downloadsRunning)))
+        , nonZeroBold downloadsDone (green (label down (disp downloadsDone)))
         , nonZeroBold numPlannedDownloads . blue . label todo . disp $ numPlannedDownloads
         ]
-      <> showCond showUploads [nonZeroBold uploadsDone (green (label up (disp uploadsDone)))]
+      <> showCond showUploads [
+        nonZeroBold uploadsRunning (yellow (label up (disp uploadsRunning))),
+        nonZeroBold uploadsDone (green (label up (disp uploadsDone)))
+        ]
   lastRow time' = partial_last_row `appendr` one (bold (header time'))
 
   showHosts = numHosts > 0
@@ -123,9 +130,13 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
   numPlannedBuilds = CSet.size plannedBuilds
   totalBuilds = numPlannedBuilds + numRunningBuilds + numCompletedBuilds
   downloadsDone = CMap.size completedDownloads
+  downloadsRunning = CMap.size runningDownloads
+  uploadsRunning = CMap.size runningUploads
   uploadsDone = CMap.size completedUploads
-  finishMarkup = if numFailedBuilds == 0 then ("Finished" <>) .> markup green else ((warning <> " Exited with failures") <>) .> markup red
-
+  finishMarkup 
+    | numFailedBuilds > 0 = ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>) .> markup red
+    | not (null nixErrors) = ((warning <> " Exited with " <> show (length nixErrors) <>  " errors reported by nix") <>) .> markup red
+    | otherwise = ("Finished" <>) .> markup green
   printHosts :: [NonEmpty Entry]
   printHosts =
     mapMaybe nonEmpty $ labelForHost <$> hosts
@@ -140,14 +151,18 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
         ]
         <> showCond
           showDownloads
-          [nonZeroShowBold downloads (green (label down (disp downloads))), dummy]
+          [ nonZeroShowBold downloadsRunning' (yellow (label down (disp downloadsRunning')))
+           , nonZeroShowBold downloads (green (label down (disp downloads))), dummy]
         <> showCond
           showUploads
-          [nonZeroShowBold uploads (green (label up (disp uploads)))]
+          [nonZeroShowBold uploadsRunning' (yellow (label up (disp uploadsRunning'))),
+          nonZeroShowBold uploads (green (label up (disp uploads)))]
         <> one (magenta (header (toText h)))
      where
       uploads = l h completedUploads
+      uploadsRunning' = l h runningUploads
       downloads = l h completedDownloads
+      downloadsRunning' = l h runningDownloads
       numRunningBuildsOnHost = l h runningBuilds'
       doneBuilds = l h completedBuilds'
     hosts =
@@ -240,7 +255,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
       (seen_ids, sorted_set) <- get
       let sort_key = sortKey nomState thisDrv
           summary@MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
-          may_hide = CSet.isSubsetOf (CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
+          may_hide = CSet.isSubsetOf (CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids && CMap.null runningDownloads && CMap.null runningUploads
           new_seen_ids = CSet.insert thisDrv seen_ids
           new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
           show_this_node =
@@ -265,6 +280,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         [ markup
             cyan
             ( down
+                <> showCond (downloadsInProgress > 0) (show downloadsInProgress <> "/")
                 <> show fullDownloads
                 <> showCond (downloads > fullDownloads) ("/" <> show downloads)
             )
@@ -282,7 +298,8 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         <> bar blue (CSet.size plannedBuilds)
     uploads = CMap.size completedUploads
     fullDownloads = CMap.size completedDownloads
-    downloads = fullDownloads + CSet.size plannedDownloads
+    downloadsInProgress = CMap.size runningDownloads
+    downloads = downloadsInProgress + fullDownloads + CSet.size plannedDownloads
     bar :: (Entry -> Entry) -> Int -> Text
     bar color c
       | c == 0 = ""
@@ -293,23 +310,32 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
 
   printDerivation :: DerivationInfo -> UTCTime -> Text
   printDerivation drvInfo = case drvInfo.buildStatus of
-    Unknown -> const drvName
+    Unknown -> const if CSet.fromFoldable (Map.elems drvInfo.outputs) `CSet.intersection` CMap.keysSet drvInfo.dependencySummary.runningDownloads /= mempty then markup cyan (down <> " " <> drvName) else drvName
     Planned -> const (markup blue (todo <> " " <> drvName))
-    Building buildInfo -> \now ->
+    Building buildInfo -> let
+        phaseList = case phaseMay buildInfo.end of
+          Nothing -> []
+          Just phase -> [markup bold ("(" <> phase <> ")")]
+      in \now ->
       unwords $
         [markups [yellow, bold] (running <> " " <> drvName)]
           <> hostMarkup buildInfo.host
+          <> phaseList
           <> [clock, timeDiff now buildInfo.start]
           <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
     Failed buildInfo ->
       let
-         (endTime, failType) = buildInfo.end
+         (endTime, failType, activityId) = buildInfo.end
+         phaseInfo = case phaseMay activityId of
+           Nothing -> []
+           Just phase -> ["in",phase]
       in
       const $
         unwords $
           [markups [red, bold] (warning <> " " <> drvName)]
             <> hostMarkup buildInfo.host
-            <> [markups [red, bold] (unwords ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start])]
+            <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
+            
     Built buildInfo ->
       const $
         unwords $
@@ -317,6 +343,10 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
             <> hostMarkup buildInfo.host
             <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
    where
+    phaseMay activityId' = do 
+          activityId <- activityId'
+          (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
+          phase
     drvName = drvInfo.name.storePath.name
 
 printFailType :: FailType -> Text

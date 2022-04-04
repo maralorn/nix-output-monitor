@@ -1,17 +1,12 @@
-module NOM.Parser (parser, ParseResult (..), parseStorePath, parseDerivation) where
+module NOM.Parser (parser, updateParser, planBuildLine, planDownloadLine, inTicks, ParseResult (..), parseStorePath, parseDerivation) where
 
 import Relude hiding (take, takeWhile)
 
 import Data.Attoparsec.ByteString (
   Parser,
   choice,
-  endOfInput,
-  inClass,
   manyTill',
-  parseOnly,
   string,
-  take,
-  takeWhile,
  )
 import Data.Attoparsec.ByteString qualified as ParseW8
 import Data.Attoparsec.ByteString.Char8 (
@@ -23,19 +18,21 @@ import Data.Attoparsec.ByteString.Char8 (
   isEndOfLine,
   takeTill,
  )
-import Data.Text (stripSuffix)
+import Data.Aeson (eitherDecodeStrict')
 
 import NOM.Builds (
   Derivation (..),
   FailType (ExitCode, HashMismatch),
   Host (..),
   StorePath (..),
-  storePrefix,
+  parseStorePath,
+  parseDerivation,
+  storePathParser, derivation
  )
 import NOM.Error (NOMError (ParseInternalJSONError))
-import NOM.Util (hush)
+import NOM.Util ((.>), (<|>>))
 
-data InternalJSON = InternalJSON deriving stock (Show, Eq)
+import NOM.Parser.JSON (InternalJson)
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -46,7 +43,7 @@ data ParseResult
   | PlanDownloads !Double !Double (Set StorePath)
   | Checking !Derivation
   | Failed !Derivation !FailType
-  | JSONMessage !(Either NOMError InternalJSON)
+  | JsonMessage !(Either NOMError InternalJson)
   deriving stock (Show, Eq)
 
 parser :: Parser (Maybe ParseResult)
@@ -56,25 +53,10 @@ updateParser :: Parser ParseResult
 updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
 jsonMessage :: Parser ParseResult
-jsonMessage = JSONMessage (Left ParseInternalJSONError) <$ string "@nix " <* noMatch
+jsonMessage = (string "@nix " *> noMatch) <|>> eitherDecodeStrict' .> first (toText .> ParseInternalJSONError) .> JsonMessage
 
-storePrefixBS :: ByteString
-storePrefixBS = encodeUtf8 storePrefix
-
-noMatch :: Parser ()
-noMatch = void $ ParseW8.takeTill isEndOfLine <* endOfLine
-
-storePath :: Parser StorePath
-storePath =
-  StorePath
-    <$> (decodeUtf8 <$> (string storePrefixBS *> take 32))
-    <*> (decodeUtf8 <$> (char '-' *> takeWhile (inClass "a-zA-Z0-9?=_.+-")))
-
-derivation :: Parser Derivation
-derivation =
-  storePath >>= \x -> case stripSuffix ".drv" x.name of
-    Just realName -> pure . Derivation $ x{name = realName}
-    Nothing -> mzero
+noMatch :: Parser ByteString
+noMatch = ParseW8.takeTill isEndOfLine <* endOfLine
 
 inTicks :: Parser a -> Parser a
 inTicks x = tick *> x <* tick
@@ -125,7 +107,7 @@ planDownloads =
     <*> (string " MiB unpacked):" *> endOfLine *> (fromList <$> many planDownloadLine))
 
 planDownloadLine :: Parser StorePath
-planDownloadLine = indent *> storePath <* endOfLine
+planDownloadLine = indent *> storePathParser <* endOfLine
 
 failed :: Parser ParseResult
 -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
@@ -159,7 +141,7 @@ copying =
 
 transmission :: Parser ParseResult
 transmission = do
-  p <- string "path " *> inTicks storePath
+  p <- string "path " *> inTicks storePathParser
   (Uploading p <$> toHost <|> Downloading p <$> fromHost) <* ellipsisEnd
 
 fromHost :: Parser Host
@@ -176,9 +158,3 @@ building :: Parser ParseResult
 building = do
   p <- string "building " *> inTicks derivation
   Build p Localhost <$ ellipsisEnd <|> Build p <$> onHost <* ellipsisEnd
-
-parseStorePath :: FilePath -> Maybe StorePath
-parseStorePath = hush . parseOnly (storePath <* endOfInput) . encodeUtf8
-
-parseDerivation :: FilePath -> Maybe Derivation
-parseDerivation = hush . parseOnly (derivation <* endOfInput) . encodeUtf8

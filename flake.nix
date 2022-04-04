@@ -40,6 +40,16 @@
                   # ${lib.concatStringsSep ", " (lib.attrValues golden-test ++ map (x: x.drvPath) (lib.attrValues golden-test))}
                   export TESTS_FROM_FILE=true;
                 '';
+                buildTools = [pkgs.installShellFiles];
+                postInstall = ''
+                  substitute "exe-sh/nom-build" "$out/bin/nom-build" \
+                    --replace 'nom' "$out/bin/nom"
+                  substitute "exe-sh/nom-shell" "$out/bin/nom-shell" \
+                    --replace 'nom' "$out/bin/nom"
+                  chmod a+x $out/bin/nom-build
+                  chmod a+x $out/bin/nom-shell
+                  installShellCompletion --zsh --name _nom-build completions/completion.zsh
+                '';
               })
             .overrideScope (_: prev: {
               relude = haskell.lib.compose.appendPatch (pkgs.fetchpatch {

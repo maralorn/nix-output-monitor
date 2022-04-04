@@ -9,14 +9,11 @@ import Control.Exception (IOException, try)
 import Data.ByteString qualified as ByteString
 import Data.Text qualified as Text
 import Data.Time (ZonedTime, getZonedTime)
-import Data.Word8 qualified as Word8
 import System.IO qualified
 
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Prelude ((.:))
 import Streamly.Prelude qualified as Stream
-
-import Data.Attoparsec.ByteString (IResult (..), Parser, Result, parse)
 
 import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
 import System.Console.Terminal.Size (Window (Window), size)
@@ -25,6 +22,8 @@ import NOM.Error (NOMError (InputError))
 import NOM.Print.Table as Table (bold, displayWidth, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (|>))
+import Data.Attoparsec.ByteString (Parser)
+import NOM.IO.ParseStream (parseStream)
 
 type Stream = Stream.SerialT IO
 type Output = Text
@@ -32,17 +31,6 @@ type UpdateFunc update state = forall m. UpdateMonad m => (update, ByteString) -
 type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 
-type ContParser update = (ByteString -> Result update, ByteString)
-
-parseChunk :: forall update. ContParser update -> (ByteString, ByteString) -> Stream.SerialT (StateT (ContParser update) IO) (update, ByteString)
-parseChunk initState (strippedInput, rawInput) = join $ state \(currentParser, consumed) ->
-  case currentParser strippedInput of
-    Done "" result -> (pure (result, consumed <> rawInput), initState)
-    Done rest result ->
-      let (!consumedNow, !rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
-       in ((result, consumed <> consumedNow) .: parseChunk initState (rest, rawLeft), initState)
-    Fail{} -> (Stream.nil, second (const (consumed <> rawInput)) initState)
-    Partial cont -> (Stream.nil, (cont, consumed <> rawInput))
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle = loop
@@ -60,18 +48,6 @@ readTextChunks handle = loop
       Right "" -> mempty -- EOF
       Right input -> Right input .: loop
 
-csi :: ByteString
-csi = "\27["
-breakOnANSIStartCode :: ByteString -> (ByteString, ByteString)
-breakOnANSIStartCode = ByteString.breakSubstring csi
-streamANSIChunks :: ByteString -> Stream (ByteString, ByteString)
-streamANSIChunks input =
-  let (!filtered, !unfiltered) = breakOnANSIStartCode input
-      (!codeParts, !rest) = ByteString.break Word8.isLetter unfiltered
-      (!code, !restOfStream) = case ByteString.uncons rest of
-        Just (!headOfRest, !tailOfRest) -> (ByteString.snoc codeParts headOfRest, streamANSIChunks tailOfRest)
-        Nothing -> (codeParts, Stream.nil)
-   in (filtered, filtered <> code) .: restOfStream
 
 runUpdate ::
   forall update state.
@@ -127,6 +103,7 @@ interact parser updater maintenance printer finalize initialState =
   readTextChunks stdin
     |> processTextStream parser updater maintenance (Just printer) finalize initialState
 
+
 processTextStream ::
   forall update state.
   Parser update ->
@@ -140,16 +117,13 @@ processTextStream ::
 processTextStream parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
-  let parserInitState = (parse parser, mempty)
+  let 
       keepProcessing :: IO ()
       keepProcessing =
         inputStream
           |> Stream.tap (writeErrorsToBuffer bufferVar)
           .> Stream.mapMaybe rightToMaybe
-          .> Stream.concatMap streamANSIChunks
-          .> Stream.liftInner
-          .> Stream.concatMap (parseChunk parserInitState)
-          .> Stream.runStateT (pure parserInitState)
+          .> parseStream parser
           .> Stream.mapM (snd .> runUpdate bufferVar stateVar updater >=> flip (<>) .> modifyTVar bufferVar .> atomically)
           .> Stream.drain
       waitForInput :: IO ()

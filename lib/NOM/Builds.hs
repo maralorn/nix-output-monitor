@@ -1,6 +1,12 @@
-module NOM.Builds (Derivation (..), StorePath (..), Host (..), FailType (..), storePrefix) where
+module NOM.Builds (Derivation (..), StorePath (..), Host (..), FailType (..), parseStorePath, parseDerivation, storePathParser, derivation) where
 
 import Relude
+import Data.Attoparsec.ByteString qualified as Parser
+import Data.Attoparsec.ByteString.Char8 qualified as CharParser
+import NOM.Util (hush)
+import Data.Aeson qualified as JSON
+import Data.Aeson.Types qualified as JSON
+import Data.Text qualified as Text
 
 data StorePath = StorePath
   { hash :: !Text
@@ -8,6 +14,43 @@ data StorePath = StorePath
   }
   deriving stock (Show, Ord, Eq, Generic)
   deriving anyclass (NFData)
+
+storePathParser :: Parser.Parser StorePath
+storePathParser =
+  StorePath
+    <$> (decodeUtf8 <$> (Parser.string storePrefixBS *> Parser.take 32))
+    <*> (decodeUtf8 <$> (CharParser.char '-' *> Parser.takeWhile (Parser.inClass "a-zA-Z0-9?=_.+-")))
+
+derivation :: Parser.Parser Derivation
+derivation =
+  storePathParser >>= \x -> case Text.stripSuffix ".drv" x.name of
+    Just realName -> pure . Derivation $ x{name = realName}
+    Nothing -> mzero
+
+parseDerivation :: ConvertUtf8 a ByteString => a -> Maybe Derivation
+parseDerivation = hush . Parser.parseOnly (derivation <* Parser.endOfInput) . encodeUtf8
+
+parseStorePath :: ConvertUtf8 a ByteString => a -> Maybe StorePath
+parseStorePath = hush . Parser.parseOnly (storePathParser <* Parser.endOfInput) . encodeUtf8
+
+instance JSON.FromJSON StorePath where
+   parseJSON = JSON.withText "store path" \text ->
+      case parseStorePath text of
+         Just path -> pure path
+         Nothing -> JSON.parseFail (toString text <> "is not a valid store path")
+
+instance JSON.FromJSON Derivation where
+   parseJSON = JSON.withText "derivation" \text ->
+      case parseDerivation text of
+         Just path -> pure path
+         Nothing -> JSON.parseFail (toString text <> "is not a valid derivation path")
+
+instance JSON.FromJSON Host where
+   parseJSON = JSON.withText "host" \text ->
+      pure $ case text of
+         "" -> Localhost
+         "local" -> Localhost
+         host -> Host host
 
 newtype Derivation = Derivation {storePath :: StorePath}
   deriving stock (Show, Generic)
@@ -18,6 +61,9 @@ instance ToText Derivation where
 
 instance ToString Derivation where
   toString = toString . toText
+
+storePrefixBS :: ByteString
+storePrefixBS = encodeUtf8 storePrefix
 
 storePrefix :: Text
 storePrefix = "/nix/store/"

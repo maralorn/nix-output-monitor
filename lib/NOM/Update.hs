@@ -9,17 +9,21 @@ import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
+import Data.ByteString.Char8 qualified as ByteString
+import Data.IntMap qualified as IntMap
 
 -- optics
 import Data.Generics.Product (field, typed)
 import Data.Generics.Sum (_As)
-import Optics (preview, (%), (%~), (.~), (?~))
+import Optics (preview, (%), (%~), (.~), (?~), _1, _2, _3, view)
 
 import Nix.Derivation qualified as Nix
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.Error (NOMError)
-import NOM.Parser (ParseResult (..), parseDerivation, parseStorePath)
+import NOM.Parser (ParseResult (..), parseDerivation, parseStorePath, updateParser)
+import NOM.Parser.JSON(InternalJson(..), MessageAction (..), ResultAction (..), ActivityResult (..), StartAction (..), ActivityId(..), Verbosity (..), Activity, StopAction (..))
+import NOM.Parser.JSON qualified as JSON
 import NOM.Parser qualified as Parser
 import NOM.State (
   BuildInfo (..),
@@ -59,6 +63,10 @@ import NOM.Update.Monad (
   UpdateMonad,
  )
 import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
+import NOM.Print.Table (markup, blue)
+import NOM.IO.ParseStream (parseOneText, stripANSICodes)
+import System.Console.ANSI (setSGRCode, SGR (Reset))
+import Data.Attoparsec.ByteString qualified as Attoparsec
 
 getReportName :: Derivation -> Text
 getReportName drv = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.storePath.name
@@ -86,13 +94,13 @@ updateState (result, input) (inputAccessTime, inputState) = do
   now <- getNow
 
   let (processing, printOutput) = case result of
-        Just result'@(JSONMessage _) -> (processResult result', False)
-        Just result' -> (processResult result', True)
-        Nothing -> (pure False, True)
+        Just result'@(JsonMessage msg) -> (processResult result', Just msg)
+        Just result' -> (processResult result', Nothing)
+        Nothing -> (pure False, Nothing)
       (outputAccessTime, check)
         | maybe True (diffUTCTime now .> (>= minTimeBetweenPollingNixStore)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
-  ((!hasChanged, !errors), outputState) <-
+  ((!hasChanged, !msgs), outputState) <-
     runStateT
       ( runWriterT
           ( or
@@ -110,7 +118,11 @@ updateState (result, input) (inputAccessTime, inputState) = do
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
   let retval = (outputAccessTime, if hasChanged then Just outputState else Nothing)
-  deepseq retval (pure ((errors, if printOutput then input else ""), retval))
+      output = case printOutput of
+         Just _ -> ""
+         Nothing -> input
+      errors = lefts msgs
+  deepseq retval (pure ((errors, output <> ByteString.unlines (rights msgs)), retval))
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
@@ -125,12 +137,14 @@ detectLocalFinishedBuilds = do
   when anyBuildsFinished (finishBuilds Localhost newCompletedOutputs)
   pure anyBuildsFinished
 
-processResult :: UpdateMonad m => ParseResult -> NOMStateT (WriterT [NOMError] m) Bool
+withChange :: Functor f => f b -> f Bool
+withChange = (True <$)
+
+noChange :: Applicative f => f Bool
+noChange = pure False
+
+processResult :: UpdateMonad m => ParseResult -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
 processResult result = do
-  let withChange :: Functor f => f b -> f Bool
-      withChange = (True <$)
-      noChange :: Applicative f => f Bool
-      noChange = pure False
   now <- getNow
   case result of
     Parser.Uploading path host -> withChange do
@@ -141,9 +155,8 @@ processResult result = do
       finishedRemoteBuild <- downloaded host pathId
       whenJust finishedRemoteBuild \build -> finishBuilds host [build]
     PlanCopies _ -> noChange
-    Build drv host -> withChange do
-      drvId <- lookupDerivation drv
-      building host drvId now
+    Build drvName host -> withChange do
+      building host drvName now Nothing
     PlanBuilds plannedBuilds _lastBuild -> withChange do
       plannedDrvIds <- forM (toList plannedBuilds) \drv ->
         lookupDerivation drv
@@ -152,15 +165,79 @@ processResult result = do
       plannedDownloadIds <- forM (toList plannedDownloads) \path ->
         getStorePathId path
       planDownloads (fromList plannedDownloadIds)
-    Checking drv -> withChange do
-      drvId <- lookupDerivation drv
-      building Localhost drvId now
+    Checking drvName -> withChange do
+      building Localhost drvName now Nothing
     Parser.Failed drv code -> withChange do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
-    JSONMessage msg -> case msg of
-      Left err -> withChange $ tell [err]
-      Right _ -> withChange pass
+    JsonMessage msg -> case msg of
+      Left err -> do
+        tell [Left err]
+        noChange
+      Right jsonMessage -> processJsonMessage now jsonMessage
+
+processJsonMessage :: UpdateMonad m => UTCTime -> InternalJson -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
+processJsonMessage now = \case
+  Message MkMessageAction {message,level} | level <= Info && level > Error -> do
+    let message' = encodeUtf8 message
+        parseResult = Attoparsec.parseOnly (Left <$> Parser.planBuildLine <|> Right <$> Parser.planDownloadLine) (message' <> "\n")
+    tell [Right message']
+    case parseResult of
+      Right (Right download) -> withChange do
+        plannedDownloadId <- getStorePathId download
+        planDownloads $ one plannedDownloadId
+      Right (Left build) -> withChange do
+        plannedDrvId <- lookupDerivation build
+        planBuilds (one plannedDrvId)
+      _ -> noChange
+  Message MkMessageAction {message,level = Error} | stripped <- stripANSICodes message, Text.isPrefixOf "error:" stripped -> withChange do
+    errors <- gets (.nixErrors)
+    unless (stripped `elem` errors) do
+      modify' (field @"nixErrors" %~ (<> [stripped]))
+      whenJust (parseOneText updateParser message) \result -> 
+        void (processResult result)
+      tell [Right (encodeUtf8 message)]
+  Result MkResultAction {result = BuildLogLine line, id=id'} -> do
+    nomState <- get
+    let prefix = activityPrefix (IntMap.lookup id'.value nomState.activities <|>> view _1)
+    tell [Right (encodeUtf8 (prefix <> line))]
+    noChange
+  Result MkResultAction {result = SetPhase phase, id=id'} -> withChange do
+    modify' (field @"activities" %~ IntMap.adjust (_2 ?~ phase) id'.value)
+  Result MkResultAction {result = Progress progress, id=id'} -> withChange do
+    modify' (field @"activities" %~ IntMap.adjust (_3 ?~ progress) id'.value)
+  Start startAction@MkStartAction{id=id'} -> withChange do
+    when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right (encodeUtf8 (activityPrefix (Just startAction.activity) <> startAction.text))]
+    modify' (field @"activities" %~ IntMap.insert id'.value (startAction.activity, Nothing,Nothing))
+    case startAction.activity of
+      JSON.Build drvName host _ _ -> do 
+        building host drvName now (Just id')
+      JSON.CopyPath path from Localhost -> do
+        pathId <- getStorePathId path
+        finishedRemoteBuild <- downloading from pathId
+        whenJust finishedRemoteBuild \build -> finishBuilds from [build]
+      JSON.CopyPath path Localhost to -> do
+        pathId <- getStorePathId path
+        uploading to pathId
+      _ -> pass --tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
+  Stop MkStopAction{id=id'} -> do
+    activity <- gets (\s -> IntMap.lookup id'.value s.activities)
+    case activity of
+      Just (JSON.CopyPath path from Localhost,_,_) -> withChange do
+        pathId <- getStorePathId path
+        void $ downloaded from pathId
+      Just (JSON.CopyPath path Localhost to,_,_) -> withChange do
+        pathId <- getStorePathId path
+        uploaded to pathId
+      _ -> noChange
+  _other -> do
+    --tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
+    noChange
+
+activityPrefix :: Maybe Activity -> Text
+activityPrefix = \case 
+                   Just (JSON.Build derivation _ _ _) -> toText (setSGRCode [Reset]) <> markup blue (getReportName derivation) <> "> "
+                   _ -> ""
 
 movingAverage :: Double
 movingAverage = 0.5
@@ -197,20 +274,20 @@ failedBuild :: UTCTime -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
  where
   update = \case
-    Building a -> State.Failed (a $> (now, code))
+    Building a -> State.Failed (a <|>> (now, code,))
     x -> x
 
-lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT (WriterT [NOMError] m) DerivationId
+lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT (WriterT [Either NOMError ByteString] m) DerivationId
 lookupDerivation drv = do
   drvId <- getDerivationId drv
   isCached <- gets ((.derivationInfos) .> CMap.lookup drvId .> maybe False (.cached))
   unless isCached $
     getDerivation drv >>= \case
-      Left err -> tell [err]
+      Left err -> tell [Left err]
       Right parsedDrv -> insertDerivation parsedDrv drvId
   pure drvId
 
-insertDerivation :: MonadReadDerivation m => Nix.Derivation FilePath Text -> DerivationId -> NOMStateT (WriterT [NOMError] m) ()
+insertDerivation :: MonadReadDerivation m => Nix.Derivation FilePath Text -> DerivationId -> NOMStateT (WriterT [Either NOMError ByteString] m) ()
 insertDerivation Nix.Derivation{outputs, inputSrcs, inputDrvs} drvId = do
   outputs' <-
     outputs |> Map.traverseMaybeWithKey \_ path -> do
@@ -248,22 +325,33 @@ planDownloads :: Set StorePathId -> NOMState ()
 planDownloads pathIds = forM_ pathIds \pathId ->
   insertStorePathState pathId DownloadPlanned
 
+downloading :: Host -> StorePathId -> NOMState (Maybe (DerivationId, RunningBuildInfo))
+downloading host pathId = do
+  insertStorePathState pathId (State.Downloading host)
+  runMaybeT $ do
+    drvId <- MaybeT (out2drv pathId)
+    drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
+    MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$) .> (drvId,)))
+
 downloaded :: Host -> StorePathId -> NOMState (Maybe (DerivationId, RunningBuildInfo))
 downloaded host pathId = do
   insertStorePathState pathId (Downloaded host)
   runMaybeT $ do
     drvId <- MaybeT (out2drv pathId)
     drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
-    MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (drvId,)))
+    MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$) .> (drvId,)))
+
+uploading :: Host -> StorePathId -> NOMState ()
+uploading host pathId = insertStorePathState pathId (State.Uploading host)
 
 uploaded :: Host -> StorePathId -> NOMState ()
 uploaded host pathId = insertStorePathState pathId (Uploaded host)
 
-building :: Host -> DerivationId -> UTCTime -> NOMState ()
-building host drv now = do
-  drvName <- lookupDerivationId drv
+building :: UpdateMonad m => Host -> Derivation -> UTCTime -> Maybe ActivityId -> NOMStateT (WriterT [Either NOMError ByteString] m) ()
+building host drvName now activityId = do
   lastNeeded <- get <|>> (.buildReports) .> Map.lookup (host, getReportName drvName)
-  updateDerivationState drv (const (Building (MkBuildInfo now host lastNeeded ())))
+  drvId <- lookupDerivation drvName
+  updateDerivationState drvId (const (Building (MkBuildInfo now host lastNeeded activityId)))
 
 updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus) -> NOMState ()
 updateDerivationState drvId updateStatus = do
@@ -271,23 +359,30 @@ updateDerivationState drvId updateStatus = do
   derivation_infos <- getDerivationInfos drvId
   let oldStatus = derivation_infos.buildStatus
       newStatus = updateStatus oldStatus
-  modify (field @"derivationInfos" %~ CMap.adjust (field @"buildStatus" .~ newStatus) drvId)
+  when (oldStatus /= newStatus) do
+    modify (field @"derivationInfos" %~ CMap.adjust (field @"buildStatus" .~ newStatus) drvId)
+    let 
+      update_summary = updateSummaryForDerivation oldStatus newStatus drvId
+      update_status
+        | Building{} <- newStatus = \case
+          Unknown -> Planned
+          other -> other
+        | otherwise = id
 
-  let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
+    -- Update summaries of all parents and sort them
+    updateParents update_status update_summary (derivation_infos.derivationParents)
 
-  -- Update summaries of all parents and sort them
-  updateParents update_summary (derivation_infos.derivationParents)
+    -- Update fullSummary
+    modify (field @"fullSummary" %~ update_summary)
 
-  -- Update fullSummary
-  modify (field @"fullSummary" %~ update_summary)
-
-updateParents :: (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
-updateParents update_func = go mempty
+updateParents :: (BuildStatus -> BuildStatus) -> (DependencySummary  -> DependencySummary ) -> DerivationSet -> NOMState ()
+updateParents stateUpdate update_func = go mempty
  where
   go :: DerivationSet -> DerivationSet -> NOMState ()
   go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
     Nothing -> modify (field @"touchedIds" %~ CSet.union updated_parents)
     Just (parentToUpdate, restToUpdate) -> do
+      updateDerivationState parentToUpdate stateUpdate
       modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
       next_parents <- getDerivationInfos parentToUpdate <|>> (.derivationParents)
       go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
@@ -313,7 +408,7 @@ insertStorePathState storePathId newStorePathState = do
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
 
   -- Update summaries of all parents
-  updateParents update_summary (maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
+  updateParents id update_summary (maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)

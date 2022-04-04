@@ -34,6 +34,7 @@ common common-config
     OverloadedRecordDot
 
   build-depends:
+    , aeson
     , ansi-terminal
     , async
     , attoparsec
@@ -75,7 +76,9 @@ library
     NOM.Builds
     NOM.Error
     NOM.IO
+    NOM.IO.ParseStream
     NOM.Parser
+    NOM.Parser.JSON
     NOM.Print
     NOM.Print.Table
     NOM.Print.Tree

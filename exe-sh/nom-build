@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-unbuffer nix-build "$@" 2>&1 | exec nom
+nix-build --log-format internal-json "$@" 2>&1 | exec nom
