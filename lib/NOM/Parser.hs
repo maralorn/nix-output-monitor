@@ -80,7 +80,7 @@ inTicks :: Parser a -> Parser a
 inTicks x = tick *> x <* tick
 
 tick :: Parser ()
-tick = () <$ char '\''
+tick = void $ char '\''
 
 noTicks :: Parser ByteString
 noTicks = takeTill (== '\'')
@@ -92,7 +92,7 @@ ellipsisEnd :: Parser ()
 ellipsisEnd = string "..." >> endOfLine
 
 indent :: Parser ()
-indent = () <$ string "  "
+indent = void $ string "  "
 
 -- these (<decimal> )?derivations will be built:
 --  /nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv
