@@ -33,31 +33,32 @@
       {
         packages = {
           default =
-            (haskell.lib.overrideCabal
-              (haskellPackages.callCabal2nix "nix-output-monitor" ./. {})
-              {
-                preCheck = ''
-                  # ${lib.concatStringsSep ", " (lib.attrValues golden-test ++ map (x: x.drvPath) (lib.attrValues golden-test))}
-                  export TESTS_FROM_FILE=true;
-                '';
-                buildTools = [pkgs.installShellFiles];
-                postInstall = ''
-                  substitute "exe-sh/nom-build" "$out/bin/nom-build" \
-                    --replace 'nom' "$out/bin/nom"
-                  substitute "exe-sh/nom-shell" "$out/bin/nom-shell" \
-                    --replace 'nom' "$out/bin/nom"
-                  chmod a+x $out/bin/nom-build
-                  chmod a+x $out/bin/nom-shell
-                  installShellCompletion --zsh --name _nom-build completions/completion.zsh
-                '';
-              })
-            .overrideScope (_: prev: {
-              relude = haskell.lib.compose.appendPatch (pkgs.fetchpatch {
-                url = "https://github.com/kowainik/relude/commit/d1fc18690b31b70ebbe68730270b73f53a5c7f12.patch";
-                sha256 = "sha256-tsozpK/AkhUE3tgUqjyDK/tnrujNd7yJdbLIUFZvJHk=";
-              }) (doJailbreak (dontCheck prev.relude));
-              optics = dontCheck prev.optics;
-            });
+            haskell.lib.justStaticExecutables
+            ((haskell.lib.overrideCabal
+                (haskellPackages.callCabal2nix "nix-output-monitor" ./. {})
+                {
+                  preCheck = ''
+                    # ${lib.concatStringsSep ", " (lib.attrValues golden-test ++ map (x: x.drvPath) (lib.attrValues golden-test))}
+                    export TESTS_FROM_FILE=true;
+                  '';
+                  buildTools = [pkgs.installShellFiles];
+                  postInstall = ''
+                    substitute "exe-sh/nom-build" "$out/bin/nom-build" \
+                      --replace 'nom' "$out/bin/nom"
+                    substitute "exe-sh/nom-shell" "$out/bin/nom-shell" \
+                      --replace 'nom' "$out/bin/nom"
+                    chmod a+x $out/bin/nom-build
+                    chmod a+x $out/bin/nom-shell
+                    installShellCompletion --zsh --name _nom-build completions/completion.zsh
+                  '';
+                })
+              .overrideScope (_: prev: {
+                relude = haskell.lib.compose.appendPatch (pkgs.fetchpatch {
+                  url = "https://github.com/kowainik/relude/commit/d1fc18690b31b70ebbe68730270b73f53a5c7f12.patch";
+                  sha256 = "sha256-tsozpK/AkhUE3tgUqjyDK/tnrujNd7yJdbLIUFZvJHk=";
+                }) (doJailbreak (dontCheck prev.relude));
+                optics = dontCheck prev.optics;
+              }));
         };
         checks = {
           pre-commit-check = pre-commit-hooks.lib.${system}.run {
