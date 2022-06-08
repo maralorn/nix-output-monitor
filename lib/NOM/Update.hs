@@ -15,7 +15,7 @@ import Data.IntMap qualified as IntMap
 -- optics
 import Data.Generics.Product (field, typed)
 import Data.Generics.Sum (_As)
-import Optics (preview, (%), (%~), (.~), (?~), _1, _2, _3, view)
+import Optics (preview, (%), (%~), (.~), (?~), _1, _2, view)
 
 import Nix.Derivation qualified as Nix
 
