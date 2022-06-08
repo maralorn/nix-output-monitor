@@ -204,8 +204,9 @@ processJsonMessage now = \case
     noChange
   Result MkResultAction {result = SetPhase phase, id=id'} -> withChange do
     modify' (field @"activities" %~ IntMap.adjust (_2 ?~ phase) id'.value)
-  Result MkResultAction {result = Progress progress, id=id'} -> withChange do
-    modify' (field @"activities" %~ IntMap.adjust (_3 ?~ progress) id'.value)
+  Result MkResultAction {result = Progress _} ->
+    noChange
+    -- withChange $ modify' (field @"activities" %~ IntMap.adjust (_3 ?~ progress) id'.value)
   Start startAction@MkStartAction{id=id'} -> withChange do
     when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right (encodeUtf8 (activityPrefix (Just startAction.activity) <> startAction.text))]
     modify' (field @"activities" %~ IntMap.insert id'.value (startAction.activity, Nothing,Nothing))

@@ -134,7 +134,7 @@ processTextStream parser updater maintenance printerMay finalize initialState in
         writeToScreen = writeStateToScreen linesVar stateVar bufferVar maintenance printer
         keepPrinting :: IO ()
         keepPrinting = forever do
-          race_ (concurrently_ (threadDelay 20000) waitForInput) (threadDelay 1000000)
+          race_ (concurrently_ (threadDelay 200000) waitForInput) (threadDelay 1000000)
           writeToScreen
     race_ keepProcessing keepPrinting
     readTVarIO stateVar >>= execStateT finalize >>= writeTVar stateVar .> atomically
