@@ -20,6 +20,7 @@ module NOM.Print.Table (
   markup,
   markups,
   grey,
+  displayWidthBS
 ) where
 
 import Relude hiding (truncate)
@@ -41,6 +42,7 @@ import System.Console.ANSI (
  )
 
 import NOM.Util ((|>))
+import Data.ByteString.Char8 qualified as ByteString
 
 data Entry = Entry
   { codes :: [SGR]
@@ -52,8 +54,14 @@ data Entry = Entry
 -- >>> displayWidth "∑"
 -- 1
 
+-- | Gives display width of a string, correctly ignoring ANSI codes and trying to
+-- guess correct with for unicode symbols like emojis.
 displayWidth :: Text -> Int
 displayWidth = fst . Text.foldl' widthFold (0, False)
+
+-- | Like displayWidth but for ByteString
+displayWidthBS :: ByteString -> Int
+displayWidthBS = fst . ByteString.foldl' widthFold (0, False)
 
 truncate :: Int -> Text -> Text
 truncate cut = either id (\(x, _, _) -> x) . Text.foldl' (truncateFold cut) (Right ("", 0, False))

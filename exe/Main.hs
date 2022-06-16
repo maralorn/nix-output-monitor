@@ -41,6 +41,8 @@ main = do
   firstState <- initalState
   let firstCompoundState = (Nothing, firstState, stateToText firstState)
   (_, finalState, _) <- interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer firstCompoundState
+
+  putTextLn "" -- We print a new line after finish, because in normal nom state the last line is not empty.
   Terminal.showCursor
 
   if CMap.size finalState.fullSummary.failedBuilds == 0

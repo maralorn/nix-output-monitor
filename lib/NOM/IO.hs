@@ -15,22 +15,24 @@ import Streamly.Data.Fold qualified as Fold
 import Streamly.Prelude ((.:))
 import Streamly.Prelude qualified as Stream
 
-import System.Console.ANSI (SGR (Reset), clearLine, cursorUpLine, setSGRCode)
-import System.Console.Terminal.Size (Window (Window), size)
+import System.Console.ANSI (SGR (Reset), setSGRCode)
 
 import NOM.Error (NOMError (InputError))
-import NOM.Print.Table as Table (bold, displayWidth, markup, red, truncate)
+import NOM.Print.Table as Table (bold, displayWidth, markup, red, truncate, displayWidthBS)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (|>))
 import Data.Attoparsec.ByteString (Parser)
 import NOM.IO.ParseStream (parseStream)
+import Data.ByteString.Char8 qualified as ByteString
+import System.Console.ANSI qualified as Terminal
+import System.Console.Terminal.Size qualified as Terminal.Size
 
 type Stream = Stream.SerialT IO
 type Output = Text
 type UpdateFunc update state = forall m. UpdateMonad m => (update, ByteString) -> StateT state m ([NOMError], ByteString)
-type OutputFunc state = state -> Maybe (Window Int) -> ZonedTime -> Output
+type OutputFunc state = state -> Maybe Window -> ZonedTime -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
-
+type Window = Terminal.Size.Window Int
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle = loop
@@ -47,7 +49,6 @@ readTextChunks handle = loop
       Left err -> Left (InputError err) .: loop -- Ignore Exception
       Right "" -> mempty -- EOF
       Right input -> Right input .: loop
-
 
 runUpdate ::
   forall update state.
@@ -67,28 +68,78 @@ runUpdate bufferVar stateVar updater input = do
 writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> IO ()
 writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
   now <- getZonedTime
-  terminalSize <- size
+  terminalSize <- Terminal.Size.size
 
   -- Do this strictly so that rendering the output does not flicker
-  (!writtenLines, !buffer, !linesToWrite, !output) <- atomically $ do
+  (!writtenLines, !output) <- atomically do
     unprepared_nom_state <- readTVar stateVar
     let prepared_nom_state = maintenance unprepared_nom_state
-        output = truncateOutput terminalSize (printer prepared_nom_state terminalSize now)
-        linesToWrite = length (Text.lines output)
+        output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer prepared_nom_state terminalSize now)
+        linesToWrite = length output
     writeTVar stateVar prepared_nom_state
     writtenLines <- swapTVar linesVar linesToWrite
-    buffer <- swapTVar bufferVar mempty
-    pure (writtenLines, buffer, linesToWrite, output)
+    buffer <- ByteString.lines <$> swapTVar bufferVar mempty
+
+    -- We will try to calculate how many lines we can draw without reaching the end
+    -- of the screen so that we can avoid flickering redraws triggered by
+    -- printing a newline.
+    -- For the output passed through from Nix the lines could be to long leading
+    -- to reflow by the terminal and therefor messing with our line count.
+    -- We try to predict the number of introduced linebreaks here. The number
+    -- might be slightly to high in corner cases but that will only trigger
+    -- sligthly more redraws which is totally acceptable.
+    let reflowLineCountCorrection = do
+          terminalSize' <- terminalSize
+          pure $ getSum $ foldMap (\line -> Sum (displayWidthBS line `div` terminalSize'.width)) buffer
+    pure (writtenLines, force (zip (whatNewLine writtenLines reflowLineCountCorrection <$> [0..])) (buffer <> output))
 
   -- Clear last output from screen.
-  replicateM_ writtenLines do
-    cursorUpLine 1
-    clearLine
+  -- First we clear the current line, if we have written on it.
+  when (writtenLines > 0) Terminal.clearLine
+
+  -- Then, if necessary we, move up and clear more lines.
+  replicateM_ (writtenLines - 1) do
+    Terminal.cursorUpLine 1 -- Moves cursor one line up and to the beginning of the line.
+    Terminal.clearLine -- We are avoiding to use clearFromCursorToScreenEnd
+                       -- because it apparently triggers a flush on some terminals.
+
+  -- when we have cleared the line, but not used cursorUpLine, the cursor needs to be moved to the start for printing.
+  when (writtenLines == 1) do Terminal.setCursorColumn 0
 
   -- Write new output to screen.
-  ByteString.putStr buffer
-  when (linesToWrite > 0) $ putTextLn output
+  forM_ output \(newline, line) -> do
+    case newline of
+      NoNewLine -> pass
+      MoveNewLine -> Terminal.cursorDownLine 1
+      PrintNewLine -> ByteString.putStr "\n"
+    ByteString.putStr line
+
   System.IO.hFlush stdout
+
+-- Depending on the current line of the output we are printing we need to decide
+-- how to move to a new line before printing.
+whatNewLine :: Int -> Maybe Int -> Int -> NewLine
+whatNewLine _ Nothing = \case
+ -- When we have no info about terminal size, better be careful and always print
+ -- newlines if necessary.
+ 0 -> NoNewLine
+ _ -> PrintNewLine
+whatNewLine previousPrintedLines (Just correction) = \case
+ -- When starting to print we are always in an empty line with the cursor at the start.
+ -- So we don‘t need to go to a new line
+ 0 -> NoNewLine
+ -- When the current offset is smaller than the number of previously printed lines.
+ -- e.g. we have printed 1 line, but before we had printed 2
+ -- then we can probably move the cursor a row down without needing to print a newline.
+ x |
+  x + correction < previousPrintedLines -> MoveNewLine
+ -- When we are at the bottom of the terminal we have no choice but need to
+ -- print a newline and thus (sadly) flush the terminal
+ _ -> PrintNewLine
+
+data NewLine = NoNewLine | MoveNewLine | PrintNewLine
+  deriving stock Generic
+  deriving anyclass NFData
 
 interact ::
   forall update state.
@@ -103,6 +154,17 @@ interact parser updater maintenance printer finalize initialState =
   readTextChunks stdin
     |> processTextStream parser updater maintenance (Just printer) finalize initialState
 
+-- frame durations are passed to threadDelay and thus are given in microseconds
+
+maxFrameDuration :: Int
+maxFrameDuration = 1_000_000 -- once per second to update timestamps
+
+minFrameDuration :: Int
+minFrameDuration =
+ -- this seems to be a nice compromise to reduce excessive
+ -- flickering, since the movement is not continuous this low frequency doesn‘t
+ -- feel to sluggish for the eye, for me.
+   100_000 -- 10 times per second
 
 processTextStream ::
   forall update state.
@@ -117,7 +179,7 @@ processTextStream ::
 processTextStream parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
-  let 
+  let
       keepProcessing :: IO ()
       keepProcessing =
         inputStream
@@ -134,7 +196,7 @@ processTextStream parser updater maintenance printerMay finalize initialState in
         writeToScreen = writeStateToScreen linesVar stateVar bufferVar maintenance printer
         keepPrinting :: IO ()
         keepPrinting = forever do
-          race_ (concurrently_ (threadDelay 200000) waitForInput) (threadDelay 1000000)
+          race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
           writeToScreen
     race_ keepProcessing keepPrinting
     readTVarIO stateVar >>= execStateT finalize >>= writeTVar stateVar .> atomically
@@ -155,17 +217,17 @@ appendError err prev = (if ByteString.null prev || ByteString.isSuffixOf "\n" pr
 nomError :: ByteString
 nomError = encodeUtf8 (markup (red . bold) "nix-output-monitor internal error: ")
 
-truncateOutput :: Maybe (Window Int) -> Text -> Text
+truncateOutput :: Maybe Window -> Text -> Text
 truncateOutput win output = maybe output go win
  where
-  go :: Window Int -> Text
-  go (Window rows columns) = Text.intercalate "\n" $ truncateColumns columns <$> truncatedRows rows
+  go :: Window -> Text
+  go window = Text.intercalate "\n" $ truncateColumns window.width <$> truncateRows window.height
 
   truncateColumns :: Int -> Text -> Text
   truncateColumns columns line = if displayWidth line > columns then Table.truncate (columns - 1) line <> "…" <> toText (setSGRCode [Reset]) else line
 
-  truncatedRows :: Int -> [Text]
-  truncatedRows rows
+  truncateRows :: Int -> [Text]
+  truncateRows rows
     | length outputLines >= rows - outputLinesToAlwaysShow = take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + outputLinesToAlwaysShow + 2 - rows) outputLines
     | otherwise = outputLines
 
