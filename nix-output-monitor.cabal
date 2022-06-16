@@ -68,6 +68,7 @@ common common-config
     -Wno-missing-safe-haskell-mode -Wno-unsafe
     -Wno-missing-kind-signatures -fshow-warning-groups
     -fexpose-all-unfoldings -Wno-all-missed-specialisations
+    -funfolding-use-threshold=16 -O2 -optc-O3
 
 library
   import:          common-config
