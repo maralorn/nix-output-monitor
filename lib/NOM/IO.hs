@@ -70,15 +70,14 @@ writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
   now <- getZonedTime
   terminalSize <- Terminal.Size.size
 
-  -- Do this strictly so that rendering the output does not flicker
-  (!writtenLines, !output) <- atomically do
+  (!lastPrintedLineCount, reflowLineCountCorrection, linesToPad, nixOutput, nomOutput) <- atomically do
     unprepared_nom_state <- readTVar stateVar
     let prepared_nom_state = maintenance unprepared_nom_state
-        output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer prepared_nom_state terminalSize now)
-        linesToWrite = length output
+        nomOutput = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer prepared_nom_state terminalSize now)
+        nomOutputLength = length nomOutput
     writeTVar stateVar prepared_nom_state
-    writtenLines <- swapTVar linesVar linesToWrite
-    buffer <- ByteString.lines <$> swapTVar bufferVar mempty
+    lastPrintedLineCount <- readTVar linesVar
+    nixOutput <- ByteString.lines <$> swapTVar bufferVar mempty
 
     -- We will try to calculate how many lines we can draw without reaching the end
     -- of the screen so that we can avoid flickering redraws triggered by
@@ -90,24 +89,42 @@ writeStateToScreen linesVar stateVar bufferVar maintenance printer = do
     -- sligthly more redraws which is totally acceptable.
     let reflowLineCountCorrection = do
           terminalSize' <- terminalSize
-          pure $ getSum $ foldMap (\line -> Sum (displayWidthBS line `div` terminalSize'.width)) buffer
-    pure (writtenLines, force (zip (whatNewLine writtenLines reflowLineCountCorrection <$> [0..])) (buffer <> output))
+          pure $ getSum $ foldMap (\line -> Sum (displayWidthBS line `div` terminalSize'.width)) nixOutput
+        -- When the nom output suddenly gets smaller, it might jump up from the bottom of the screen.
+        -- To prevent this we insert a few newlines before it.
+        -- We only do this if we know the size of the terminal.
+        linesToPad = fromMaybe 0 do
+          reflowCorrection <- reflowLineCountCorrection
+          let nixOutputLength = reflowCorrection + length nixOutput
+          pure $ max 0 (lastPrintedLineCount - nixOutputLength - nomOutputLength)
+        lineCountToPrint = nomOutputLength + linesToPad
+    writeTVar linesVar lineCountToPrint
+    -- We pass a lot of variables out of the STM call here to prevent
+    -- congestion.  It’s probably not super relevant because the most expensive
+    -- call here is probably `printer` a few lines above.
+    pure (lastPrintedLineCount, reflowLineCountCorrection, linesToPad, nixOutput, nomOutput)
 
+  let 
+    outputToPrint = nixOutput <> mtimesDefault linesToPad [""] <> nomOutput
+    -- We have Strict enabled and at this point we are using force to make sure
+    -- the whole output has been calculated before we clear the screen.
+    outputToPrintWithNewlineAnnotations = force (zip (whatNewLine lastPrintedLineCount reflowLineCountCorrection <$> [0..])) outputToPrint
+  
   -- Clear last output from screen.
   -- First we clear the current line, if we have written on it.
-  when (writtenLines > 0) Terminal.clearLine
+  when (lastPrintedLineCount > 0) Terminal.clearLine
 
   -- Then, if necessary we, move up and clear more lines.
-  replicateM_ (writtenLines - 1) do
+  replicateM_ (lastPrintedLineCount - 1) do
     Terminal.cursorUpLine 1 -- Moves cursor one line up and to the beginning of the line.
     Terminal.clearLine -- We are avoiding to use clearFromCursorToScreenEnd
                        -- because it apparently triggers a flush on some terminals.
 
   -- when we have cleared the line, but not used cursorUpLine, the cursor needs to be moved to the start for printing.
-  when (writtenLines == 1) do Terminal.setCursorColumn 0
+  when (lastPrintedLineCount == 1) do Terminal.setCursorColumn 0
 
   -- Write new output to screen.
-  forM_ output \(newline, line) -> do
+  forM_ outputToPrintWithNewlineAnnotations \(newline, line) -> do
     case newline of
       NoNewLine -> pass
       MoveNewLine -> Terminal.cursorDownLine 1
