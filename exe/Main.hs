@@ -37,6 +37,7 @@ main = do
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
 
   Terminal.hideCursor
+  hSetBuffering stdout (BlockBuffering (Just 1000000))
 
   firstState <- initalState
   let firstCompoundState = (Nothing, firstState, stateToText firstState)
