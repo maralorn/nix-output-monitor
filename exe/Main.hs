@@ -22,6 +22,7 @@ import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache, (<|>>), (<||>))
 import System.Console.ANSI qualified as Terminal
+import Control.Exception qualified as Exception
 
 main :: IO ()
 main = do
@@ -36,15 +37,17 @@ main = do
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
 
-  Terminal.hideCursor
-  hSetBuffering stdout (BlockBuffering (Just 1000000))
+  (_, finalState, _) <-
+    do
+      Terminal.hideCursor
+      hSetBuffering stdout (BlockBuffering (Just 1000000))
 
-  firstState <- initalState
-  let firstCompoundState = (Nothing, firstState, stateToText firstState)
-  (_, finalState, _) <- interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer firstCompoundState
-
+      firstState <- initalState
+      let firstCompoundState = (Nothing, firstState, stateToText firstState)
+      interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer firstCompoundState
+    `Exception.finally`
+    Terminal.showCursor
   putTextLn "" -- We print a new line after finish, because in normal nom state the last line is not empty.
-  Terminal.showCursor
 
   if CMap.size finalState.fullSummary.failedBuilds == 0
     then exitSuccess
