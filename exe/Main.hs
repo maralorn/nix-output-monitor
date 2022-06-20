@@ -46,8 +46,9 @@ main = do
       let firstCompoundState = (Nothing, firstState, stateToText firstState)
       interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer firstCompoundState
     `Exception.finally`
-    Terminal.showCursor
-  putTextLn "" -- We print a new line after finish, because in normal nom state the last line is not empty.
+    do
+      Terminal.showCursor
+      putTextLn "" -- We print a new line after finish, because in normal nom state the last line is not empty.
 
   if CMap.size finalState.fullSummary.failedBuilds == 0
     then exitSuccess
