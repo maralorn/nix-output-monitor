@@ -47,21 +47,21 @@ sortDepsOfSet parents = do
       sort_key = memo (sortKey currentState)
   parents |> CSet.toList .> mapM_ \drvId -> sort_parent drvId
 
--- We order by type and disambiguate by the number of a) waiting builds, b) running builds
 type SortKey =
   ( SortOrder
-  , Down Int -- Waiting Builds
-  , Down Int -- Running Builds
-  , Down Int -- Waiting Downloads
-  , Down Int -- Completed Downloads
+  -- We always want to show all running builds and transfers so we try to display them low in the tree.
+  , Down Int -- Running Builds, prefer more
+  , Down Int -- Running Downloads, prefer more
+  -- But we want to show the smallest tree showing all builds and downloads to save screen estate.
+  , Int -- Waiting Builds, prefer less
+  , Int -- Waiting Downloads, prefer less
   )
 
 data SortOrder
   = -- First the failed builds starting with the earliest failures
     SFailed UTCTime
-  | -- Second the running builds starting with longest running
-    -- For one build prefer the tree with the longest prefix for the highest probability of few permutations over time
-    SBuilding UTCTime
+    -- Second the running builds starting with longest running
+  | SBuilding UTCTime
   | SDownloading
   | SUploading
   | SWaiting
@@ -90,4 +90,4 @@ sortKey nom_state drvId =
         , pureIf (not (CMap.null completedDownloads)) SDownloaded
         , pureIf (not (CMap.null completedUploads)) SUploaded
         ]
-   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CSet.size plannedBuilds), Down (CMap.size runningBuilds), Down (CSet.size plannedDownloads), Down (CMap.size completedDownloads))
+   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds, CSet.size plannedDownloads)

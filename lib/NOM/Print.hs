@@ -17,9 +17,9 @@ import System.Console.Terminal.Size (Window)
 import System.Console.Terminal.Size qualified as Window
 
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
-import NOM.Print.Table (Entry, blue, bold, cells, cyan, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
+import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), getDerivationInfos)
+import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), getDerivationInfos, getStorePathInfos, StorePathInfo (..))
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
@@ -28,7 +28,7 @@ import NOM.Parser.JSON (ActivityId(..))
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
 import Data.Map.Strict qualified as Map
 
-textRep, lb, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
+textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
 vertical = "┃"
 lowerleft = "┗"
@@ -44,7 +44,6 @@ todo = "⏳︎︎" <> textRep
 warning = "⚠" <> textRep
 average = "∅"
 bigsum = "∑"
-lb = "▒"
 
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
@@ -177,8 +176,6 @@ nonZeroShowBold num = if num > 0 then bold else const dummy
 nonZeroBold :: Int -> Entry -> Entry
 nonZeroBold num = if num > 0 then bold else id
 
-data TreeNode = DerivationNode DerivationInfo Bool deriving stock (Generic)
-
 data TreeLocation = Root | Twig | Leaf deriving stock (Eq)
 
 printBuilds ::
@@ -200,16 +197,15 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     | otherwise = unwords [graphTitle, "showing", show num_roots, "of", show num_raw_roots, "roots"]
   preparedPrintForest :: Forest (UTCTime -> Text)
   preparedPrintForest = buildForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
-  printTreeNode :: TreeLocation -> TreeNode -> UTCTime -> Text
-  printTreeNode location = \case
-    DerivationNode drvInfo with_summary ->
+  printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
+  printTreeNode location drvInfo =
       let summary = showSummary drvInfo.dependencySummary
-       in \now -> printDerivation drvInfo now <> showCond ((location == Root || location == Leaf || with_summary) && not (Text.null summary)) (markup grey " & " <> summary)
+       in \now -> printDerivation drvInfo now <> showCond (location == Leaf && not (Text.null summary)) (markup grey " waiting for " <> summary)
 
-  buildForest :: Forest TreeNode
+  buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
 
-  goBuildForest :: Seq DerivationId -> State DerivationSet (Forest TreeNode)
+  goBuildForest :: Seq DerivationId -> State DerivationSet (Forest DerivationInfo)
   goBuildForest = \case
     (thisDrv Seq.:<| restDrvs) -> do
       seen_ids <- get
@@ -219,8 +215,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
                   childs = children thisDrv
               modify (CSet.insert thisDrv)
               subforest <- goBuildForest childs
-              let with_summary = length subforest < length (Seq.filter (\x -> get' (summaryIncludingRoot x) /= mempty) childs)
-              pure (Node (DerivationNode drvInfo with_summary) subforest :)
+              pure (Node drvInfo subforest :)
             | otherwise = pure id
       prepend_node <- mkNode
       goBuildForest restDrvs <|>> prepend_node
@@ -255,7 +250,11 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
       (seen_ids, sorted_set) <- get
       let sort_key = sortKey nomState thisDrv
           summary@MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
-          may_hide = CSet.isSubsetOf (CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids && CMap.null runningDownloads && CMap.null runningUploads
+          runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
+          nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path -> 
+            let infos = get' (getStorePathInfos path)
+            in infos.inputFor <> CSet.fromFoldable infos.producer
+          may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           new_seen_ids = CSet.insert thisDrv seen_ids
           new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
           show_this_node =
@@ -274,43 +273,25 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
 
   showSummary :: DependencySummary -> Text
   showSummary MkDependencySummary{..} =
-    [ [totalBar | not (Text.null totalBar)]
-    , memptyIfTrue
-        (0 == downloads)
-        [ markup
-            cyan
-            ( down
-                <> showCond (downloadsInProgress > 0) (show downloadsInProgress <> "/")
-                <> show fullDownloads
-                <> showCond (downloads > fullDownloads) ("/" <> show downloads)
-            )
-        ]
-    , memptyIfTrue
-        (0 == uploads)
-        [markup magenta (up <> show uploads)]
+    [ 
+      memptyIfTrue (CMap.null failedBuilds) 
+        [markup red $ show (CMap.size failedBuilds) <> " failed"],
+      memptyIfTrue (CMap.null runningBuilds) 
+        [markup yellow $ show (CMap.size runningBuilds) <> " building"],
+      memptyIfTrue (CSet.null plannedBuilds) 
+        [markup blue $ show (CSet.size plannedBuilds) <> " waiting builds"],
+      memptyIfTrue (CMap.null runningUploads) 
+        [markup magenta $ show (CMap.size runningUploads) <> " uploading"],
+      memptyIfTrue (CMap.null runningDownloads) 
+        [markup yellow $ show (CMap.size runningDownloads) <> " downloads"],
+      memptyIfTrue (CSet.null plannedDownloads) 
+        [markup blue $ show (CSet.size plannedDownloads) <> " waiting downloads"]
     ]
       |> join .> unwords
-   where
-    totalBar =
-      bar red (CMap.size failedBuilds)
-        <> bar green (CMap.size completedBuilds)
-        <> bar yellow (CMap.size runningBuilds)
-        <> bar blue (CSet.size plannedBuilds)
-    uploads = CMap.size completedUploads
-    fullDownloads = CMap.size completedDownloads
-    downloadsInProgress = CMap.size runningDownloads
-    downloads = downloadsInProgress + fullDownloads + CSet.size plannedDownloads
-    bar :: (Entry -> Entry) -> Int -> Text
-    bar color c
-      | c == 0 = ""
-      | c <= 10 = stimesMonoid c lb |> markup color
-      | otherwise =
-        let blocks = stimesMonoid (3 :: Int) lb
-         in (blocks <> "┄" <> show c <> "┄" <> blocks) |> markup color
 
   printDerivation :: DerivationInfo -> UTCTime -> Text
   printDerivation drvInfo = case drvInfo.buildStatus of
-    Unknown -> const if CSet.fromFoldable (Map.elems drvInfo.outputs) `CSet.intersection` CMap.keysSet drvInfo.dependencySummary.runningDownloads /= mempty then markup cyan (down <> " " <> drvName) else drvName
+    Unknown -> const if CSet.fromFoldable (Map.elems drvInfo.outputs) `CSet.intersection` CMap.keysSet drvInfo.dependencySummary.runningDownloads /= mempty then markups [bold, yellow] (down <> " " <> drvName) else drvName
     Planned -> const (markup blue (todo <> " " <> drvName))
     Building buildInfo -> let
         phaseList = case phaseMay buildInfo.end of
