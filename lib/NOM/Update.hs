@@ -39,6 +39,7 @@ import NOM.State (
   RunningBuildInfo,
   StorePathId,
   StorePathState (..),
+  TransferInfo(..),
   drv2out,
   getDerivationId,
   getDerivationInfos,
@@ -149,10 +150,10 @@ processResult result = do
   case result of
     Parser.Uploading path host -> withChange do
       pathId <- getStorePathId path
-      uploaded host pathId
+      uploaded host pathId now
     Parser.Downloading path host -> withChange do
       pathId <- getStorePathId path
-      finishedRemoteBuild <- downloaded host pathId
+      finishedRemoteBuild <- downloaded host pathId now
       whenJust finishedRemoteBuild \build -> finishBuilds host [build]
     PlanCopies _ -> noChange
     Build drvName host -> withChange do
@@ -215,21 +216,21 @@ processJsonMessage now = \case
         building host drvName now (Just id')
       JSON.CopyPath path from Localhost -> do
         pathId <- getStorePathId path
-        finishedRemoteBuild <- downloading from pathId
+        finishedRemoteBuild <- downloading from pathId now
         whenJust finishedRemoteBuild \build -> finishBuilds from [build]
       JSON.CopyPath path Localhost to -> do
         pathId <- getStorePathId path
-        uploading to pathId
+        uploading to pathId now
       _ -> pass --tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
   Stop MkStopAction{id=id'} -> do
     activity <- gets (\s -> IntMap.lookup id'.value s.activities)
     case activity of
       Just (JSON.CopyPath path from Localhost,_,_) -> withChange do
         pathId <- getStorePathId path
-        void $ downloaded from pathId
+        void $ downloaded from pathId now
       Just (JSON.CopyPath path Localhost to,_,_) -> withChange do
         pathId <- getStorePathId path
-        uploaded to pathId
+        uploaded to pathId now
       _ -> noChange
   _other -> do
     --tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
@@ -248,6 +249,7 @@ reportFinishingBuilds host builds = do
   now <- getNow
   updateBuildReports (modifyBuildReports host (timeDiffInt now <<$>> builds))
 
+-- | time difference in seconds rounded down
 timeDiffInt :: UTCTime -> UTCTime -> Int
 timeDiffInt = diffUTCTime <.>> floor
 
@@ -324,29 +326,34 @@ planBuilds drvIds = forM_ drvIds \drvId ->
 
 planDownloads :: Set StorePathId -> NOMState ()
 planDownloads pathIds = forM_ pathIds \pathId ->
-  insertStorePathState pathId DownloadPlanned
+  insertStorePathState pathId DownloadPlanned Nothing
 
-downloading :: Host -> StorePathId -> NOMState (Maybe (DerivationId, RunningBuildInfo))
-downloading host pathId = do
-  insertStorePathState pathId (State.Downloading host)
+downloading :: Host -> StorePathId -> UTCTime -> NOMState (Maybe (DerivationId, RunningBuildInfo))
+downloading host pathId start = do
+  insertStorePathState pathId (State.Downloading MkTransferInfo {host, duration = start}) Nothing
   runMaybeT $ do
     drvId <- MaybeT (out2drv pathId)
     drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
     MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$) .> (drvId,)))
 
-downloaded :: Host -> StorePathId -> NOMState (Maybe (DerivationId, RunningBuildInfo))
-downloaded host pathId = do
-  insertStorePathState pathId (Downloaded host)
+downloaded :: Host -> StorePathId -> UTCTime -> NOMState (Maybe (DerivationId, RunningBuildInfo))
+downloaded host pathId end = do
+  insertStorePathState pathId (Downloaded MkTransferInfo {host, duration = Nothing}) $ Just \case
+    State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info{duration = Just $ timeDiffInt end transfer_info.duration})
+    other -> other
   runMaybeT $ do
     drvId <- MaybeT (out2drv pathId)
     drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
     MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$) .> (drvId,)))
 
-uploading :: Host -> StorePathId -> NOMState ()
-uploading host pathId = insertStorePathState pathId (State.Uploading host)
-
-uploaded :: Host -> StorePathId -> NOMState ()
-uploaded host pathId = insertStorePathState pathId (Uploaded host)
+uploading :: Host -> StorePathId -> UTCTime -> NOMState ()
+uploading host pathId start =
+  insertStorePathState pathId (State.Uploading MkTransferInfo {host, duration = start}) Nothing
+uploaded :: Host -> StorePathId -> UTCTime -> NOMState ()
+uploaded host pathId end =
+  insertStorePathState pathId (Uploaded MkTransferInfo {host, duration = Nothing}) $ Just \case
+    State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info{duration = Just $ timeDiffInt end transfer_info.duration})
+    other -> other
 
 building :: UpdateMonad m => Host -> Derivation -> UTCTime -> Maybe ActivityId -> NOMStateT (WriterT [Either NOMError ByteString] m) ()
 building host drvName now activityId = do
@@ -388,22 +395,25 @@ updateParents stateUpdate update_func = go mempty
       next_parents <- getDerivationInfos parentToUpdate <|>> (.derivationParents)
       go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
 
-updateStorePathStates :: StorePathState -> Set StorePathState -> Set StorePathState
-updateStorePathStates newState = localFilter .> Set.insert newState
- where
-  localFilter = case newState of
-    DownloadPlanned -> id
-    State.Downloading _ -> Set.filter (DownloadPlanned /=)
-    Downloaded h -> Set.filter (State.Downloading h /=) .> Set.filter (DownloadPlanned /=)
-    State.Uploading _ -> id
-    Uploaded h -> Set.filter (State.Uploading h /=)
+updateStorePathStates :: StorePathState -> Maybe (StorePathState -> StorePathState) -> Set StorePathState -> Set StorePathState
+updateStorePathStates new_state update_state = case update_state of 
+    Just update_func -> Set.toList .> fmap update_func .> Set.fromList 
+    Nothing -> id
+    .> localFilter .> Set.insert new_state 
+    where
+      localFilter = case new_state of
+        DownloadPlanned -> id
+        State.Downloading _ -> Set.filter (DownloadPlanned /=)
+        Downloaded _ -> Set.filter (DownloadPlanned /=) -- We don‘t need to filter downloading state because that has already been handled by the update_state function
+        State.Uploading _ -> id
+        Uploaded _ -> id -- Analogous to downloaded
 
-insertStorePathState :: StorePathId -> StorePathState -> NOMState ()
-insertStorePathState storePathId newStorePathState = do
+insertStorePathState :: StorePathId -> StorePathState -> Maybe (StorePathState -> StorePathState) -> NOMState ()
+insertStorePathState storePathId new_store_path_state update_store_path_state = do
   -- Update storePathInfos for this Storepath
   store_path_info <- getStorePathInfos storePathId
   let oldStatus = store_path_info.states
-      newStatus = updateStorePathStates newStorePathState oldStatus
+      newStatus = updateStorePathStates new_store_path_state update_store_path_state oldStatus
   modify (field @"storePathInfos" %~ CMap.adjust (field @"states" .~ newStatus) storePathId)
 
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId

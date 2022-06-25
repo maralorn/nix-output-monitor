@@ -12,9 +12,10 @@ module NOM.State.CacheId.Set (
   size,
   isSubsetOf,
   member,
+  head,
 ) where
 
-import Relude
+import Relude hiding (head)
 
 import Data.IntSet qualified as IntSet
 
@@ -39,6 +40,9 @@ null = (.ints) .> IntSet.null
 
 maxView :: CacheIdSet b -> Maybe (CacheId b, CacheIdSet b)
 maxView = (.ints) .> IntSet.maxView .> coerce
+
+head :: CacheIdSet b -> Maybe (CacheId b)
+head = (.ints) .> IntSet.maxView .> fmap fst .> coerce
 
 union :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
 union = coerce IntSet.union

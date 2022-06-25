@@ -5,12 +5,14 @@ module NOM.State (
   StorePathState (..),
   StorePathInfo (..),
   StorePathSet,
+  StorePathMap,
   BuildInfo (..),
   BuildStatus (..),
   DependencySummary (..),
   DerivationId,
   DerivationInfo (..),
   DerivationSet,
+  TransferInfo (..),
   NOMState,
   NOMV1State (..),
   getDerivationInfos,
@@ -53,7 +55,7 @@ import NOM.Update.Monad (
  )
 import NOM.Util (foldMapEndo, (.>), (<|>>), (|>))
 
-data StorePathState = DownloadPlanned | Downloading Host | Uploading Host | Downloaded Host | Uploaded Host
+data StorePathState = DownloadPlanned | Downloading RunningTransferInfo | Uploading RunningTransferInfo | Downloaded CompletedTransferInfo | Uploaded CompletedTransferInfo
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
@@ -95,6 +97,10 @@ type RunningBuildInfo = BuildInfo ()
 
 type CompletedBuildInfo = BuildInfo UTCTime
 
+type RunningTransferInfo = TransferInfo UTCTime
+
+type CompletedTransferInfo = TransferInfo (Maybe Int)
+
 type FailedBuildInfo = BuildInfo (UTCTime, FailType, Maybe ActivityId)
 
 data DependencySummary = MkDependencySummary
@@ -103,10 +109,10 @@ data DependencySummary = MkDependencySummary
   , completedBuilds :: DerivationMap CompletedBuildInfo
   , failedBuilds :: DerivationMap FailedBuildInfo
   , plannedDownloads :: StorePathSet
-  , completedDownloads :: StorePathMap Host
-  , completedUploads :: StorePathMap Host
-  , runningDownloads :: StorePathMap Host
-  , runningUploads :: StorePathMap Host
+  , completedDownloads :: StorePathMap CompletedTransferInfo
+  , completedUploads :: StorePathMap CompletedTransferInfo
+  , runningDownloads :: StorePathMap RunningTransferInfo
+  , runningUploads :: StorePathMap RunningTransferInfo
   }
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
@@ -146,6 +152,13 @@ data BuildInfo a = MkBuildInfo
   , host :: Host
   , estimate :: Maybe Int
   , end :: a
+  }
+  deriving stock (Show, Eq, Ord, Generic, Functor)
+  deriving anyclass (NFData)
+
+data TransferInfo a = MkTransferInfo
+  { host :: Host
+  , duration :: a
   }
   deriving stock (Show, Eq, Ord, Generic, Functor)
   deriving anyclass (NFData)

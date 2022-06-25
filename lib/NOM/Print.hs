@@ -19,7 +19,7 @@ import System.Console.Terminal.Size qualified as Window
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), getDerivationInfos, getStorePathInfos, StorePathInfo (..))
+import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), getDerivationInfos, getStorePathInfos, StorePathInfo (..), StorePathSet, TransferInfo(..), StorePathMap)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
@@ -27,6 +27,7 @@ import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Parser.JSON (ActivityId(..))
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
 import Data.Map.Strict qualified as Map
+import GHC.Records (HasField)
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -123,7 +124,7 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
   showUploads = CMap.size completedUploads > 0
   numPlannedDownloads = CSet.size plannedDownloads
   numHosts =
-    Set.size (Set.filter (/= Localhost) (foldMap one runningBuilds' <> foldMap one completedBuilds' <> foldMap one completedUploads))
+    Set.size (Set.filter (/= Localhost) (foldMap one runningBuilds' <> foldMap one completedBuilds' <> foldMap (one . (.host)) completedUploads))
   numRunningBuilds = CMap.size runningBuilds
   numCompletedBuilds = CMap.size completedBuilds
   numPlannedBuilds = CSet.size plannedBuilds
@@ -141,7 +142,7 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
     mapMaybe nonEmpty $ labelForHost <$> hosts
    where
     labelForHost :: Host -> [Entry]
-    labelForHost h =
+    labelForHost host =
       showCond
         showBuilds
         [ nonZeroShowBold numRunningBuildsOnHost (yellow (label running (disp numRunningBuildsOnHost)))
@@ -156,19 +157,19 @@ stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSi
           showUploads
           [nonZeroShowBold uploadsRunning' (yellow (label up (disp uploadsRunning'))),
           nonZeroShowBold uploads (green (label up (disp uploads)))]
-        <> one (magenta (header (toText h)))
+        <> one (magenta (header (toText host)))
      where
-      uploads = l h completedUploads
-      uploadsRunning' = l h runningUploads
-      downloads = l h completedDownloads
-      downloadsRunning' = l h runningDownloads
-      numRunningBuildsOnHost = l h runningBuilds'
-      doneBuilds = l h completedBuilds'
+      uploads = action_count_for_host host completedUploads
+      uploadsRunning' = action_count_for_host host runningUploads
+      downloads = action_count_for_host host completedDownloads
+      downloadsRunning' = action_count_for_host host runningDownloads
+      numRunningBuildsOnHost = action_count_for_host host runningBuilds
+      doneBuilds = action_count_for_host host completedBuilds
     hosts =
       sort . toList @Set $
-        foldMap (foldMap one) [runningBuilds', completedBuilds'] <> foldMap (foldMap one) [completedUploads, completedDownloads]
-    l :: (Host -> CMap.CacheIdMap b Host -> Int)
-    l host = CMap.size . CMap.filter (host ==)
+        foldMap (foldMap one) [runningBuilds', completedBuilds'] <> foldMap (foldMap (one . (.host))) [completedUploads, completedDownloads]
+    action_count_for_host :: HasField "host" a Host => Host -> CMap.CacheIdMap b a -> Int
+    action_count_for_host host = CMap.size . CMap.filter (\x -> host == x.host)
 
 nonZeroShowBold :: Int -> Entry -> Entry
 nonZeroShowBold num = if num > 0 then bold else const dummy
@@ -200,7 +201,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
   printTreeNode location drvInfo =
       let summary = showSummary drvInfo.dependencySummary
-       in \now -> printDerivation drvInfo now <> showCond (location == Leaf && not (Text.null summary)) (markup grey " waiting for " <> summary)
+       in \now -> printDerivation drvInfo now <> showCond (location == Leaf && not (Text.null summary)) (" waiting for " <> summary)
 
   buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
@@ -290,8 +291,29 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
       |> join .> unwords
 
   printDerivation :: DerivationInfo -> UTCTime -> Text
-  printDerivation drvInfo = case drvInfo.buildStatus of
-    Unknown -> const if CSet.fromFoldable (Map.elems drvInfo.outputs) `CSet.intersection` CMap.keysSet drvInfo.dependencySummary.runningDownloads /= mempty then markups [bold, yellow] (down <> " " <> drvName) else drvName
+  printDerivation drvInfo = do
+   let
+    outputs_list = Map.elems drvInfo.outputs
+    outputs = CSet.fromFoldable outputs_list
+    outputs_in :: StorePathSet -> Bool
+    outputs_in = not . CSet.null . CSet.intersection outputs
+    outputs_in_map :: StorePathMap (TransferInfo a) -> Maybe (TransferInfo a)
+    outputs_in_map info_map = viaNonEmpty head . mapMaybe (\output -> CMap.lookup output info_map) $ outputs_list
+    phaseMay activityId' = do 
+          activityId <- activityId'
+          (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
+          phase
+    drvName = drvInfo.name.storePath.name
+   case drvInfo.buildStatus of
+    Unknown 
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads -> \now -> 
+        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff infos.duration now <> " from " <> show infos.host
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads -> \now -> 
+        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff infos.duration now <> " to " <> show infos.host
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads -> const $ markup green (done <> down <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" from " <> show infos.host)
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads -> const $ markup green (done <> up <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" to " <> show infos.host)
+     | outputs_in drvInfo.dependencySummary.plannedDownloads -> const $ markup blue (todo <> down <> " " <> drvName)
+     | otherwise -> const drvName
     Planned -> const (markup blue (todo <> " " <> drvName))
     Building buildInfo -> let
         phaseList = case phaseMay buildInfo.end of
@@ -323,12 +345,6 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
           [markup green (done <> " " <> drvName)]
             <> hostMarkup buildInfo.host
             <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
-   where
-    phaseMay activityId' = do 
-          activityId <- activityId'
-          (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
-          phase
-    drvName = drvInfo.name.storePath.name
 
 printFailType :: FailType -> Text
 printFailType = \case
