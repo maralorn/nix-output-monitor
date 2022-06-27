@@ -23,6 +23,13 @@ import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache, (<|>>), (<||>))
 import System.Console.ANSI qualified as Terminal
 import Control.Exception qualified as Exception
+import Data.ByteString qualified as ByteString
+
+inputHandle :: Handle
+inputHandle = stdin
+
+outputHandle :: Handle
+outputHandle = stderr
 
 main :: IO ()
 main = do
@@ -39,16 +46,16 @@ main = do
 
   (_, finalState, _) <-
     do
-      Terminal.hideCursor
+      Terminal.hHideCursor outputHandle
       hSetBuffering stdout (BlockBuffering (Just 1000000))
 
       firstState <- initalState
       let firstCompoundState = (Nothing, firstState, stateToText firstState)
-      interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer firstCompoundState
+      interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer inputHandle outputHandle firstCompoundState
     `Exception.finally`
     do
-      Terminal.showCursor
-      putTextLn "" -- We print a new line after finish, because in normal nom state the last line is not empty.
+      Terminal.hShowCursor outputHandle
+      ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.
 
   if CMap.size finalState.fullSummary.failedBuilds == 0
     then exitSuccess

@@ -65,10 +65,10 @@ runUpdate bufferVar stateVar updater input = do
     writeTVar stateVar newState
   pure output
 
-writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> IO ()
-writeStateToScreen printed_lines_var nom_state_var nix_output_buffer_var maintenance printer = do
+writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> Handle -> IO ()
+writeStateToScreen printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
   now <- getZonedTime
-  terminalSize <- Terminal.Size.size
+  terminalSize <- Terminal.Size.hSize output_handle
 
   (nom_state, nix_output_raw) <- atomically do
     -- ==== Time Critical Segment - calculating to much in atomically can lead
@@ -120,29 +120,29 @@ writeStateToScreen printed_lines_var nom_state_var nix_output_buffer_var mainten
   
   -- when clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
   -- we do that before clearing because we can
-  when (last_printed_line_count == 1) do Terminal.setCursorColumn 0
+  when (last_printed_line_count == 1) do Terminal.hSetCursorColumn output_handle 0
 
   -- ==== Time Critical Segment - When we start to cleare the screen we need to
   -- print content as fast as possible
   -- Clear last output from screen.
   -- First we clear the current line, if we have written on it.
-  when (last_printed_line_count > 0) Terminal.clearLine
+  when (last_printed_line_count > 0) do Terminal.hClearLine output_handle
 
   -- Then, if necessary we, move up and clear more lines.
   replicateM_ (last_printed_line_count - 1) do
-    Terminal.cursorUpLine 1 -- Moves cursor one line up and to the beginning of the line.
-    Terminal.clearLine -- We are avoiding to use clearFromCursorToScreenEnd
-                       -- because it apparently triggers a flush on some terminals.
+    Terminal.hCursorUpLine output_handle 1 -- Moves cursor one line up and to the beginning of the line.
+    Terminal.hClearLine output_handle      -- We are avoiding to use clearFromCursorToScreenEnd
+                                           -- because it apparently triggers a flush on some terminals.
 
   -- Write new output to screen.
   forM_ output_to_print_with_newline_annotations \(newline, line) -> do
     case newline of
       StayInLine -> pass
-      MoveToNextLine -> Terminal.cursorDownLine 1
-      PrintNewLine -> ByteString.putStr "\n"
-    ByteString.putStr line
+      MoveToNextLine -> Terminal.hCursorDownLine output_handle 1
+      PrintNewLine -> ByteString.hPut output_handle "\n"
+    ByteString.hPut output_handle line
 
-  System.IO.hFlush stdout
+  System.IO.hFlush output_handle
   -- ====
 
 data ToNextLine = StayInLine | MoveToNextLine | PrintNewLine
@@ -177,11 +177,13 @@ interact ::
   (state -> state) ->
   OutputFunc state ->
   Finalizer state ->
+  Handle ->
+  Handle ->
   state ->
   IO state
-interact parser updater maintenance printer finalize initialState =
-  readTextChunks stdin
-    |> processTextStream parser updater maintenance (Just printer) finalize initialState
+interact parser updater maintenance printer finalize inputHandle output_handle initialState =
+  readTextChunks inputHandle
+    |> processTextStream parser updater maintenance (Just (printer, output_handle)) finalize initialState
 
 -- frame durations are passed to threadDelay and thus are given in microseconds
 
@@ -200,7 +202,7 @@ processTextStream ::
   Parser update ->
   UpdateFunc update state ->
   (state -> state) ->
-  Maybe (OutputFunc state) ->
+  Maybe (OutputFunc state,Handle) ->
   Finalizer state ->
   state ->
   Stream (Either NOMError ByteString) ->
@@ -219,10 +221,10 @@ processTextStream parser updater maintenance printerMay finalize initialState in
           .> Stream.drain
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
-  printerMay |> maybe keepProcessing \printer -> do
+  printerMay |> maybe keepProcessing \(printer, output_handle) -> do
     linesVar <- newTVarIO 0
     let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen linesVar stateVar bufferVar maintenance printer
+        writeToScreen = writeStateToScreen linesVar stateVar bufferVar maintenance printer output_handle
         keepPrinting :: IO ()
         keepPrinting = forever do
           race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
