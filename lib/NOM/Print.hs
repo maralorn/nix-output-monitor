@@ -207,7 +207,8 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
   printTreeNode location drvInfo =
       let summary = showSummary drvInfo.dependencySummary
-       in \now -> printDerivation drvInfo now <> showCond (location == Leaf && not (Text.null summary)) (" waiting for " <> summary)
+          (planned, displayDrv) = printDerivation drvInfo
+       in \now -> displayDrv now <> showCond (location == Leaf && planned && not (Text.null summary)) (" waiting for " <> summary)
 
   buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
@@ -296,7 +297,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     ]
       |> join .> unwords
 
-  printDerivation :: DerivationInfo -> UTCTime -> Text
+  printDerivation :: DerivationInfo -> (Bool, UTCTime -> Text)
   printDerivation drvInfo = do
    let
     outputs_list = Map.elems drvInfo.outputs
@@ -312,16 +313,16 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     drvName = drvInfo.name.storePath.name
    case drvInfo.buildStatus of
     Unknown 
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads -> \now -> 
-        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> toText infos.host
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads -> \now -> 
-        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> toText infos.host
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads -> const $ markup green (done <> down <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" from " <> toText infos.host)
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads -> const $ markup green (done <> up <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" to " <> toText infos.host)
-     | outputs_in drvInfo.dependencySummary.plannedDownloads -> const $ markup blue (todo <> down <> " " <> drvName)
-     | otherwise -> const drvName
-    Planned -> const (markup blue (todo <> " " <> drvName))
-    Building buildInfo -> let
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads -> (False, \now -> 
+        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> toText infos.host)
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads -> (False, \now -> 
+        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> toText infos.host)
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads -> (False, const $ markup green (done <> down <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" from " <> toText infos.host))
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads -> (False, const $ markup green (done <> up <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" to " <> toText infos.host))
+     | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))
+     | otherwise -> (True, const drvName)
+    Planned -> (True, const (markup blue (todo <> " " <> drvName)))
+    Building buildInfo -> (False, let
         phaseList = case phaseMay buildInfo.end of
           Nothing -> []
           Just phase -> [markup bold ("(" <> phase <> ")")]
@@ -331,8 +332,8 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
           <> hostMarkup buildInfo.host
           <> phaseList
           <> [clock, timeDiff now buildInfo.start]
-          <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-    Failed buildInfo ->
+          <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate)
+    Failed buildInfo -> (False,
       let
          (endTime, failType, activityId) = buildInfo.end
          phaseInfo = case phaseMay activityId of
@@ -343,14 +344,13 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         unwords $
           [markups [red, bold] (warning <> " " <> drvName)]
             <> hostMarkup buildInfo.host
-            <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
-            
-    Built buildInfo ->
+            <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)])
+    Built buildInfo -> (False,
       const $
         unwords $
           [markup green (done <> " " <> drvName)]
             <> hostMarkup buildInfo.host
-            <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
+            <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)])
 
 printFailType :: FailType -> Text
 printFailType = \case
