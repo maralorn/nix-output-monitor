@@ -315,11 +315,23 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
    case drvInfo.buildStatus of
     Unknown 
      | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads -> (False, \now -> 
-        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> toText infos.host)
+        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host))
      | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads -> (False, \now -> 
-        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> toText infos.host)
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads -> (False, const $ markup green (done <> down <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" from " <> toText infos.host))
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads -> (False, const $ markup green (done <> up <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" to " <> toText infos.host))
+        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host))
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads -> 
+         (False,
+          const $ 
+             markup green (done <> down <> " " <> drvName)
+             <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
+             <> markup grey (" from " <> markup magenta (toText infos.host))
+         )
+     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads ->
+         (False,
+          const $
+             markup green (done <> up <> " " <> drvName)
+             <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
+             <> markup grey (" to " <> markup magenta (toText infos.host))
+         )
      | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))
      | otherwise -> (True, const drvName)
     Planned -> (True, const (markup blue (todo <> " " <> drvName)))
