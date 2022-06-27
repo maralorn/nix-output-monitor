@@ -4,4 +4,9 @@ import Relude
 
 import Control.Exception (IOException)
 
-data NOMError = InputError IOException | DerivationReadError IOException | DerivationParseError Text | ParseInternalJSONError Text deriving stock (Show, Eq)
+data NOMError = 
+     InputError IOException 
+   | DerivationReadError IOException 
+   | DerivationParseError Text 
+   | ParseInternalJSONError Text ByteString
+  deriving stock (Show, Eq)

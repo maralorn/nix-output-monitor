@@ -30,7 +30,7 @@ import NOM.Builds (
   storePathParser, derivation
  )
 import NOM.Error (NOMError (ParseInternalJSONError))
-import NOM.Util ((.>), (<|>>))
+import NOM.Util ((<|>>))
 
 import NOM.Parser.JSON (InternalJson)
 
@@ -53,7 +53,14 @@ updateParser :: Parser ParseResult
 updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
 jsonMessage :: Parser ParseResult
-jsonMessage = (string "@nix " *> noMatch) <|>> eitherDecodeStrict' .> first (toText .> ParseInternalJSONError) .> JsonMessage
+jsonMessage = (string "@nix " *> noMatch) <|>> \raw_json -> 
+  let
+    json_parse_result = eitherDecodeStrict' raw_json
+    translate_aeson_error_to_nom_error :: String -> NOMError
+    translate_aeson_error_to_nom_error aeson_error =
+      ParseInternalJSONError (toText aeson_error) raw_json
+  in
+    JsonMessage (first translate_aeson_error_to_nom_error json_parse_result) 
 
 noMatch :: Parser ByteString
 noMatch = ParseW8.takeTill isEndOfLine <* endOfLine
