@@ -313,9 +313,9 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
    case drvInfo.buildStatus of
     Unknown 
      | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads -> \now -> 
-        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff infos.duration now <> " from " <> toText infos.host
+        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> toText infos.host
      | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads -> \now -> 
-        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff infos.duration now <> " to " <> toText infos.host
+        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> toText infos.host
      | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads -> const $ markup green (done <> down <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" from " <> toText infos.host)
      | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads -> const $ markup green (done <> up <> " " <> drvName) <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration <> markup grey (" to " <> toText infos.host)
      | outputs_in drvInfo.dependencySummary.plannedDownloads -> const $ markup blue (todo <> down <> " " <> drvName)
