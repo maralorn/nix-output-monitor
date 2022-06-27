@@ -10,13 +10,12 @@ import Data.Version (showVersion)
 import Optics (view, (%~), (.~), _2, _3)
 import Paths_nix_output_monitor (version)
 import System.Console.Terminal.Size (Window)
-import System.Environment (getArgs)
 
 import NOM.Error (NOMError)
 import NOM.IO (interact)
 import NOM.Parser (ParseResult, parser)
-import NOM.Print (stateToText)
-import NOM.State (NOMV1State, ProcessState (..), failedBuilds, fullSummary, initalState)
+import NOM.Print (stateToText, Config (..))
+import NOM.State (NOMV1State (nixErrors), ProcessState (..), failedBuilds, fullSummary, initalState)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
@@ -24,42 +23,84 @@ import NOM.Util (addPrintCache, (<|>>), (<||>))
 import System.Console.ANSI qualified as Terminal
 import Control.Exception qualified as Exception
 import Data.ByteString qualified as ByteString
-
-inputHandle :: Handle
-inputHandle = stdin
+import System.Process.Typed qualified as Process
+import System.Environment qualified as Environment
 
 outputHandle :: Handle
 outputHandle = stderr
 
-main :: IO ()
+defaultConfig :: Config
+defaultConfig = MkConfig{
+  piping = False,
+  silent = False
+}
+
+main :: IO Void
 main = do
-  System.Environment.getArgs >>= \case
-    [] -> pass
-    ["--version"] -> do
+  args <- Environment.getArgs
+  prog_name <- Environment.getProgName
+  case (args, prog_name) of
+    (["--version"],_) -> do
       hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
-      exitSuccess
+      exitWith =<< Process.runProcess (Process.proc "nix" ["--version"])
+    (nix_args,"nom-build") -> do
+      exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix-build" ("-v":"--log-format":"internal-json":nix_args))
+    (nix_args,"nom-shell") -> do
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent=True} (Process.proc "nix-shell" (("-v":"--log-format":"internal-json":nix_args) <> ["--run","exit"]))
+      exitWith =<< Process.runProcess (Process.proc "nix-shell" nix_args)
+    ("build":nix_args,_) -> do
+      exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix" ("build":"-v":"--log-format":"internal-json":nix_args))
+    ("shell":nix_args,_) -> do
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent=True} (Process.proc "nix" (("shell":"-v":"--log-format":"internal-json":nix_args) <> ["--command","sh","-c","exit"]))
+      exitWith =<< Process.runProcess (Process.proc "nix" ("shell":nix_args))
+    ("develop":nix_args,_) -> do
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent=True} (Process.proc "nix" (("develop":"-v":"--log-format":"internal-json":nix_args) <> ["--command","sh","-c","exit"]))
+      exitWith =<< Process.runProcess (Process.proc "nix" ("develop":nix_args))
+    ([],_) -> do
+      finalState <- monitorHandle defaultConfig{piping=True} stdin
+      if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
+        then exitSuccess
+        else exitFailure
     xs -> do
       hPutStrLn stderr helpText
       -- It's not a mistake if the user requests the help text, otherwise tell
       -- them off with a non-zero exit code.
       if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
 
+exitOnFailure :: Process.ExitCode -> IO ()
+exitOnFailure = \case
+  code@Process.ExitFailure{} -> exitWith code
+  _ -> pass
+
+runMonitoredCommand :: Config -> Process.ProcessConfig () () () -> IO Process.ExitCode
+runMonitoredCommand config process_config = do 
+      let process_config_with_handles = 
+            Process.setStdout Process.createPipe $
+            Process.setStderr Process.createPipe $
+            Process.setStdin Process.nullStream
+            process_config
+      Process.withProcessWait process_config_with_handles \process -> do
+        void $ monitorHandle config (Process.getStderr process)
+        exitCode <- Process.waitExitCode process
+        output <- ByteString.hGetContents (Process.getStdout process)
+        unless (ByteString.null output) $ ByteString.hPut stdout output
+        pure exitCode
+
+monitorHandle :: Config -> Handle -> IO NOMV1State
+monitorHandle config input_handle = do
   (_, finalState, _) <-
     do
       Terminal.hHideCursor outputHandle
       hSetBuffering stdout (BlockBuffering (Just 1000000))
 
       firstState <- initalState
-      let firstCompoundState = (Nothing, firstState, stateToText firstState)
-      interact parser compoundStateUpdater (_2 %~ maintainState) compoundStateToText finalizer inputHandle outputHandle firstCompoundState
+      let firstCompoundState = (Nothing, firstState, stateToText config firstState)
+      interact config parser (compoundStateUpdater config) (_2 %~ maintainState) compoundStateToText (finalizer config) input_handle outputHandle firstCompoundState
     `Exception.finally`
     do
       Terminal.hShowCursor outputHandle
       ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.
-
-  if CMap.size finalState.fullSummary.failedBuilds == 0
-    then exitSuccess
-    else exitFailure
+  pure finalState
 
 type CompoundState = (Maybe UTCTime, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text)
 
@@ -68,20 +109,21 @@ compoundStateToText = view _3
 
 compoundStateUpdater ::
   UpdateMonad m =>
+  Config ->
   (Maybe ParseResult, ByteString) ->
   StateT CompoundState m ([NOMError], ByteString)
-compoundStateUpdater input = do
+compoundStateUpdater config input = do
   oldState <- get
-  (!errors, !newState) <- addPrintCache updateState stateToText input oldState
+  (!errors, !newState) <- addPrintCache updateState (stateToText config) input oldState
   put newState
   pure errors
 
 finalizer ::
-  UpdateMonad m => StateT CompoundState m ()
-finalizer = do
+  UpdateMonad m => Config -> StateT CompoundState m ()
+finalizer config = do
   (n, !oldState, _) <- get
   newState <- execStateT detectLocalFinishedBuilds oldState <|>> (typed .~ Finished)
-  put (n, newState, stateToText newState)
+  put (n, newState, stateToText config newState)
 
 helpText :: Text
 helpText =

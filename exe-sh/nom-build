@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-nix-build --log-format internal-json "$@" 2>&1 | exec nom

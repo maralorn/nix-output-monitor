@@ -1,4 +1,4 @@
-module NOM.Print (stateToText) where
+module NOM.Print (stateToText, Config(..)) where
 
 import Relude
 
@@ -53,17 +53,23 @@ targetRatio, defaultTreeMax :: Int
 targetRatio = 3
 defaultTreeMax = 20
 
-stateToText :: NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
-stateToText buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSize
+data Config = MkConfig {
+  silent :: Bool,
+  piping :: Bool
+}
+
+stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
+stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSize
  where
   printWithSize :: Maybe Int -> ZonedTime -> Text
   printWithSize maybeWindow = printWithTime
    where
     printWithTime :: ZonedTime -> Text
     printWithTime
-      | processState == JustStarted = \now -> time now <> showCond (diffUTCTime (zonedTimeToUTC now) startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
-      | not anythingGoingOn = time
+      | processState == JustStarted && config.piping = \now -> time now <> showCond (diffUTCTime (zonedTimeToUTC now) startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
+      | processState == Finished && config.silent = const ""
       | showBuildGraph = \now -> buildsDisplay now <> table (time now)
+      | not anythingGoingOn = if config.silent then const "" else time
       | otherwise = time .> table
     maxHeight = case maybeWindow of
       Just limit -> limit `div` targetRatio

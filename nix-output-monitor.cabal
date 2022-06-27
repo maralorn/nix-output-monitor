@@ -103,7 +103,9 @@ executable nom
   hs-source-dirs: exe
   main-is:        Main.hs
   other-modules:  Paths_nix_output_monitor
-  build-depends:  nix-output-monitor
+  build-depends:
+    , nix-output-monitor
+    , typed-process
 
 common tests
   import:        exes

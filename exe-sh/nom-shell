@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-
-set -e
-
-nix-shell --log-format internal-json "$@" --run "exit" 2>&1 | nom
-nix-shell "$@"

@@ -43,11 +43,8 @@
                   '';
                   buildTools = [pkgs.installShellFiles];
                   postInstall = ''
-                    substitute "exe-sh/nom-build" "$out/bin/nom-build" \
-                      --replace 'nom' "$out/bin/nom"
-                    substitute "exe-sh/nom-shell" "$out/bin/nom-shell" \
-                      --replace 'nom' "$out/bin/nom"
-                    chmod a+x $out/bin/nom-build
+                    ln -s nom "$out/bin/nom-build"
+                    ln -s nom "$out/bin/nom-shell"
                     chmod a+x $out/bin/nom-shell
                     installShellCompletion --zsh --name _nom-build completions/completion.zsh
                   '';

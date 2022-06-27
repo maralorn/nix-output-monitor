@@ -26,6 +26,7 @@ import NOM.IO.ParseStream (parseStream)
 import Data.ByteString.Char8 qualified as ByteString
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
+import NOM.Print (Config(..))
 
 type Stream = Stream.SerialT IO
 type Output = Text
@@ -65,8 +66,8 @@ runUpdate bufferVar stateVar updater input = do
     writeTVar stateVar newState
   pure output
 
-writeStateToScreen :: forall state. TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> Handle -> IO ()
-writeStateToScreen printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
+writeStateToScreen :: forall state. Bool -> TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> Handle -> IO ()
+writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
   now <- getZonedTime
   terminalSize <- Terminal.Size.hSize output_handle
 
@@ -106,8 +107,8 @@ writeStateToScreen printed_lines_var nom_state_var nix_output_buffer_var mainten
     -- We only do this if we know the size of the terminal.
     let
       lines_to_pad = case reflow_line_count_correction of
-        Just reflow_correction -> max 0 (last_printed_line_count - reflow_correction - nix_output_length - nom_output_length)
-        Nothing ->  0
+        Just reflow_correction | pad -> max 0 (last_printed_line_count - reflow_correction - nix_output_length - nom_output_length)
+        _ ->  0
       line_count_to_print = nom_output_length + lines_to_pad
     writeTVar printed_lines_var line_count_to_print
     pure (last_printed_line_count, lines_to_pad)
@@ -172,6 +173,7 @@ howToGoToNextLine previousPrintedLines (Just correction) = \case
 
 interact ::
   forall update state.
+  Config ->
   Parser update ->
   UpdateFunc update state ->
   (state -> state) ->
@@ -181,9 +183,9 @@ interact ::
   Handle ->
   state ->
   IO state
-interact parser updater maintenance printer finalize inputHandle output_handle initialState =
+interact config parser updater maintenance printer finalize inputHandle output_handle initialState =
   readTextChunks inputHandle
-    |> processTextStream parser updater maintenance (Just (printer, output_handle)) finalize initialState
+    |> processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize initialState
 
 -- frame durations are passed to threadDelay and thus are given in microseconds
 
@@ -199,6 +201,7 @@ minFrameDuration =
 
 processTextStream ::
   forall update state.
+  Config ->
   Parser update ->
   UpdateFunc update state ->
   (state -> state) ->
@@ -207,7 +210,7 @@ processTextStream ::
   state ->
   Stream (Either NOMError ByteString) ->
   IO state
-processTextStream parser updater maintenance printerMay finalize initialState inputStream = do
+processTextStream config parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
   let
@@ -224,7 +227,7 @@ processTextStream parser updater maintenance printerMay finalize initialState in
   printerMay |> maybe keepProcessing \(printer, output_handle) -> do
     linesVar <- newTVarIO 0
     let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen linesVar stateVar bufferVar maintenance printer output_handle
+        writeToScreen = writeStateToScreen (not config.silent) linesVar stateVar bufferVar maintenance printer output_handle
         keepPrinting :: IO ()
         keepPrinting = forever do
           race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
