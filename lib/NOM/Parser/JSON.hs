@@ -74,7 +74,7 @@ data Activity
   | Substitute StorePath Host
   | QueryPathInfo StorePath Host
   | PostBuildHook Derivation
-  | BuildWaiting Derivation StorePath
+  | BuildWaiting
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
@@ -225,5 +225,5 @@ parseStartAction object = do
       SubstituteType -> twoFields object <|>> uncurry Substitute
       QueryPathInfoType -> twoFields object <|>> uncurry QueryPathInfo
       PostBuildHookType -> oneField object <|>> PostBuildHook
-      BuildWaitingType -> twoFields object <|>> uncurry BuildWaiting
+      BuildWaitingType -> pure BuildWaiting
    pure MkStartAction {id=idField,text,activity,level}
