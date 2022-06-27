@@ -76,7 +76,7 @@
             };
           };
         };
-        devShell = haskellPackages.shellFor {
+        devShells.default = haskellPackages.shellFor {
           packages = _: [packages.default];
           buildInputs = [
             pre-commit-hooks.defaultPackage.${system}
