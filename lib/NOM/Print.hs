@@ -206,9 +206,10 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   preparedPrintForest = buildForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
   printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
   printTreeNode location drvInfo =
-      let summary = showSummary drvInfo.dependencySummary
-          (planned, displayDrv) = printDerivation drvInfo
-       in \now -> displayDrv now <> showCond (location == Leaf && planned && not (Text.null summary)) (" waiting for " <> summary)
+      let ~summary = showSummary drvInfo.dependencySummary
+          (planned, display_drv) = printDerivation drvInfo
+          displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (" waiting for " <> summary)
+       in \now -> display_drv now <> displayed_summary
 
   buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
