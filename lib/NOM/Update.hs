@@ -238,7 +238,7 @@ processJsonMessage now = \case
 
 activityPrefix :: Maybe Activity -> Text
 activityPrefix = \case 
-                   Just (JSON.Build derivation _ _ _) -> toText (setSGRCode [Reset]) <> markup blue (getReportName derivation) <> "> "
+                   Just (JSON.Build derivation _ _ _) -> toText (setSGRCode [Reset]) <> markup blue (getReportName derivation <> "> ")
                    _ -> ""
 
 movingAverage :: Double
