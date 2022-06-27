@@ -208,7 +208,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   printTreeNode location drvInfo =
       let ~summary = showSummary drvInfo.dependencySummary
           (planned, display_drv) = printDerivation drvInfo
-          displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (" waiting for " <> summary)
+          displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
        in \now -> display_drv now <> displayed_summary
 
   buildForest :: Forest DerivationInfo
