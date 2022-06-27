@@ -52,7 +52,8 @@ type SortKey =
   -- We always want to show all running builds and transfers so we try to display them low in the tree.
   , Down Int -- Running Builds, prefer more
   , Down Int -- Running Downloads, prefer more
-  , Down Int -- Waiting Builds, prefer more
+  -- But we want to show the smallest tree showing all builds and downloads to save screen estate.
+  , Int -- Waiting Builds, prefer less
   , Int -- Waiting Downloads, prefer less
   )
 
@@ -89,4 +90,4 @@ sortKey nom_state drvId =
         , pureIf (not (CMap.null completedDownloads)) SDownloaded
         , pureIf (not (CMap.null completedUploads)) SUploaded
         ]
-   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), Down (CSet.size plannedBuilds), CSet.size plannedDownloads)
+   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds, CSet.size plannedDownloads)
