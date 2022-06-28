@@ -25,6 +25,9 @@ import Control.Exception qualified as Exception
 import Data.ByteString qualified as ByteString
 import System.Process.Typed qualified as Process
 import System.Environment qualified as Environment
+import System.IO.Error qualified as IOError
+import NOM.Print.Table (markup, red)
+import GHC.IO.Exception (ExitCode(ExitFailure))
 
 outputHandle :: Handle
 outputHandle = stderr
@@ -76,15 +79,22 @@ runMonitoredCommand :: Config -> Process.ProcessConfig () () () -> IO Process.Ex
 runMonitoredCommand config process_config = do 
       let process_config_with_handles = 
             Process.setStdout Process.createPipe $
-            Process.setStderr Process.createPipe $
-            Process.setStdin Process.nullStream
+            Process.setStderr Process.createPipe
             process_config
-      Process.withProcessWait process_config_with_handles \process -> do
-        void $ monitorHandle config (Process.getStderr process)
-        exitCode <- Process.waitExitCode process
-        output <- ByteString.hGetContents (Process.getStdout process)
-        unless (ByteString.null output) $ ByteString.hPut stdout output
-        pure exitCode
+          catch_io_exception :: IOError.IOError -> IO Process.ExitCode
+          catch_io_exception io_exception = do
+            let error_msg = case (IOError.isDoesNotExistError io_exception, IOError.ioeGetFileName io_exception) of
+                  (True, Just cmd) -> "Command '" <> toText cmd <> "' not available from $PATH."
+                  _ -> show io_exception
+            hPutStrLn stderr $ markup red ("nix-output-monitor: " <> error_msg)
+            pure (ExitFailure 1)
+      Exception.handle catch_io_exception $
+        Process.withProcessWait process_config_with_handles \process -> do
+          void $ monitorHandle config (Process.getStderr process)
+          exitCode <- Process.waitExitCode process
+          output <- ByteString.hGetContents (Process.getStdout process)
+          unless (ByteString.null output) $ ByteString.hPut stdout output
+          pure exitCode
 
 monitorHandle :: Config -> Handle -> IO NOMV1State
 monitorHandle config input_handle = do
