@@ -82,7 +82,6 @@
             pre-commit-hooks.defaultPackage.${system}
             haskellPackages.haskell-language-server
             haskellPackages.cabal-install
-            pkgs.expect
           ];
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;
