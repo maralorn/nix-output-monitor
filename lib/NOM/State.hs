@@ -68,6 +68,8 @@ data DerivationInfo = MkDerivationInfo
   , dependencySummary :: DependencySummary
   , cached :: Bool
   , derivationParents :: DerivationSet
+  , pname :: Maybe Text
+  , platform :: Maybe Text
   }
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (NFData)
@@ -208,7 +210,7 @@ emptyStorePathInfo :: StorePath -> StorePathInfo
 emptyStorePathInfo path = MkStorePathInfo path mempty Nothing mempty
 
 emptyDerivationInfo :: Derivation -> DerivationInfo
-emptyDerivationInfo drv = MkDerivationInfo drv mempty mempty mempty Unknown mempty False mempty
+emptyDerivationInfo drv = MkDerivationInfo drv mempty mempty mempty Unknown mempty False mempty Nothing Nothing
 
 getStorePathId :: StorePath -> NOMState StorePathId
 getStorePathId path = do

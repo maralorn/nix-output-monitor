@@ -195,7 +195,7 @@ processJsonMessage now = \case
     errors <- gets (.nixErrors)
     unless (stripped `elem` errors) do
       modify' (field @"nixErrors" %~ (<> [stripped]))
-      whenJust (parseOneText updateParser message) \result -> 
+      whenJust (parseOneText updateParser message) \result ->
         void (processResult result)
       tell [Right (encodeUtf8 message)]
   Result MkResultAction {result = BuildLogLine line, id=id'} -> do
@@ -211,7 +211,7 @@ processJsonMessage now = \case
     when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right (encodeUtf8 (activityPrefix (Just startAction.activity) <> startAction.text))]
     modify' (field @"activities" %~ IntMap.insert id'.value (startAction.activity, Nothing,Nothing))
     case startAction.activity of
-      JSON.Build drvName host _ _ -> do 
+      JSON.Build drvName host _ _ -> do
         building host drvName now (Just id')
       JSON.CopyPath path from Localhost -> do
         pathId <- getStorePathId path
@@ -236,7 +236,7 @@ processJsonMessage now = \case
     noChange
 
 activityPrefix :: Maybe Activity -> Text
-activityPrefix = \case 
+activityPrefix = \case
                    Just (JSON.Build derivation _ _ _) -> toText (setSGRCode [Reset]) <> markup blue (getReportName derivation <> "> ")
                    _ -> ""
 
@@ -290,15 +290,15 @@ lookupDerivation drv = do
   pure drvId
 
 insertDerivation :: MonadReadDerivation m => Nix.Derivation FilePath Text -> DerivationId -> NOMStateT (WriterT [Either NOMError ByteString] m) ()
-insertDerivation Nix.Derivation{outputs, inputSrcs, inputDrvs} drvId = do
+insertDerivation derivation drvId = do
   outputs' <-
-    outputs |> Map.traverseMaybeWithKey \_ path -> do
+    derivation.outputs |> Map.traverseMaybeWithKey \_ path -> do
       parseStorePath (Nix.path path) |> mapM \pathName -> do
         pathId <- getStorePathId pathName
         modify (field @"storePathInfos" %~ CMap.adjust (field @"producer" ?~ drvId) pathId)
         pure pathId
   inputSources <-
-    inputSrcs |> flip foldlM mempty \acc path -> do
+    derivation.inputSrcs |> flip foldlM mempty \acc path -> do
       pathIdMay <-
         parseStorePath path |> mapM \pathName -> do
           pathId <- getStorePathId pathName
@@ -306,7 +306,7 @@ insertDerivation Nix.Derivation{outputs, inputSrcs, inputDrvs} drvId = do
           pure pathId
       pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
-    inputDrvs |> Map.toList .> mapMaybeM \(drvPath, outs) -> do
+    derivation.inputDrvs |> Map.toList .> mapMaybeM \(drvPath, outs) -> do
       depIdMay <-
         parseDerivation drvPath |> mapM \depName -> do
           depId <- lookupDerivation depName
@@ -315,7 +315,7 @@ insertDerivation Nix.Derivation{outputs, inputSrcs, inputDrvs} drvId = do
           pure depId
       pure $ depIdMay <|>> (,outs)
   let inputDerivations = Seq.fromList inputDerivationsList
-  modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs = outputs', inputSources, inputDerivations, cached = True}) drvId)
+  modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs = outputs', inputSources, inputDerivations, cached = True, platform = Just derivation.platform, pname = Map.lookup "pname" derivation.env}) drvId)
   noParents <- getDerivationInfos drvId <|>> (.derivationParents) .> CSet.null
   when noParents $ modify (field @"forestRoots" %~ (drvId Seq.<|))
 
@@ -368,7 +368,7 @@ updateDerivationState drvId updateStatus = do
       newStatus = updateStatus oldStatus
   when (oldStatus /= newStatus) do
     modify (field @"derivationInfos" %~ CMap.adjust (field @"buildStatus" .~ newStatus) drvId)
-    let 
+    let
       update_summary = updateSummaryForDerivation oldStatus newStatus drvId
       update_status
         | Building{} <- newStatus = \case
@@ -395,10 +395,10 @@ updateParents stateUpdate update_func = go mempty
       go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
 
 updateStorePathStates :: StorePathState -> Maybe (StorePathState -> StorePathState) -> Set StorePathState -> Set StorePathState
-updateStorePathStates new_state update_state = case update_state of 
-    Just update_func -> Set.toList .> fmap update_func .> Set.fromList 
+updateStorePathStates new_state update_state = case update_state of
+    Just update_func -> Set.toList .> fmap update_func .> Set.fromList
     Nothing -> id
-    .> localFilter .> Set.insert new_state 
+    .> localFilter .> Set.insert new_state
     where
       localFilter = case new_state of
         DownloadPlanned -> id
