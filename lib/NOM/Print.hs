@@ -12,6 +12,8 @@ import Data.Tree (Forest, Tree (Node))
 import Data.IntMap qualified as IntMap
 import Optics (itoList, view, _2)
 
+import System.Console.ANSI (SGR (Reset), setSGRCode)
+
 -- terminal-size
 import System.Console.Terminal.Size (Window)
 import System.Console.Terminal.Size qualified as Window
@@ -76,7 +78,7 @@ stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo prin
       Nothing -> defaultTreeMax
     buildsDisplay now =
       prependLines
-        (upperleft <> horizontal)
+        (toText (setSGRCode [Reset]) <> upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
         (printBuilds buildState maxHeight (zonedTimeToUTC now))
