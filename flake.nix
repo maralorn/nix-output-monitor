@@ -23,7 +23,7 @@
     flake-utils.lib.eachSystem ["x86_64-linux"] (
       system: let
         inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
-        haskellPackages = haskell.packages.ghc924;
+        haskellPackages = haskell.packages.ghc92;
         inherit (haskell.lib) doJailbreak dontCheck;
         golden-test = import ./test/golden1.nix {
           seed = "1";
