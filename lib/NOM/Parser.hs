@@ -2,6 +2,7 @@ module NOM.Parser (parser, updateParser, planBuildLine, planDownloadLine, inTick
 
 import Relude hiding (take, takeWhile)
 
+import Data.Aeson (eitherDecodeStrict')
 import Data.Attoparsec.ByteString (
   Parser,
   choice,
@@ -18,21 +19,20 @@ import Data.Attoparsec.ByteString.Char8 (
   isEndOfLine,
   takeTill,
  )
-import Data.Aeson (eitherDecodeStrict')
 
 import NOM.Builds (
   Derivation (..),
   FailType (ExitCode, HashMismatch),
   Host (..),
   StorePath (..),
-  parseStorePath,
+  derivation,
   parseDerivation,
-  storePathParser, derivation
+  parseStorePath,
+  storePathParser,
  )
 import NOM.Error (NOMError (ParseInternalJSONError))
-import NOM.Util ((<|>>))
-
 import NOM.Parser.JSON (InternalJson)
+import NOM.Util ((<|>>))
 
 data ParseResult
   = Uploading !StorePath !Host
@@ -53,14 +53,13 @@ updateParser :: Parser ParseResult
 updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
 jsonMessage :: Parser ParseResult
-jsonMessage = (string "@nix " *> noMatch) <|>> \raw_json -> 
-  let
-    json_parse_result = eitherDecodeStrict' raw_json
-    translate_aeson_error_to_nom_error :: String -> NOMError
-    translate_aeson_error_to_nom_error aeson_error =
-      ParseInternalJSONError (toText aeson_error) raw_json
-  in
-    JsonMessage (first translate_aeson_error_to_nom_error json_parse_result) 
+jsonMessage =
+  (string "@nix " *> noMatch) <|>> \raw_json ->
+    let json_parse_result = eitherDecodeStrict' raw_json
+        translate_aeson_error_to_nom_error :: String -> NOMError
+        translate_aeson_error_to_nom_error aeson_error =
+          ParseInternalJSONError (toText aeson_error) raw_json
+     in JsonMessage (first translate_aeson_error_to_nom_error json_parse_result)
 
 noMatch :: Parser ByteString
 noMatch = ParseW8.takeTill isEndOfLine <* endOfLine
@@ -129,11 +128,13 @@ failed =
             *> inTicks derivation
             <* string " failed with exit code "
         )
-      <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine])
+    <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine])
     <|>
     -- error: hash mismatch in fixed-output derivation '/nix/store/nrx4swgzs3iy049fqfx51vhnbb9kzkyv-source.drv':
     Failed
-    <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":") <*> pure HashMismatch <* endOfLine
+      <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":")
+      <*> pure HashMismatch
+      <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser ParseResult

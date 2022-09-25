@@ -20,7 +20,7 @@ module NOM.Print.Table (
   markup,
   markups,
   grey,
-  displayWidthBS
+  displayWidthBS,
 ) where
 
 import Relude hiding (truncate)
@@ -41,8 +41,8 @@ import System.Console.ANSI (
   setSGRCode,
  )
 
-import NOM.Util ((|>))
 import Data.ByteString.Char8 qualified as ByteString
+import NOM.Util ((|>))
 
 data Entry = Entry
   { codes :: [SGR]
@@ -54,8 +54,9 @@ data Entry = Entry
 -- >>> displayWidth "∑"
 -- 1
 
--- | Gives display width of a string, correctly ignoring ANSI codes and trying to
--- guess correct with for unicode symbols like emojis.
+{- | Gives display width of a string, correctly ignoring ANSI codes and trying to
+ guess correct with for unicode symbols like emojis.
+-}
 displayWidth :: Text -> Int
 displayWidth = fst . Text.foldl' widthFold (0, False)
 
@@ -68,10 +69,9 @@ truncate cut = either id (\(x, _, _) -> x) . Text.foldl' (truncateFold cut) (Rig
 
 truncateFold :: Int -> Either Text (Text, Int, Bool) -> Char -> Either Text (Text, Int, Bool)
 truncateFold _ (Left x) _ = Left x
-truncateFold cut (Right (l, x, e)) c = let
-  (newX, newE) = widthFold (x, e) c
-  in
-   if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
+truncateFold cut (Right (l, x, e)) c =
+  let (newX, newE) = widthFold (x, e) c
+   in if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
 
 widthFold :: (Int, Bool) -> Char -> (Int, Bool)
 widthFold (x, True) 'm' = (x, False)

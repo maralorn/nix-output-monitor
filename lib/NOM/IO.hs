@@ -6,9 +6,13 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, modifyTVar, swapTVar)
 import Control.Exception (IOException, try)
+import Data.Attoparsec.ByteString (Parser)
 import Data.ByteString qualified as ByteString
+import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
 import Data.Time (ZonedTime, getZonedTime)
+import System.Console.ANSI qualified as Terminal
+import System.Console.Terminal.Size qualified as Terminal.Size
 import System.IO qualified
 
 import Streamly.Data.Fold qualified as Fold
@@ -18,15 +22,11 @@ import Streamly.Prelude qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
 import NOM.Error (NOMError (InputError))
-import NOM.Print.Table as Table (bold, displayWidth, markup, red, truncate, displayWidthBS)
-import NOM.Update.Monad (UpdateMonad)
-import NOM.Util ((.>), (|>), (<|>>))
-import Data.Attoparsec.ByteString (Parser)
 import NOM.IO.ParseStream (parseStream)
-import Data.ByteString.Char8 qualified as ByteString
-import System.Console.ANSI qualified as Terminal
-import System.Console.Terminal.Size qualified as Terminal.Size
-import NOM.Print (Config(..))
+import NOM.Print (Config (..))
+import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
+import NOM.Update.Monad (UpdateMonad)
+import NOM.Util ((.>), (<|>>), (|>))
 
 type Stream = Stream.SerialT IO
 type Output = Text
@@ -80,45 +80,43 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
     ~nom_state <- readTVar nom_state_var
     ~nix_output_raw <- swapTVar nix_output_buffer_var mempty
     pure (nom_state, nix_output_raw)
-    -- ====
+  -- ====
 
-  let
-    nix_output = ByteString.lines nix_output_raw
-    nix_output_length = length nix_output
+  let nix_output = ByteString.lines nix_output_raw
+      nix_output_length = length nix_output
 
-    nom_output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer nom_state terminalSize now)
-    nom_output_length = length nom_output
+      nom_output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer nom_state terminalSize now)
+      nom_output_length = length nom_output
 
-  -- We will try to calculate how many lines we can draw without reaching the end
-  -- of the screen so that we can avoid flickering redraws triggered by
-  -- printing a newline.
-  -- For the output passed through from Nix the lines could be to long leading
-  -- to reflow by the terminal and therefor messing with our line count.
-  -- We try to predict the number of introduced linebreaks here. The number
-  -- might be slightly to high in corner cases but that will only trigger
-  -- sligthly more redraws which is totally acceptable.
-    reflow_line_count_correction = terminalSize <|>> (.width) .> \terminalWidth ->
-      getSum $ foldMap (\line -> Sum (displayWidthBS line `div` terminalWidth)) nix_output
+      -- We will try to calculate how many lines we can draw without reaching the end
+      -- of the screen so that we can avoid flickering redraws triggered by
+      -- printing a newline.
+      -- For the output passed through from Nix the lines could be to long leading
+      -- to reflow by the terminal and therefor messing with our line count.
+      -- We try to predict the number of introduced linebreaks here. The number
+      -- might be slightly to high in corner cases but that will only trigger
+      -- sligthly more redraws which is totally acceptable.
+      reflow_line_count_correction =
+        terminalSize <|>> (.width) .> \terminalWidth ->
+          getSum $ foldMap (\line -> Sum (displayWidthBS line `div` terminalWidth)) nix_output
 
   (last_printed_line_count, lines_to_pad) <- atomically do
     last_printed_line_count <- readTVar printed_lines_var
     -- When the nom output suddenly gets smaller, it might jump up from the bottom of the screen.
     -- To prevent this we insert a few newlines before it.
     -- We only do this if we know the size of the terminal.
-    let
-      lines_to_pad = case reflow_line_count_correction of
-        Just reflow_correction | pad -> max 0 (last_printed_line_count - reflow_correction - nix_output_length - nom_output_length)
-        _ ->  0
-      line_count_to_print = nom_output_length + lines_to_pad
+    let lines_to_pad = case reflow_line_count_correction of
+          Just reflow_correction | pad -> max 0 (last_printed_line_count - reflow_correction - nix_output_length - nom_output_length)
+          _ -> 0
+        line_count_to_print = nom_output_length + lines_to_pad
     writeTVar printed_lines_var line_count_to_print
     pure (last_printed_line_count, lines_to_pad)
 
-  let 
-    output_to_print = nix_output <> mtimesDefault lines_to_pad [""] <> nom_output
-    -- We have Strict enabled and at this point we are using force to make sure
-    -- the whole output has been calculated before we clear the screen.
-    output_to_print_with_newline_annotations = force (zip (howToGoToNextLine last_printed_line_count reflow_line_count_correction <$> [0..])) output_to_print
-  
+  let output_to_print = nix_output <> mtimesDefault lines_to_pad [""] <> nom_output
+      -- We have Strict enabled and at this point we are using force to make sure
+      -- the whole output has been calculated before we clear the screen.
+      output_to_print_with_newline_annotations = force (zip (howToGoToNextLine last_printed_line_count reflow_line_count_correction <$> [0 ..])) output_to_print
+
   -- when clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
   -- we do that before clearing because we can
   when (last_printed_line_count == 1) do Terminal.hSetCursorColumn output_handle 0
@@ -132,8 +130,8 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
   -- Then, if necessary we, move up and clear more lines.
   replicateM_ (last_printed_line_count - 1) do
     Terminal.hCursorUpLine output_handle 1 -- Moves cursor one line up and to the beginning of the line.
-    Terminal.hClearLine output_handle      -- We are avoiding to use clearFromCursorToScreenEnd
-                                           -- because it apparently triggers a flush on some terminals.
+    Terminal.hClearLine output_handle -- We are avoiding to use clearFromCursorToScreenEnd
+    -- because it apparently triggers a flush on some terminals.
 
   -- Write new output to screen.
   forM_ output_to_print_with_newline_annotations \(newline, line) -> do
@@ -144,32 +142,34 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
     ByteString.hPut output_handle line
 
   System.IO.hFlush output_handle
-  -- ====
+
+-- ====
 
 data ToNextLine = StayInLine | MoveToNextLine | PrintNewLine
-  deriving stock Generic
-  deriving anyclass NFData
+  deriving stock (Generic)
+  deriving anyclass (NFData)
 
 -- Depending on the current line of the output we are printing we need to decide
 -- how to move to a new line before printing.
 howToGoToNextLine :: Int -> Maybe Int -> Int -> ToNextLine
 howToGoToNextLine _ Nothing = \case
- -- When we have no info about terminal size, better be careful and always print
- -- newlines if necessary.
- 0 -> StayInLine
- _ -> PrintNewLine
+  -- When we have no info about terminal size, better be careful and always print
+  -- newlines if necessary.
+  0 -> StayInLine
+  _ -> PrintNewLine
 howToGoToNextLine previousPrintedLines (Just correction) = \case
- -- When starting to print we are always in an empty line with the cursor at the start.
- -- So we don‘t need to go to a new line
- 0 -> StayInLine
- -- When the current offset is smaller than the number of previously printed lines.
- -- e.g. we have printed 1 line, but before we had printed 2
- -- then we can probably move the cursor a row down without needing to print a newline.
- x |
-  x + correction < previousPrintedLines -> MoveToNextLine
- -- When we are at the bottom of the terminal we have no choice but need to
- -- print a newline and thus (sadly) flush the terminal
- _ -> PrintNewLine
+  -- When starting to print we are always in an empty line with the cursor at the start.
+  -- So we don‘t need to go to a new line
+  0 -> StayInLine
+  -- When the current offset is smaller than the number of previously printed lines.
+  -- e.g. we have printed 1 line, but before we had printed 2
+  -- then we can probably move the cursor a row down without needing to print a newline.
+  x
+    | x + correction < previousPrintedLines ->
+        MoveToNextLine
+  -- When we are at the bottom of the terminal we have no choice but need to
+  -- print a newline and thus (sadly) flush the terminal
+  _ -> PrintNewLine
 
 interact ::
   forall update state.
@@ -194,10 +194,10 @@ maxFrameDuration = 1_000_000 -- once per second to update timestamps
 
 minFrameDuration :: Int
 minFrameDuration =
- -- this seems to be a nice compromise to reduce excessive
- -- flickering, since the movement is not continuous this low frequency doesn‘t
- -- feel to sluggish for the eye, for me.
-   100_000 -- 10 times per second
+  -- this seems to be a nice compromise to reduce excessive
+  -- flickering, since the movement is not continuous this low frequency doesn‘t
+  -- feel to sluggish for the eye, for me.
+  100_000 -- 10 times per second
 
 processTextStream ::
   forall update state.
@@ -205,7 +205,7 @@ processTextStream ::
   Parser update ->
   UpdateFunc update state ->
   (state -> state) ->
-  Maybe (OutputFunc state,Handle) ->
+  Maybe (OutputFunc state, Handle) ->
   Finalizer state ->
   state ->
   Stream (Either NOMError ByteString) ->
@@ -213,8 +213,7 @@ processTextStream ::
 processTextStream config parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
   bufferVar <- newTVarIO mempty
-  let
-      keepProcessing :: IO ()
+  let keepProcessing :: IO ()
       keepProcessing =
         inputStream
           |> Stream.tap (writeErrorsToBuffer bufferVar)

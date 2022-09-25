@@ -1,7 +1,8 @@
-module NOM.Print (stateToText, Config(..)) where
+module NOM.Print (stateToText, Config (..)) where
 
 import Relude
 
+import Data.IntMap qualified as IntMap
 import Data.List.NonEmpty.Extra (appendr)
 import Data.MemoTrie (memo)
 import Data.Sequence qualified as Seq
@@ -9,7 +10,6 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
 import Data.Tree (Forest, Tree (Node))
-import Data.IntMap qualified as IntMap
 import Optics (itoList, view, _2)
 
 import System.Console.ANSI (SGR (Reset), setSGRCode)
@@ -18,18 +18,18 @@ import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.Terminal.Size (Window)
 import System.Console.Terminal.Size qualified as Window
 
+import Data.Map.Strict qualified as Map
+import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
+import NOM.Parser.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), getDerivationInfos, getStorePathInfos, StorePathInfo (..), StorePathSet, TransferInfo(..), StorePathMap)
+import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
-import NOM.Parser.JSON (ActivityId(..))
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
-import Data.Map.Strict qualified as Map
-import GHC.Records (HasField)
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -55,10 +55,10 @@ targetRatio, defaultTreeMax :: Int
 targetRatio = 3
 defaultTreeMax = 20
 
-data Config = MkConfig {
-  silent :: Bool,
-  piping :: Bool
-}
+data Config = MkConfig
+  { silent :: Bool
+  , piping :: Bool
+  }
 
 stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
 stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSize
@@ -120,9 +120,10 @@ stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo prin
         , nonZeroBold downloadsDone (green (label down (disp downloadsDone)))
         , nonZeroBold numPlannedDownloads . blue . label todo . disp $ numPlannedDownloads
         ]
-      <> showCond showUploads [
-        nonZeroBold uploadsRunning (yellow (label up (disp uploadsRunning))),
-        nonZeroBold uploadsDone (green (label up (disp uploadsDone)))
+      <> showCond
+        showUploads
+        [ nonZeroBold uploadsRunning (yellow (label up (disp uploadsRunning)))
+        , nonZeroBold uploadsDone (green (label up (disp uploadsDone)))
         ]
   lastRow time' = partial_last_row `appendr` one (bold (header time'))
 
@@ -141,9 +142,9 @@ stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo prin
   downloadsRunning = CMap.size runningDownloads
   uploadsRunning = CMap.size runningUploads
   uploadsDone = CMap.size completedUploads
-  finishMarkup 
+  finishMarkup
     | numFailedBuilds > 0 = ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>) .> markup red
-    | not (null nixErrors) = ((warning <> " Exited with " <> show (length nixErrors) <>  " errors reported by nix") <>) .> markup red
+    | not (null nixErrors) = ((warning <> " Exited with " <> show (length nixErrors) <> " errors reported by nix") <>) .> markup red
     | otherwise = ("Finished" <>) .> markup green
   printHosts :: [NonEmpty Entry]
   printHosts =
@@ -160,11 +161,14 @@ stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo prin
         <> showCond
           showDownloads
           [ nonZeroShowBold downloadsRunning' (yellow (label down (disp downloadsRunning')))
-           , nonZeroShowBold downloads (green (label down (disp downloads))), dummy]
+          , nonZeroShowBold downloads (green (label down (disp downloads)))
+          , dummy
+          ]
         <> showCond
           showUploads
-          [nonZeroShowBold uploadsRunning' (yellow (label up (disp uploadsRunning'))),
-          nonZeroShowBold uploads (green (label up (disp uploads)))]
+          [ nonZeroShowBold uploadsRunning' (yellow (label up (disp uploadsRunning')))
+          , nonZeroShowBold uploads (green (label up (disp uploads)))
+          ]
         <> one (magenta (header (toText host)))
      where
       uploads = action_count_for_host host completedUploads
@@ -208,10 +212,10 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   preparedPrintForest = buildForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
   printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
   printTreeNode location drvInfo =
-      let ~summary = showSummary drvInfo.dependencySummary
-          (planned, display_drv) = printDerivation drvInfo
-          displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
-       in \now -> display_drv now <> displayed_summary
+    let ~summary = showSummary drvInfo.dependencySummary
+        (planned, display_drv) = printDerivation drvInfo
+        displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
+     in \now -> display_drv now <> displayed_summary
 
   buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
@@ -222,11 +226,11 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
       seen_ids <- get
       let mkNode
             | not (CSet.member thisDrv seen_ids) && CSet.member thisDrv derivationsToShow = do
-              let drvInfo = get' (getDerivationInfos thisDrv)
-                  childs = children thisDrv
-              modify (CSet.insert thisDrv)
-              subforest <- goBuildForest childs
-              pure (Node drvInfo subforest :)
+                let drvInfo = get' (getDerivationInfos thisDrv)
+                    childs = children thisDrv
+                modify (CSet.insert thisDrv)
+                subforest <- goBuildForest childs
+                pure (Node drvInfo subforest :)
             | otherwise = pure id
       prepend_node <- mkNode
       goBuildForest restDrvs <|>> prepend_node
@@ -262,9 +266,9 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
       let sort_key = sortKey nomState thisDrv
           summary@MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
           runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
-          nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path -> 
+          nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path ->
             let infos = get' (getStorePathInfos path)
-            in infos.inputFor <> CSet.fromFoldable infos.producer
+             in infos.inputFor <> CSet.fromFoldable infos.producer
           may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           new_seen_ids = CSet.insert thisDrv seen_ids
           new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
@@ -284,88 +288,103 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
 
   showSummary :: DependencySummary -> Text
   showSummary MkDependencySummary{..} =
-    [ 
-      memptyIfTrue (CMap.null failedBuilds) 
-        [markup red $ show (CMap.size failedBuilds) <> " failed"],
-      memptyIfTrue (CMap.null runningBuilds) 
-        [markup yellow $ show (CMap.size runningBuilds) <> " building"],
-      memptyIfTrue (CSet.null plannedBuilds) 
-        [markup blue $ show (CSet.size plannedBuilds) <> " waiting builds"],
-      memptyIfTrue (CMap.null runningUploads) 
-        [markup magenta $ show (CMap.size runningUploads) <> " uploading"],
-      memptyIfTrue (CMap.null runningDownloads) 
-        [markup yellow $ show (CMap.size runningDownloads) <> " downloads"],
-      memptyIfTrue (CSet.null plannedDownloads) 
+    [ memptyIfTrue
+        (CMap.null failedBuilds)
+        [markup red $ show (CMap.size failedBuilds) <> " failed"]
+    , memptyIfTrue
+        (CMap.null runningBuilds)
+        [markup yellow $ show (CMap.size runningBuilds) <> " building"]
+    , memptyIfTrue
+        (CSet.null plannedBuilds)
+        [markup blue $ show (CSet.size plannedBuilds) <> " waiting builds"]
+    , memptyIfTrue
+        (CMap.null runningUploads)
+        [markup magenta $ show (CMap.size runningUploads) <> " uploading"]
+    , memptyIfTrue
+        (CMap.null runningDownloads)
+        [markup yellow $ show (CMap.size runningDownloads) <> " downloads"]
+    , memptyIfTrue
+        (CSet.null plannedDownloads)
         [markup blue $ show (CSet.size plannedDownloads) <> " waiting downloads"]
     ]
-      |> join .> unwords
+      |> join
+      .> unwords
 
   printDerivation :: DerivationInfo -> (Bool, UTCTime -> Text)
   printDerivation drvInfo = do
-   let
-    outputs_list = Map.elems drvInfo.outputs
-    outputs = CSet.fromFoldable outputs_list
-    outputs_in :: StorePathSet -> Bool
-    outputs_in = not . CSet.null . CSet.intersection outputs
-    outputs_in_map :: StorePathMap (TransferInfo a) -> Maybe (TransferInfo a)
-    outputs_in_map info_map = viaNonEmpty head . mapMaybe (\output -> CMap.lookup output info_map) $ outputs_list
-    phaseMay activityId' = do 
+    let outputs_list = Map.elems drvInfo.outputs
+        outputs = CSet.fromFoldable outputs_list
+        outputs_in :: StorePathSet -> Bool
+        outputs_in = not . CSet.null . CSet.intersection outputs
+        outputs_in_map :: StorePathMap (TransferInfo a) -> Maybe (TransferInfo a)
+        outputs_in_map info_map = viaNonEmpty head . mapMaybe (\output -> CMap.lookup output info_map) $ outputs_list
+        phaseMay activityId' = do
           activityId <- activityId'
           (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
           phase
-    drvName = drvInfo.name.storePath.name
-   case drvInfo.buildStatus of
-    Unknown 
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads -> (False, \now -> 
-        markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host))
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads -> (False, \now -> 
-        markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host))
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads -> 
-         (False,
-          const $ 
-             markup green (done <> down <> " " <> drvName)
-             <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
-             <> markup grey (" from " <> markup magenta (toText infos.host))
-         )
-     | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads ->
-         (False,
-          const $
-             markup green (done <> up <> " " <> drvName)
-             <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
-             <> markup grey (" to " <> markup magenta (toText infos.host))
-         )
-     | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))
-     | otherwise -> (True, const drvName)
-    Planned -> (True, const (markup blue (todo <> " " <> drvName)))
-    Building buildInfo -> (False, let
-        phaseList = case phaseMay buildInfo.end of
-          Nothing -> []
-          Just phase -> [markup bold ("(" <> phase <> ")")]
-      in \now ->
-      unwords $
-        [markups [yellow, bold] (running <> " " <> drvName)]
-          <> hostMarkup buildInfo.host
-          <> phaseList
-          <> [clock, timeDiff now buildInfo.start]
-          <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate)
-    Failed buildInfo -> (False,
-      let
-         (endTime, failType, activityId) = buildInfo.end
-         phaseInfo = case phaseMay activityId of
-           Nothing -> []
-           Just phase -> ["in",phase]
-      in
-      const $
-        unwords $
-          [markups [red, bold] (warning <> " " <> drvName)]
-            <> hostMarkup buildInfo.host
-            <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)])
-    Built buildInfo -> (False,
-      const $
-        unwords $
-          [markup green (done <> " " <> drvName)]
-            <> hostMarkup buildInfo.host
-            <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)])
+        drvName = drvInfo.name.storePath.name
+    case drvInfo.buildStatus of
+      Unknown
+        | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads ->
+            ( False
+            , \now ->
+                markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host)
+            )
+        | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads ->
+            ( False
+            , \now ->
+                markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host)
+            )
+        | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads ->
+            ( False
+            , const $
+                markup green (done <> down <> " " <> drvName)
+                  <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
+                  <> markup grey (" from " <> markup magenta (toText infos.host))
+            )
+        | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads ->
+            ( False
+            , const $
+                markup green (done <> up <> " " <> drvName)
+                  <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
+                  <> markup grey (" to " <> markup magenta (toText infos.host))
+            )
+        | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))
+        | otherwise -> (True, const drvName)
+      Planned -> (True, const (markup blue (todo <> " " <> drvName)))
+      Building buildInfo ->
+        ( False
+        , let phaseList = case phaseMay buildInfo.end of
+                Nothing -> []
+                Just phase -> [markup bold ("(" <> phase <> ")")]
+           in \now ->
+                unwords $
+                  [markups [yellow, bold] (running <> " " <> drvName)]
+                    <> hostMarkup buildInfo.host
+                    <> phaseList
+                    <> [clock, timeDiff now buildInfo.start]
+                    <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
+        )
+      Failed buildInfo ->
+        ( False
+        , let (endTime, failType, activityId) = buildInfo.end
+              phaseInfo = case phaseMay activityId of
+                Nothing -> []
+                Just phase -> ["in", phase]
+           in const $
+                unwords $
+                  [markups [red, bold] (warning <> " " <> drvName)]
+                    <> hostMarkup buildInfo.host
+                    <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
+        )
+      Built buildInfo ->
+        ( False
+        , const $
+            unwords $
+              [markup green (done <> " " <> drvName)]
+                <> hostMarkup buildInfo.host
+                <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
+        )
 
 printFailType :: FailType -> Text
 printFailType = \case

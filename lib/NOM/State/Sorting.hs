@@ -13,7 +13,7 @@ import Data.List.Extra (firstJust)
 import Data.MemoTrie (memo)
 import Data.Sequence qualified as Seq
 import Data.Time (UTCTime)
-import Optics ((%~), view, _1)
+import Optics (view, (%~), _1)
 import Safe.Foldable (maximumMay, minimumMay)
 
 import NOM.State (
@@ -49,8 +49,8 @@ sortDepsOfSet parents = do
 
 type SortKey =
   ( SortOrder
-  -- We always want to show all running builds and transfers so we try to display them low in the tree.
-  , Down Int -- Running Builds, prefer more
+  , -- We always want to show all running builds and transfers so we try to display them low in the tree.
+    Down Int -- Running Builds, prefer more
   , Down Int -- Running Downloads, prefer more
   -- But we want to show the smallest tree showing all builds and downloads to save screen estate.
   , Int -- Waiting Builds, prefer less
@@ -60,8 +60,8 @@ type SortKey =
 data SortOrder
   = -- First the failed builds starting with the earliest failures
     SFailed UTCTime
-    -- Second the running builds starting with longest running
-  | SBuilding UTCTime
+  | -- Second the running builds starting with longest running
+    SBuilding UTCTime
   | SDownloading
   | SUploading
   | SWaiting

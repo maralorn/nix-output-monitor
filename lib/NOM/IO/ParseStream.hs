@@ -1,12 +1,14 @@
 module NOM.IO.ParseStream (parseStream, parseOneText, stripANSICodes) where
 
+import Relude
+
 import Data.Attoparsec.ByteString (IResult (..), Parser, Result, parse)
 import Data.ByteString qualified as ByteString
 import Data.Word8 qualified as Word8
-import NOM.Util ((.>))
-import Relude
 import Streamly.Prelude ((.:))
 import Streamly.Prelude qualified as Stream
+
+import NOM.Util ((.>))
 
 type ContParser update = (ByteString -> Result update, ByteString)
 

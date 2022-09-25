@@ -1,12 +1,14 @@
 module NOM.Builds (Derivation (..), StorePath (..), Host (..), FailType (..), parseStorePath, parseDerivation, storePathParser, derivation) where
 
 import Relude
-import Data.Attoparsec.ByteString qualified as Parser
-import Data.Attoparsec.ByteString.Char8 qualified as CharParser
-import NOM.Util (hush)
+
 import Data.Aeson qualified as JSON
 import Data.Aeson.Types qualified as JSON
+import Data.Attoparsec.ByteString qualified as Parser
+import Data.Attoparsec.ByteString.Char8 qualified as CharParser
 import Data.Text qualified as Text
+
+import NOM.Util (hush)
 
 data StorePath = StorePath
   { hash :: !Text
@@ -34,23 +36,23 @@ parseStorePath :: ConvertUtf8 a ByteString => a -> Maybe StorePath
 parseStorePath = hush . Parser.parseOnly (storePathParser <* Parser.endOfInput) . encodeUtf8
 
 instance JSON.FromJSON StorePath where
-   parseJSON = JSON.withText "store path" \text ->
-      case parseStorePath text of
-         Just path -> pure path
-         Nothing -> JSON.parseFail (toString text <> "is not a valid store path")
+  parseJSON = JSON.withText "store path" \text ->
+    case parseStorePath text of
+      Just path -> pure path
+      Nothing -> JSON.parseFail (toString text <> "is not a valid store path")
 
 instance JSON.FromJSON Derivation where
-   parseJSON = JSON.withText "derivation" \text ->
-      case parseDerivation text of
-         Just path -> pure path
-         Nothing -> JSON.parseFail (toString text <> "is not a valid derivation path")
+  parseJSON = JSON.withText "derivation" \text ->
+    case parseDerivation text of
+      Just path -> pure path
+      Nothing -> JSON.parseFail (toString text <> "is not a valid derivation path")
 
 instance JSON.FromJSON Host where
-   parseJSON = JSON.withText "host" \text ->
-      pure $ case text of
-         "" -> Localhost
-         "local" -> Localhost
-         host -> Host host
+  parseJSON = JSON.withText "host" \text ->
+    pure $ case text of
+      "" -> Localhost
+      "local" -> Localhost
+      host -> Host host
 
 newtype Derivation = Derivation {storePath :: StorePath}
   deriving stock (Show, Generic)

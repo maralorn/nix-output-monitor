@@ -18,6 +18,7 @@ import Test.HUnit (
 
 import NOM.IO (processTextStream)
 import NOM.Parser (parseStorePath, parser)
+import NOM.Print (Config (..))
 import NOM.State (
   DependencySummary (..),
   DerivationId,
@@ -35,7 +36,6 @@ import NOM.Update (
  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
-import NOM.Print (Config(..))
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -68,7 +68,7 @@ testBuild name asserts withNix =
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalState
-    endState <- processTextStream (MkConfig False False)parser (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
+    endState <- processTextStream (MkConfig False False) parser (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()

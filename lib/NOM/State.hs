@@ -40,7 +40,7 @@ import Data.Time (UTCTime)
 import Optics ((%~))
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
-import NOM.Parser.JSON (Activity(), ActivityId)
+import NOM.Parser.JSON (Activity (), ActivityId)
 import NOM.Parser.JSON qualified as JSON
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
