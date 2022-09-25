@@ -9,8 +9,8 @@ homepage:           https://github.com/maralorn/nix-output-monitor
 bug-reports:        https://github.com/maralorn/nix-output-monitor/issues
 license:            AGPL-3.0-or-later
 license-file:       LICENSE
-author:             Malte Brandy <malte.brandy@maralorn.de>
-maintainer:         Malte Brandy <malte.brandy@maralorn.de>
+author:             maralorn <mail@maralorn.de>
+maintainer:         maralorn <mail@maralorn.de>
 build-type:         Simple
 extra-source-files: CHANGELOG.md
 
