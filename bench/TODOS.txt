@@ -1,0 +1,3 @@
+- [ ] deepseq deaktivieren und memory usage überprüfen (potentiell feinere deepseqs einführen)
+- [ ] Input types ausfactorn
+- [ ] Verschiedene JSON parser testen
