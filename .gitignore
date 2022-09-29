@@ -2,3 +2,4 @@ dist-newstyle
 .direnv
 .pre-commit-config.yaml
 result*
+bench/profile-run-*
