@@ -27,6 +27,7 @@ import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (<|>>), (|>))
+import Streamly ((|&))
 
 type Stream = Stream.SerialT IO
 type Output = Text
@@ -216,11 +217,11 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   let keepProcessing :: IO ()
       keepProcessing =
         inputStream
-          |> Stream.tap (writeErrorsToBuffer bufferVar)
-          .> Stream.mapMaybe rightToMaybe
-          .> parseStream parser
-          .> Stream.mapM (snd .> runUpdate bufferVar stateVar updater >=> flip (<>) .> modifyTVar bufferVar .> atomically)
-          .> Stream.drain
+          |& Stream.tap (writeErrorsToBuffer bufferVar)
+          |& Stream.mapMaybe rightToMaybe
+          |& parseStream parser
+          |& Stream.mapM (snd .> runUpdate bufferVar stateVar updater >=> flip (<>) .> modifyTVar bufferVar .> atomically)
+          |> Stream.drain
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay |> maybe keepProcessing \(printer, output_handle) -> do
