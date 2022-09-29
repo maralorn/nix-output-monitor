@@ -2,7 +2,6 @@ module NOM.Parser (parser, updateParser, planBuildLine, planDownloadLine, inTick
 
 import Relude hiding (take, takeWhile)
 
-import Data.Aeson (eitherDecodeStrict')
 import Data.Attoparsec.ByteString (
   Parser,
   choice,
@@ -30,21 +29,9 @@ import NOM.Builds (
   parseStorePath,
   storePathParser,
  )
-import NOM.Error (NOMError (ParseInternalJSONError))
-import NOM.Parser.JSON (InternalJson)
 import NOM.Util ((<|>>))
-
-data ParseResult
-  = Uploading !StorePath !Host
-  | Downloading !StorePath !Host
-  | PlanCopies !Int
-  | Build Derivation !Host
-  | PlanBuilds (Set Derivation) !Derivation
-  | PlanDownloads !Double !Double (Set StorePath)
-  | Checking !Derivation
-  | Failed !Derivation !FailType
-  | JsonMessage !(Either NOMError InternalJson)
-  deriving stock (Show, Eq)
+import NOM.NixEvent (ParseResult(..))
+import NOM.Parser.JSON.Aeson qualified as NOM.Aeson
 
 parser :: Parser (Maybe ParseResult)
 parser = Just <$> updateParser <|> Nothing <$ noMatch
@@ -54,12 +41,7 @@ updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> buil
 
 jsonMessage :: Parser ParseResult
 jsonMessage =
-  (string "@nix " *> noMatch) <|>> \raw_json ->
-    let json_parse_result = eitherDecodeStrict' raw_json
-        translate_aeson_error_to_nom_error :: String -> NOMError
-        translate_aeson_error_to_nom_error aeson_error =
-          ParseInternalJSONError (toText aeson_error) raw_json
-     in JsonMessage (first translate_aeson_error_to_nom_error json_parse_result)
+  (string "@nix " *> noMatch) <|>> NOM.Aeson.parseJSON
 
 noMatch :: Parser ByteString
 noMatch = ParseW8.takeTill isEndOfLine <* endOfLine

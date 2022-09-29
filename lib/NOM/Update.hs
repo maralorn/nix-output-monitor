@@ -26,8 +26,6 @@ import NOM.Error (NOMError)
 import NOM.IO.ParseStream (parseOneText, stripANSICodes)
 import NOM.Parser (ParseResult (..), parseDerivation, parseStorePath, updateParser)
 import NOM.Parser qualified as Parser
-import NOM.Parser.JSON (Activity, ActivityId (..), ActivityResult (..), InternalJson (..), MessageAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
-import NOM.Parser.JSON qualified as JSON
 import NOM.Print.Table (blue, markup)
 import NOM.State (
   BuildInfo (..),
@@ -68,6 +66,8 @@ import NOM.Update.Monad (
   UpdateMonad,
  )
 import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
+import NOM.NixEvent.Action (InternalJson(..), MessageAction (..), Verbosity (..), ResultAction (..), ActivityResult (..), StartAction (..), StopAction (..), Activity, ActivityId)
+import NOM.NixEvent.Action qualified as JSON
 
 getReportName :: Derivation -> Text
 getReportName drv = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.storePath.name

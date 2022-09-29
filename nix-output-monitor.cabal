@@ -78,8 +78,12 @@ library
     NOM.Error
     NOM.IO
     NOM.IO.ParseStream
+    NOM.NixEvent
+    NOM.NixEvent.Action
     NOM.Parser
-    NOM.Parser.JSON
+    NOM.Parser.JSON.Aeson
+    NOM.Parser.JSON.Hermes
+    NOM.Parser.JSON.Manual
     NOM.Print
     NOM.Print.Table
     NOM.Print.Tree

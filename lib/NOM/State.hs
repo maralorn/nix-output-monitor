@@ -40,8 +40,6 @@ import Data.Time (UTCTime)
 import Optics ((%~))
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
-import NOM.Parser.JSON (Activity (), ActivityId)
-import NOM.Parser.JSON qualified as JSON
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
 import NOM.State.CacheId.Map qualified as CMap
@@ -54,6 +52,7 @@ import NOM.Update.Monad (
   getNow,
  )
 import NOM.Util (foldMapEndo, (.>), (<|>>), (|>))
+import NOM.NixEvent.Action (ActivityId, Activity, ActivityProgress)
 
 data StorePathState = DownloadPlanned | Downloading RunningTransferInfo | Uploading RunningTransferInfo | Downloaded CompletedTransferInfo | Uploaded CompletedTransferInfo
   deriving stock (Show, Eq, Ord, Generic)

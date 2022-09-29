@@ -21,7 +21,6 @@ import System.Console.Terminal.Size qualified as Window
 import Data.Map.Strict qualified as Map
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
-import NOM.Parser.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos)
@@ -30,6 +29,7 @@ import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Util ((.>), (<.>>), (<|>>), (|>))
+import NOM.NixEvent.Action (ActivityId(..))
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
