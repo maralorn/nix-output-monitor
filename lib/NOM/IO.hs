@@ -47,7 +47,7 @@ readTextChunks handle = loop
   loop :: Stream (Either NOMError ByteString)
   loop =
     tryRead >>= \case
-      Left err -> Left (InputError err) .: loop -- Ignore Exception
+      Left err -> Left (InputError err) .: loop -- Forward Exceptions, when we encounter them
       Right "" -> mempty -- EOF
       Right input -> Right input .: loop
 
@@ -121,7 +121,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
   -- we do that before clearing because we can
   when (last_printed_line_count == 1) do Terminal.hSetCursorColumn output_handle 0
 
-  -- ==== Time Critical Segment - When we start to cleare the screen we need to
+  -- ==== Time Critical Segment - When we start to clear the screen we need to
   -- print content as fast as possible
   -- Clear last output from screen.
   -- First we clear the current line, if we have written on it.
