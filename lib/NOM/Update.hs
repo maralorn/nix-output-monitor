@@ -232,7 +232,12 @@ processJsonMessage now = \case
       Just (JSON.CopyPath path Localhost to, _, _) -> withChange do
         pathId <- getStorePathId path
         uploaded to pathId now
+      Just (JSON.Build drv host  _ _, _, _) -> withChange do
+        drvId <- lookupDerivation drv
+        finishedBuildInfo <- fmap (drvId,) <$> getBuildInfoIfRunning drvId
+        finishBuilds host (toList finishedBuildInfo)
       _ -> noChange
+
   _other -> do
     -- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
     noChange
@@ -278,7 +283,8 @@ failedBuild :: UTCTime -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
  where
   update = \case
-    Building a -> State.Failed (a <|>> (now,code,))
+    Built a -> State.Failed (a $> (now,code) )
+    Building a -> State.Failed (a $> (now,code))
     x -> x
 
 lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT (WriterT [Either NOMError ByteString] m) DerivationId
@@ -334,8 +340,13 @@ downloading host pathId start = do
   insertStorePathState pathId (State.Downloading MkTransferInfo{host, duration = start}) Nothing
   runMaybeT $ do
     drvId <- MaybeT (out2drv pathId)
+    (drvId,) <$> MaybeT (getBuildInfoIfRunning drvId)
+
+getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
+getBuildInfoIfRunning drvId = 
+  runMaybeT $ do
     drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
-    MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$) .> (drvId,)))
+    MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$)))
 
 downloaded :: Host -> StorePathId -> UTCTime -> NOMState (Maybe (DerivationId, RunningBuildInfo))
 downloaded host pathId end = do
@@ -344,8 +355,7 @@ downloaded host pathId end = do
     other -> other
   runMaybeT $ do
     drvId <- MaybeT (out2drv pathId)
-    drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
-    MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$) .> (drvId,)))
+    (drvId,) <$> MaybeT (getBuildInfoIfRunning drvId)
 
 uploading :: Host -> StorePathId -> UTCTime -> NOMState ()
 uploading host pathId start =
@@ -360,7 +370,7 @@ building :: UpdateMonad m => Host -> Derivation -> UTCTime -> Maybe ActivityId -
 building host drvName now activityId = do
   lastNeeded <- get <|>> (.buildReports) .> Map.lookup (host, getReportName drvName)
   drvId <- lookupDerivation drvName
-  updateDerivationState drvId (const (Building (MkBuildInfo now host lastNeeded activityId)))
+  updateDerivationState drvId (const (Building (MkBuildInfo now host lastNeeded activityId ())))
 
 updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus) -> NOMState ()
 updateDerivationState drvId updateStatus = do

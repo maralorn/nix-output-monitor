@@ -71,7 +71,6 @@ data DerivationInfo = MkDerivationInfo
   , platform :: Maybe Text
   }
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 type StorePathId = CacheId StorePath
 
@@ -102,7 +101,7 @@ type RunningTransferInfo = TransferInfo UTCTime
 
 type CompletedTransferInfo = TransferInfo (Maybe Int)
 
-type FailedBuildInfo = BuildInfo (UTCTime, FailType, Maybe ActivityId)
+type FailedBuildInfo = BuildInfo (UTCTime, FailType)
 
 data DependencySummary = MkDependencySummary
   { plannedBuilds :: DerivationSet
@@ -116,7 +115,6 @@ data DependencySummary = MkDependencySummary
   , runningUploads :: StorePathMap RunningTransferInfo
   }
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 data NOMV1State = MkNOMV1State
   { derivationInfos :: DerivationMap DerivationInfo
@@ -129,33 +127,30 @@ data NOMV1State = MkNOMV1State
   , storePathIds :: Map StorePath StorePathId
   , derivationIds :: Map Derivation DerivationId
   , touchedIds :: DerivationSet
-  , activities :: IntMap (Activity, Maybe Text, Maybe JSON.ActivityProgress)
+  , activities :: IntMap (Activity, Maybe Text, Maybe ActivityProgress)
   , nixErrors :: [Text]
   }
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 data ProcessState = JustStarted | InputReceived | Finished
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 data BuildStatus
   = Unknown
   | Planned
-  | Building (BuildInfo (Maybe ActivityId))
-  | Failed (BuildInfo (UTCTime, FailType, Maybe ActivityId)) -- End
+  | Building (BuildInfo ())
+  | Failed (BuildInfo (UTCTime, FailType)) -- End
   | Built (BuildInfo UTCTime) -- End
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 data BuildInfo a = MkBuildInfo
   { start :: UTCTime
   , host :: Host
   , estimate :: Maybe Int
+  , activityId :: Maybe ActivityId
   , end :: a
   }
   deriving stock (Show, Eq, Ord, Generic, Functor)
-  deriving anyclass (NFData)
 
 data TransferInfo a = MkTransferInfo
   { host :: Host

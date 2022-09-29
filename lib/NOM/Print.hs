@@ -354,7 +354,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
       Planned -> (True, const (markup blue (todo <> " " <> drvName)))
       Building buildInfo ->
         ( False
-        , let phaseList = case phaseMay buildInfo.end of
+        , let phaseList = case phaseMay buildInfo.activityId of
                 Nothing -> []
                 Just phase -> [markup bold ("(" <> phase <> ")")]
            in \now ->
@@ -367,8 +367,8 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         )
       Failed buildInfo ->
         ( False
-        , let (endTime, failType, activityId) = buildInfo.end
-              phaseInfo = case phaseMay activityId of
+        , let (endTime, failType) = buildInfo.end
+              phaseInfo = case phaseMay buildInfo.activityId of
                 Nothing -> []
                 Just phase -> ["in", phase]
            in const $
