@@ -123,7 +123,7 @@ updateState (result, input) (inputAccessTime, inputState) = do
         Just _ -> ""
         Nothing -> input
       errors = lefts msgs
-  deepseq retval (pure ((errors, output <> ByteString.unlines (rights msgs)), retval))
+  pure ((errors, output <> ByteString.unlines (rights msgs)), retval)
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
