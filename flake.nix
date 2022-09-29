@@ -70,7 +70,7 @@
               alejandra.enable = true;
               nix-linter.enable = true;
               statix.enable = true;
-              fourmolu.enable = true; # disabled until fourmolo or ormolu can deal with RecordDotSyntax
+              # fourmolu.enable = true; # disabled until fourmolo or ormolu can deal with RecordDotSyntax
               cabal-fmt.enable = true;
               shellcheck.enable = true;
             };
