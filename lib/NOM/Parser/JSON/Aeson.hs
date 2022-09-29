@@ -7,20 +7,20 @@ import Data.Aeson qualified as JSON
 import Data.Aeson.Types qualified as JSON
 
 import NOM.Util ((<|>>), (|>))
-import NOM.NixEvent.Action (Verbosity (..), ActivityType (..), InternalJson (..), MessageAction (..), ResultAction (..), ActivityProgress (..), StopAction (..), StartAction (..), ActivityResult (..), Activity (..), ActivityId(..))
+import NOM.NixEvent.Action (Verbosity (..), ActivityType (..), NixAction (..), MessageAction (..), ResultAction (..), ActivityProgress (..), StopAction (..), StartAction (..), ActivityResult (..), Activity (..), ActivityId(..))
 import NOM.Error (NOMError (..))
-import NOM.NixEvent (ParseResult(JsonMessage))
+import NOM.NixEvent (NixEvent(JsonMessage))
 import Data.Aeson (eitherDecodeStrict')
 
 deriving newtype instance JSON.FromJSON ActivityId
 
-parseJSON :: ByteString -> ParseResult
+parseJSON :: ByteString -> NixEvent
 parseJSON raw_json = JsonMessage (first translate_aeson_error_to_nom_error json_parse_result)
   where
         json_parse_result = eitherDecodeStrict' raw_json
         translate_aeson_error_to_nom_error :: String -> NOMError
         translate_aeson_error_to_nom_error aeson_error =
-          ParseInternalJSONError (toText aeson_error) raw_json
+          ParseNixActionError (toText aeson_error) raw_json
 
 instance JSON.FromJSON Verbosity where
   parseJSON = JSON.withScientific "nix verbosity level" $ \case
@@ -51,7 +51,7 @@ instance JSON.FromJSON ActivityType where
     111 -> pure BuildWaitingType
     other -> JSON.parseFail ("invalid activity result type: " <> show other)
 
-instance JSON.FromJSON InternalJson where
+instance JSON.FromJSON NixAction where
   parseJSON = JSON.withObject "nix internal-json object" $ \object -> do
     action <- JSON.parseField object "action"
     action |> JSON.withText "nix internal-json action" \actionType ->

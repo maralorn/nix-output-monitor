@@ -1,12 +1,12 @@
-module NOM.NixEvent (ParseResult(..)) where
+module NOM.NixEvent (NixEvent(..)) where
 
 import Relude
 
 import NOM.Builds (StorePath(..), Host (..), Derivation (..), FailType)
 import NOM.Error (NOMError)
-import NOM.NixEvent.Action (InternalJson)
+import NOM.NixEvent.Action (NixAction)
 
-data ParseResult
+data NixEvent
   = Uploading !StorePath !Host
   | Downloading !StorePath !Host
   | PlanCopies !Int
@@ -15,5 +15,5 @@ data ParseResult
   | PlanDownloads !Double !Double (Set StorePath)
   | Checking !Derivation
   | Failed !Derivation !FailType
-  | JsonMessage !(Either NOMError InternalJson)
+  | JsonMessage !(Either NOMError NixAction)
   deriving stock (Show, Eq)

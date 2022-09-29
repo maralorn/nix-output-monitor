@@ -20,7 +20,7 @@ import System.Console.Terminal.Size (Window)
 
 import NOM.Error (NOMError)
 import NOM.IO (interact)
-import NOM.Parser (ParseResult, parser)
+import NOM.Parser (NixEvent, parser)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
 import NOM.State (NOMV1State (nixErrors), ProcessState (..), failedBuilds, fullSummary, initalState)
@@ -121,7 +121,7 @@ compoundStateToText = view _3
 compoundStateUpdater ::
   UpdateMonad m =>
   Config ->
-  (Maybe ParseResult, ByteString) ->
+  (Maybe NixEvent, ByteString) ->
   StateT CompoundState m ([NOMError], ByteString)
 compoundStateUpdater config input = do
   oldState <- get

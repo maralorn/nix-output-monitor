@@ -1,4 +1,4 @@
-module NOM.Parser (parser, updateParser, planBuildLine, planDownloadLine, inTicks, ParseResult (..), parseStorePath, parseDerivation) where
+module NOM.Parser (parser, updateParser, planBuildLine, planDownloadLine, inTicks, NixEvent (..), parseStorePath, parseDerivation) where
 
 import Relude hiding (take, takeWhile)
 
@@ -30,16 +30,16 @@ import NOM.Builds (
   storePathParser,
  )
 import NOM.Util ((<|>>))
-import NOM.NixEvent (ParseResult(..))
+import NOM.NixEvent (NixEvent(..))
 import NOM.Parser.JSON.Aeson qualified as NOM.Aeson
 
-parser :: Parser (Maybe ParseResult)
+parser :: Parser (Maybe NixEvent)
 parser = Just <$> updateParser <|> Nothing <$ noMatch
 
-updateParser :: Parser ParseResult
+updateParser :: Parser NixEvent
 updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
-jsonMessage :: Parser ParseResult
+jsonMessage :: Parser NixEvent
 jsonMessage =
   (string "@nix " *> noMatch) <|>> NOM.Aeson.parseJSON
 
@@ -66,7 +66,7 @@ indent = void $ string "  "
 
 -- these (<decimal> )?derivations will be built:
 --  /nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv
-planBuilds :: Parser ParseResult
+planBuilds :: Parser NixEvent
 planBuilds =
   maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x))) . nonEmpty
     =<< choice
@@ -80,7 +80,7 @@ planBuilds =
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivation <* endOfLine
 
-planDownloads :: Parser ParseResult
+planDownloads :: Parser NixEvent
 planDownloads =
   PlanDownloads
     <$> ( choice
@@ -97,7 +97,7 @@ planDownloads =
 planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePathParser <* endOfLine
 
-failed :: Parser ParseResult
+failed :: Parser NixEvent
 -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed =
   Failed
@@ -119,17 +119,17 @@ failed =
       <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
-checking :: Parser ParseResult
+checking :: Parser NixEvent
 checking = Checking <$> (string "checking outputs of " *> inTicks derivation <* ellipsisEnd)
 
 -- copying 1 paths...
 -- copying path '/nix/store/fzyahnw94msbl4ic5vwlnyakslq4x1qm-source' to 'ssh://maralorn@example.org'...
-copying :: Parser ParseResult
+copying :: Parser NixEvent
 copying =
   string "copying "
     *> (transmission <|> PlanCopies <$> decimal <* string " paths" <* ellipsisEnd)
 
-transmission :: Parser ParseResult
+transmission :: Parser NixEvent
 transmission = do
   p <- string "path " *> inTicks storePathParser
   (Uploading p <$> toHost <|> Downloading p <$> fromHost) <* ellipsisEnd
@@ -144,7 +144,7 @@ onHost :: Parser Host
 onHost = string " on " *> host
 
 -- building '/nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv' on 'ssh://maralorn@example.org'...
-building :: Parser ParseResult
+building :: Parser NixEvent
 building = do
   p <- string "building " *> inTicks derivation
   Build p Localhost <$ ellipsisEnd <|> Build p <$> onHost <* ellipsisEnd

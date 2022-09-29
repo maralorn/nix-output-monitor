@@ -24,7 +24,7 @@ import Nix.Derivation qualified as Nix
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.Error (NOMError)
 import NOM.IO.ParseStream (parseOneText, stripANSICodes)
-import NOM.Parser (ParseResult (..), parseDerivation, parseStorePath, updateParser)
+import NOM.Parser (NixEvent (..), parseDerivation, parseStorePath, updateParser)
 import NOM.Parser qualified as Parser
 import NOM.Print.Table (blue, markup)
 import NOM.State (
@@ -66,7 +66,7 @@ import NOM.Update.Monad (
   UpdateMonad,
  )
 import NOM.Util (foldMapEndo, (.>), (<.>>), (<|>>), (|>))
-import NOM.NixEvent.Action (InternalJson(..), MessageAction (..), Verbosity (..), ResultAction (..), ActivityResult (..), StartAction (..), StopAction (..), Activity, ActivityId)
+import NOM.NixEvent.Action (NixAction(..), MessageAction (..), Verbosity (..), ResultAction (..), ActivityResult (..), StartAction (..), StopAction (..), Activity, ActivityId)
 import NOM.NixEvent.Action qualified as JSON
 
 getReportName :: Derivation -> Text
@@ -90,7 +90,7 @@ maintainState = execState $ do
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
-updateState :: forall m. UpdateMonad m => (Maybe ParseResult, ByteString) -> (Maybe UTCTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe UTCTime, Maybe NOMV1State))
+updateState :: forall m. UpdateMonad m => (Maybe NixEvent, ByteString) -> (Maybe UTCTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe UTCTime, Maybe NOMV1State))
 updateState (result, input) (inputAccessTime, inputState) = do
   now <- getNow
 
@@ -144,7 +144,7 @@ withChange = (True <$)
 noChange :: Applicative f => f Bool
 noChange = pure False
 
-processResult :: UpdateMonad m => ParseResult -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
+processResult :: UpdateMonad m => NixEvent -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
 processResult result = do
   now <- getNow
   case result of
@@ -177,7 +177,7 @@ processResult result = do
         noChange
       Right jsonMessage -> processJsonMessage now jsonMessage
 
-processJsonMessage :: UpdateMonad m => UTCTime -> InternalJson -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
+processJsonMessage :: UpdateMonad m => UTCTime -> NixAction -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
 processJsonMessage now = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
