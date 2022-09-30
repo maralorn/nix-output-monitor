@@ -5,18 +5,18 @@ import Relude
 import Control.Exception qualified as Exception
 import Data.ByteString qualified as ByteString
 import Data.Generics.Product (typed)
+import Data.Hermes qualified as JSON
 import Data.Text.IO (hPutStrLn)
 import Data.Time (UTCTime, ZonedTime)
 import Data.Version (showVersion)
 import GHC.IO.Exception (ExitCode (ExitFailure))
+import Optics (view, (%~), (.~), _2, _3)
+import Paths_nix_output_monitor (version)
 import System.Console.ANSI qualified as Terminal
+import System.Console.Terminal.Size (Window)
 import System.Environment qualified as Environment
 import System.IO.Error qualified as IOError
 import System.Process.Typed qualified as Process
-
-import Optics (view, (%~), (.~), _2, _3)
-import Paths_nix_output_monitor (version)
-import System.Console.Terminal.Size (Window)
 
 import NOM.Error (NOMError)
 import NOM.IO (interact)
@@ -99,7 +99,7 @@ runMonitoredCommand config process_config = do
       pure exitCode
 
 monitorHandle :: Config -> Handle -> IO NOMV1State
-monitorHandle config input_handle = do
+monitorHandle config input_handle = JSON.withHermesEnv \env -> do
   (_, finalState, _) <-
     do
       Terminal.hHideCursor outputHandle
@@ -107,7 +107,7 @@ monitorHandle config input_handle = do
 
       firstState <- initalState
       let firstCompoundState = (Nothing, firstState, stateToText config firstState)
-      interact config parser (compoundStateUpdater config) (_2 %~ maintainState) compoundStateToText (finalizer config) input_handle outputHandle firstCompoundState
+      interact config (parser env) (compoundStateUpdater config) (_2 %~ maintainState) compoundStateToText (finalizer config) input_handle outputHandle firstCompoundState
       `Exception.finally` do
         Terminal.hShowCursor outputHandle
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.

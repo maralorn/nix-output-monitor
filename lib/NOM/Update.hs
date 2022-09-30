@@ -24,7 +24,7 @@ import Nix.Derivation qualified as Nix
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.Error (NOMError)
 import NOM.IO.ParseStream (parseOneText, stripANSICodes)
-import NOM.Parser (NixEvent (..), parseDerivation, parseStorePath, updateParser)
+import NOM.Parser (NixEvent (..), parseDerivation, parseStorePath, oldStyleParser)
 import NOM.Parser qualified as Parser
 import NOM.Print.Table (blue, markup)
 import NOM.State (
@@ -197,7 +197,7 @@ processJsonMessage now = \case
         errors <- gets (.nixErrors)
         unless (stripped `elem` errors) do
           modify' (field @"nixErrors" %~ (<> [stripped]))
-          whenJust (parseOneText updateParser message) \result ->
+          whenJust (parseOneText oldStyleParser message) \result ->
             void (processResult result)
           tell [Right (encodeUtf8 message)]
   Result MkResultAction{result = BuildLogLine line, id = id'} -> do

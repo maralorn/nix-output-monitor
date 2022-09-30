@@ -2,20 +2,24 @@ module NOM.Parser.JSON.Hermes (parseJSON) where
 
 import Relude hiding (one)
 
+import Control.Exception (try)
 import Data.Hermes qualified as JSON
 import Data.Hermes.Decoder (listOfInt)
+import System.IO.Unsafe qualified as Unsafe
+
 import NOM.Builds (parseDerivation, parseHost, parseStorePath)
 import NOM.Error (NOMError (..))
 import NOM.NixEvent (NixEvent (JsonMessage))
 import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 import NOM.Util ((<|>>), (|>))
 
-parseJSON :: ByteString -> NixEvent
-parseJSON raw_json = JsonMessage (first translate_aeson_error_to_nom_error json_parse_result)
+parseJSON :: JSON.HermesEnv -> ByteString -> NixEvent
+parseJSON env raw_json = JsonMessage (first translate_hermes_error_to_nom_error json_parse_result)
  where
-  json_parse_result = JSON.decodeEither parseAction raw_json
-  translate_aeson_error_to_nom_error :: JSON.HermesException -> NOMError
-  translate_aeson_error_to_nom_error aeson_error =
+  json_parse_result = Unsafe.unsafePerformIO . try $ JSON.withInputBuffer raw_json $ \input ->
+    flip runReaderT env . JSON.runDecoder $ JSON.withDocumentValue parseAction input
+  translate_hermes_error_to_nom_error :: JSON.HermesException -> NOMError
+  translate_hermes_error_to_nom_error aeson_error =
     ParseNixActionError (show aeson_error) raw_json
 
 parseVerbosity :: JSON.Value -> JSON.Decoder Verbosity

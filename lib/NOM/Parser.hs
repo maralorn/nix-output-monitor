@@ -1,4 +1,4 @@
-module NOM.Parser (parser, updateParser, planBuildLine, planDownloadLine, inTicks, NixEvent (..), parseStorePath, parseDerivation) where
+module NOM.Parser (parser, updateParser, oldStyleParser, planBuildLine, planDownloadLine, inTicks, NixEvent (..), parseStorePath, parseDerivation) where
 
 import Relude hiding (take, takeWhile)
 
@@ -32,16 +32,20 @@ import NOM.Builds (
 import NOM.NixEvent (NixEvent (..))
 import NOM.Parser.JSON.Hermes qualified as NOM.JSON
 import NOM.Util ((<|>>))
+import Data.Hermes (HermesEnv)
 
-parser :: Parser (Maybe NixEvent)
-parser = Just <$> updateParser <|> Nothing <$ noMatch
+parser :: HermesEnv -> Parser (Maybe NixEvent)
+parser env = Just <$> updateParser env <|> Nothing <$ noMatch
 
-updateParser :: Parser NixEvent
-updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
+updateParser :: HermesEnv -> Parser NixEvent
+updateParser env = jsonMessage env <|> oldStyleParser
 
-jsonMessage :: Parser NixEvent
-jsonMessage =
-  (string "@nix " *> noMatch) <|>> NOM.JSON.parseJSON
+oldStyleParser :: Parser NixEvent
+oldStyleParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
+
+jsonMessage :: HermesEnv -> Parser NixEvent
+jsonMessage env =
+  (string "@nix " *> noMatch) <|>> NOM.JSON.parseJSON env
 
 noMatch :: Parser ByteString
 noMatch = ParseW8.takeTill isEndOfLine <* endOfLine
