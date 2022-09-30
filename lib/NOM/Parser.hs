@@ -29,9 +29,9 @@ import NOM.Builds (
   parseStorePath,
   storePathParser,
  )
+import NOM.NixEvent (NixEvent (..))
+import NOM.Parser.JSON.Hermes qualified as NOM.JSON
 import NOM.Util ((<|>>))
-import NOM.NixEvent (NixEvent(..))
-import NOM.Parser.JSON.Aeson qualified as NOM.Aeson
 
 parser :: Parser (Maybe NixEvent)
 parser = Just <$> updateParser <|> Nothing <$ noMatch
@@ -41,7 +41,7 @@ updateParser = jsonMessage <|> planBuilds <|> planDownloads <|> copying <|> buil
 
 jsonMessage :: Parser NixEvent
 jsonMessage =
-  (string "@nix " *> noMatch) <|>> NOM.Aeson.parseJSON
+  (string "@nix " *> noMatch) <|>> NOM.JSON.parseJSON
 
 noMatch :: Parser ByteString
 noMatch = ParseW8.takeTill isEndOfLine <* endOfLine

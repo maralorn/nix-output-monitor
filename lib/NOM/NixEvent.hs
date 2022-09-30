@@ -1,8 +1,8 @@
-module NOM.NixEvent (NixEvent(..)) where
+module NOM.NixEvent (NixEvent (..)) where
 
 import Relude
 
-import NOM.Builds (StorePath(..), Host (..), Derivation (..), FailType)
+import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.Error (NOMError)
 import NOM.NixEvent.Action (NixAction)
 

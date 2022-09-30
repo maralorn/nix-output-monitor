@@ -55,6 +55,7 @@
                   sha256 = "sha256-tsozpK/AkhUE3tgUqjyDK/tnrujNd7yJdbLIUFZvJHk=";
                 }) (doJailbreak (dontCheck prev.relude));
                 optics = dontCheck prev.optics;
+                hermes-json = doJailbreak prev.hermes-json;
               }));
         };
         checks = {

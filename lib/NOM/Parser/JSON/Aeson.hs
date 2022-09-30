@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+
 module NOM.Parser.JSON.Aeson (parseJSON) where
 
 import Relude
@@ -6,21 +7,37 @@ import Relude
 import Data.Aeson qualified as JSON
 import Data.Aeson.Types qualified as JSON
 
-import NOM.Util ((<|>>), (|>))
-import NOM.NixEvent.Action (Verbosity (..), ActivityType (..), NixAction (..), MessageAction (..), ResultAction (..), ActivityProgress (..), StopAction (..), StartAction (..), ActivityResult (..), Activity (..), ActivityId(..))
-import NOM.Error (NOMError (..))
-import NOM.NixEvent (NixEvent(JsonMessage))
 import Data.Aeson (eitherDecodeStrict')
+import NOM.Builds (Derivation (..), Host (..), StorePath (..), parseDerivation, parseHost, parseStorePath)
+import NOM.Error (NOMError (..))
+import NOM.NixEvent (NixEvent (JsonMessage))
+import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
+import NOM.Util ((<|>>), (|>))
 
 deriving newtype instance JSON.FromJSON ActivityId
 
 parseJSON :: ByteString -> NixEvent
 parseJSON raw_json = JsonMessage (first translate_aeson_error_to_nom_error json_parse_result)
-  where
-        json_parse_result = eitherDecodeStrict' raw_json
-        translate_aeson_error_to_nom_error :: String -> NOMError
-        translate_aeson_error_to_nom_error aeson_error =
-          ParseNixActionError (toText aeson_error) raw_json
+ where
+  json_parse_result = eitherDecodeStrict' raw_json
+  translate_aeson_error_to_nom_error :: String -> NOMError
+  translate_aeson_error_to_nom_error aeson_error =
+    ParseNixActionError (toText aeson_error) raw_json
+
+instance JSON.FromJSON StorePath where
+  parseJSON = JSON.withText "store path" \text ->
+    case parseStorePath text of
+      Just path -> pure path
+      Nothing -> JSON.parseFail (toString text <> "is not a valid store path")
+
+instance JSON.FromJSON Derivation where
+  parseJSON = JSON.withText "derivation" \text ->
+    case parseDerivation text of
+      Just path -> pure path
+      Nothing -> JSON.parseFail (toString text <> "is not a valid derivation path")
+
+instance JSON.FromJSON Host where
+  parseJSON = JSON.withText "host" (pure . parseHost)
 
 instance JSON.FromJSON Verbosity where
   parseJSON = JSON.withScientific "nix verbosity level" $ \case

@@ -47,6 +47,7 @@ common common-config
     , extra
     , filepath
     , generic-optics
+    , hermes-json
     , lock-file
     , MemoTrie
     , mtl
