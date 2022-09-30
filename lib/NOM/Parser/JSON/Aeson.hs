@@ -83,9 +83,6 @@ parseMessageAction :: JSON.Object -> JSON.Parser MessageAction
 parseMessageAction object = do
   level <- JSON.parseField object "level"
   message <- JSON.parseField object "msg"
-  line <- JSON.parseFieldMaybe object "line"
-  column <- JSON.parseFieldMaybe object "column"
-  file <- JSON.parseFieldMaybe object "file"
   pure MkMessageAction{..}
 
 oneField :: (JSON.FromJSON b, Show b) => JSON.Object -> JSON.Parser b

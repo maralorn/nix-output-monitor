@@ -65,9 +65,6 @@ parseMessageAction :: JSON.Object -> JSON.Decoder MessageAction
 parseMessageAction object = do
   level <- JSON.atKey "level" parseVerbosity object
   message <- JSON.atKey "msg" JSON.text object
-  line <- JSON.atKeyOptional "line" JSON.int object
-  column <- JSON.atKeyOptional "column" JSON.int object
-  file <- JSON.atKeyOptional "file" JSON.text object
   pure MkMessageAction{..}
 
 textFields :: JSON.Object -> JSON.Decoder [Text]

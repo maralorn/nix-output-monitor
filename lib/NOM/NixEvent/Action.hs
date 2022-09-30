@@ -83,9 +83,10 @@ data ResultAction = MkResultAction
 data MessageAction = MkMessageAction
   { level :: Verbosity
   , message :: Text
-  , line :: Maybe Int
-  , column :: Maybe Int
-  , file :: Maybe Text
+  -- currently unused, but theoretically present in the protocol
+  -- , line :: Maybe Int
+  -- , column :: Maybe Int
+  -- , file :: Maybe Text
   }
   deriving stock (Show, Eq)
 
