@@ -36,6 +36,7 @@ import NOM.Update (
  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
+import Data.Hermes qualified as JSON
 
 tests :: [Bool -> Test]
 tests = [golden1]
@@ -57,7 +58,7 @@ main = do
 
 testBuild :: String -> (String -> NOMV1State -> IO ()) -> Bool -> Test
 testBuild name asserts withNix =
-  label withNix name ~: do
+  label withNix name ~: JSON.withHermesEnv \env -> do
     let callNix = do
           seed <- randomIO @Int
           readProcessWithExitCode
@@ -68,7 +69,7 @@ testBuild name asserts withNix =
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalState
-    endState <- processTextStream (MkConfig False False) parser (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
+    endState <- processTextStream (MkConfig False False) (parser env) (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()
