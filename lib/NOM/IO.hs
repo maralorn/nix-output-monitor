@@ -248,7 +248,7 @@ appendError :: NOMError -> ByteString -> ByteString
 appendError err prev = (if ByteString.null prev || ByteString.isSuffixOf "\n" prev then "" else "\n") <> nomError <> show err <> "\n"
 
 nomError :: ByteString
-nomError = encodeUtf8 (markup (red . bold) "nix-output-monitor internal error: ")
+nomError = encodeUtf8 (markup (red . bold) "nix-output-monitor internal error (please report): ")
 
 truncateOutput :: Maybe Window -> Text -> Text
 truncateOutput win output = maybe output go win
