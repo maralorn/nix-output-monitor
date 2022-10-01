@@ -19,7 +19,7 @@ import System.IO.Error qualified as IOError
 import System.Process.Typed qualified as Process
 
 import NOM.Error (NOMError)
-import NOM.IO (interact)
+import NOM.IO (interact, StreamParser)
 import NOM.Parser (NixEvent, parser)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
@@ -28,6 +28,10 @@ import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache, (<|>>), (<||>))
+import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
+import NOM.IO.ParseStream.Simple (parseStreamSimple)
+import NOM.Parser.JSON.Hermes (parseJSON)
+import Streamly.Prelude qualified as Streamly
 
 outputHandle :: Handle
 outputHandle = stderr
@@ -61,7 +65,12 @@ main = do
       exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" (("develop" : "-v" : "--log-format" : "internal-json" : nix_args) <> ["--command", "sh", "-c", "exit"]))
       exitWith =<< Process.runProcess (Process.proc "nix" ("develop" : nix_args))
     ([], _) -> do
-      finalState <- monitorHandle defaultConfig{piping = True} stdin
+      finalState <- withOldStyleParser (monitorHandle defaultConfig{piping = True} stdin)
+      if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
+        then exitSuccess
+        else exitFailure
+    (["--json"], _) -> do
+      finalState <- withJSONParser (monitorHandle defaultConfig{piping = False} stdin)
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure
@@ -92,22 +101,27 @@ runMonitoredCommand config process_config = do
         pure (ExitFailure 1)
   Exception.handle catch_io_exception $
     Process.withProcessWait process_config_with_handles \process -> do
-      void $ monitorHandle config (Process.getStderr process)
+      void $ withJSONParser (monitorHandle config (Process.getStderr process))
       exitCode <- Process.waitExitCode process
       output <- ByteString.hGetContents (Process.getStdout process)
       unless (ByteString.null output) $ ByteString.hPut stdout output
       pure exitCode
 
-monitorHandle :: Config -> Handle -> IO NOMV1State
-monitorHandle config input_handle = JSON.withHermesEnv \env -> do
+withJSONParser :: ((Streamly.SerialT IO ByteString -> Streamly.SerialT IO (Maybe NixEvent, ByteString)) -> IO a) -> IO a
+withJSONParser body = JSON.withHermesEnv \env -> body (parseStreamSimple (Just . parseJSON env))
+withOldStyleParser :: Monad m => ((Streamly.SerialT m ByteString -> Streamly.SerialT m (Maybe NixEvent, ByteString)) -> t) -> t
+withOldStyleParser body = body (parseStreamAttoparsec parser)
+
+monitorHandle :: Config -> Handle -> StreamParser (Maybe NixEvent) -> IO NOMV1State
+monitorHandle config input_handle streamParser = do
   (_, finalState, _) <-
     do
       Terminal.hHideCursor outputHandle
-      hSetBuffering stdout (BlockBuffering (Just 1000000))
+      hSetBuffering stdout (BlockBuffering (Just 1_000_000))
 
       firstState <- initalState
       let firstCompoundState = (Nothing, firstState, stateToText config firstState)
-      interact config (parser env) (compoundStateUpdater config) (_2 %~ maintainState) compoundStateToText (finalizer config) input_handle outputHandle firstCompoundState
+      interact config streamParser (compoundStateUpdater config) (_2 %~ maintainState) compoundStateToText (finalizer config) input_handle outputHandle firstCompoundState
       `Exception.finally` do
         Terminal.hShowCursor outputHandle
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.

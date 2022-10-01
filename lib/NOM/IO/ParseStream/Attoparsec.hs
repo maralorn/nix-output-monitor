@@ -1,4 +1,4 @@
-module NOM.IO.ParseStream (parseStream, parseOneText, stripANSICodes) where
+module NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec, parseOneText, stripANSICodes) where
 
 import Relude
 
@@ -35,17 +35,18 @@ streamANSIChunks input =
         Nothing -> (codeParts, Stream.nil)
    in (filtered, filtered <> code) .: restOfStream
 
-parseStream :: Monad m => Parser update -> Stream.SerialT m ByteString -> Stream.SerialT m (ContParser update, (update, ByteString))
-parseStream parser =
+parseStreamAttoparsec :: Monad m => Parser update -> Stream.SerialT m ByteString -> Stream.SerialT m (update, ByteString)
+parseStreamAttoparsec parser =
   let parserInitState = (parse parser, mempty)
    in Stream.concatMap streamANSIChunks
         .> Stream.liftInner
         .> Stream.concatMap (parseChunk parserInitState)
         .> Stream.runStateT (pure parserInitState)
+        .> Stream.map snd
 
 parseOneText :: Parser update -> Text -> Maybe update
 parseOneText parser input = do
-  (_, (result, _)) <- runIdentity $ Stream.head (parseStream parser (pure (encodeUtf8 input)))
+  (result, _) <- runIdentity $ Stream.head (parseStreamAttoparsec parser (pure (encodeUtf8 input)))
   pure result
 
 stripANSICodes :: Text -> Text

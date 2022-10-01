@@ -78,7 +78,8 @@ library
     NOM.Builds
     NOM.Error
     NOM.IO
-    NOM.IO.ParseStream
+    NOM.IO.ParseStream.Attoparsec
+    NOM.IO.ParseStream.Simple
     NOM.NixEvent
     NOM.NixEvent.Action
     NOM.Parser

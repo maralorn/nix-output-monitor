@@ -23,7 +23,7 @@ import Nix.Derivation qualified as Nix
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.Error (NOMError)
-import NOM.IO.ParseStream (parseOneText, stripANSICodes)
+import NOM.IO.ParseStream.Attoparsec (parseOneText, stripANSICodes)
 import NOM.Parser (NixEvent (..), parseDerivation, parseStorePath, oldStyleParser)
 import NOM.Parser qualified as Parser
 import NOM.Print.Table (blue, markup)

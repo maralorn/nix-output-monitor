@@ -12,15 +12,20 @@ import NOM.Error (NOMError (..))
 import NOM.NixEvent (NixEvent (JsonMessage))
 import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 import NOM.Util ((<|>>), (|>))
+import Data.ByteString qualified as ByteString
 
 parseJSON :: JSON.HermesEnv -> ByteString -> NixEvent
-parseJSON env raw_json = JsonMessage (first translate_hermes_error_to_nom_error json_parse_result)
+parseJSON env input = JsonMessage (first translate_hermes_error_to_nom_error json_parse_result)
  where
-  json_parse_result = Unsafe.unsafePerformIO . try $ JSON.withInputBuffer raw_json $ \input ->
-    flip runReaderT env . JSON.runDecoder $ JSON.withDocumentValue parseAction input
+  raw_json = ByteString.drop 5 input -- Drop the prefix "@nix "
   translate_hermes_error_to_nom_error :: JSON.HermesException -> NOMError
-  translate_hermes_error_to_nom_error aeson_error =
-    ParseNixActionError (show aeson_error) raw_json
+  translate_hermes_error_to_nom_error json_error =
+    ParseNixActionError (show json_error) raw_json
+  json_parse_result = parseWithEnv env parseAction raw_json
+
+parseWithEnv :: Exception e => JSON.HermesEnv -> (JSON.Value -> JSON.Decoder a) -> ByteString -> Either e a
+parseWithEnv env parser raw_json = Unsafe.unsafePerformIO . try $ JSON.withInputBuffer raw_json $ \input ->
+    flip runReaderT env . JSON.runDecoder $ JSON.withDocumentValue parser input
 
 parseVerbosity :: JSON.Value -> JSON.Decoder Verbosity
 parseVerbosity = JSON.withInt \case

@@ -1,4 +1,4 @@
-module NOM.IO (interact, processTextStream) where
+module NOM.IO (interact, processTextStream, StreamParser) where
 
 import Relude
 
@@ -6,7 +6,6 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, modifyTVar, swapTVar)
 import Control.Exception (IOException, try)
-import Data.Attoparsec.ByteString (Parser)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
@@ -23,13 +22,13 @@ import System.Console.ANSI (SGR (Reset), setSGRCode)
 
 import Data.ByteString.Builder qualified as Builder
 import NOM.Error (NOMError (InputError))
-import NOM.IO.ParseStream (parseStream)
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util ((.>), (<|>>), (|>))
 
 type Stream = Stream.SerialT IO
+type StreamParser update = Stream ByteString -> Stream (update, ByteString)
 type Output = Text
 type UpdateFunc update state = forall m. UpdateMonad m => (update, ByteString) -> StateT state m ([NOMError], ByteString)
 type OutputFunc state = state -> Maybe Window -> ZonedTime -> Output
@@ -120,7 +119,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
         toStrict
           . Builder.toLazyByteString
           $
-          -- when clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
+          -- when we clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
           -- we do that before clearing because we can
           memptyIfFalse (last_printed_line_count == 1) (Builder.stringUtf8 $ Terminal.setCursorColumnCode 0)
             <>
@@ -182,7 +181,7 @@ howToGoToNextLine previousPrintedLines (Just correction) = \case
 interact ::
   forall update state.
   Config ->
-  Parser update ->
+  StreamParser update ->
   UpdateFunc update state ->
   (state -> state) ->
   OutputFunc state ->
@@ -210,7 +209,7 @@ minFrameDuration =
 processTextStream ::
   forall update state.
   Config ->
-  Parser update ->
+  StreamParser update ->
   UpdateFunc update state ->
   (state -> state) ->
   Maybe (OutputFunc state, Handle) ->
@@ -226,8 +225,8 @@ processTextStream config parser updater maintenance printerMay finalize initialS
         inputStream
           |& Stream.tap (writeErrorsToBuffer bufferVar)
           |& Stream.mapMaybe rightToMaybe
-          |& parseStream parser
-          |& Stream.mapM (snd .> runUpdate bufferVar stateVar updater >=> flip (<>) .> modifyTVar bufferVar .> atomically)
+          |& parser
+          |& Stream.mapM (runUpdate bufferVar stateVar updater >=> flip (<>) .> modifyTVar bufferVar .> atomically)
             |> Stream.drain
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
