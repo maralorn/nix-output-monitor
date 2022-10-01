@@ -21,6 +21,7 @@ import Streamly.Prelude qualified as Stream
 
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
+import Data.ByteString.Builder qualified as Builder
 import NOM.Error (NOMError (InputError))
 import NOM.IO.ParseStream (parseStream)
 import NOM.Print (Config (..))
@@ -112,38 +113,45 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
     writeTVar printed_lines_var line_count_to_print
     pure (last_printed_line_count, lines_to_pad)
 
+  -- Prepare ByteString to write on terminal
   let output_to_print = nix_output <> mtimesDefault lines_to_pad [""] <> nom_output
-      -- We have Strict enabled and at this point we are using force to make sure
-      -- the whole output has been calculated before we clear the screen.
-      output_to_print_with_newline_annotations = force (zip (howToGoToNextLine last_printed_line_count reflow_line_count_correction <$> [0 ..])) output_to_print
+      output_to_print_with_newline_annotations = zip (howToGoToNextLine last_printed_line_count reflow_line_count_correction <$> [0 ..]) output_to_print
+      output =
+        toStrict
+          . Builder.toLazyByteString
+          $
+          -- when clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
+          -- we do that before clearing because we can
+          memptyIfFalse (last_printed_line_count == 1) (Builder.stringUtf8 $ Terminal.setCursorColumnCode 0)
+            <>
+            -- Clear last output from screen.
+            -- First we clear the current line, if we have written on it.
+            memptyIfFalse (last_printed_line_count > 0) (Builder.stringUtf8 Terminal.clearLineCode)
+            <>
+            -- Then, if necessary we, move up and clear more lines.
+            stimesMonoid
+              (max (last_printed_line_count - 1) 0)
+              ( Builder.stringUtf8 (Terminal.cursorUpLineCode 1) -- Moves cursor one line up and to the beginning of the line.
+                  <> Builder.stringUtf8 Terminal.clearLineCode -- We are avoiding to use clearFromCursorToScreenEnd
+                  -- because it apparently triggers a flush on some terminals.
+              )
+            <>
+            -- Insert the output to write to the screen.
+            ( output_to_print_with_newline_annotations & foldMap \(newline, line) ->
+                ( case newline of
+                    StayInLine -> mempty
+                    MoveToNextLine -> Builder.stringUtf8 (Terminal.cursorDownLineCode 1)
+                    PrintNewLine -> Builder.byteString "\n"
+                )
+                  <> Builder.byteString line
+            )
 
-  -- when clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
-  -- we do that before clearing because we can
-  when (last_printed_line_count == 1) do Terminal.hSetCursorColumn output_handle 0
-
-  -- ==== Time Critical Segment - When we start to clear the screen we need to
-  -- print content as fast as possible
-  -- Clear last output from screen.
-  -- First we clear the current line, if we have written on it.
-  when (last_printed_line_count > 0) do Terminal.hClearLine output_handle
-
-  -- Then, if necessary we, move up and clear more lines.
-  replicateM_ (last_printed_line_count - 1) do
-    Terminal.hCursorUpLine output_handle 1 -- Moves cursor one line up and to the beginning of the line.
-    Terminal.hClearLine output_handle -- We are avoiding to use clearFromCursorToScreenEnd
-    -- because it apparently triggers a flush on some terminals.
-
-  -- Write new output to screen.
-  forM_ output_to_print_with_newline_annotations \(newline, line) -> do
-    case newline of
-      StayInLine -> pass
-      MoveToNextLine -> Terminal.hCursorDownLine output_handle 1
-      PrintNewLine -> ByteString.hPut output_handle "\n"
-    ByteString.hPut output_handle line
-
+  -- Actually write to the buffer. We do this all in one step and with a strict
+  -- ByteString so that everything is precalculated and the actual put is
+  -- definitely just a simple copy.  Any delay while writing could create
+  -- flickering.
+  ByteString.hPut output_handle output
   System.IO.hFlush output_handle
-
--- ====
 
 data ToNextLine = StayInLine | MoveToNextLine | PrintNewLine
   deriving stock (Generic)
