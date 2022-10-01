@@ -213,7 +213,7 @@ processJsonMessage now = \case
     when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right (encodeUtf8 (activityPrefix (Just startAction.activity) <> startAction.text))]
     modify' (field @"activities" %~ IntMap.insert id'.value (startAction.activity, Nothing, Nothing))
     case startAction.activity of
-      JSON.Build drvName host _ _ -> do
+      JSON.Build drvName host -> do
         building host drvName now (Just id')
       JSON.CopyPath path from Localhost -> do
         pathId <- getStorePathId path
@@ -232,7 +232,7 @@ processJsonMessage now = \case
       Just (JSON.CopyPath path Localhost to, _, _) -> withChange do
         pathId <- getStorePathId path
         uploaded to pathId now
-      Just (JSON.Build drv host  _ _, _, _) -> withChange do
+      Just (JSON.Build drv host, _, _) -> withChange do
         drvId <- lookupDerivation drv
         finishedBuildInfo <- fmap (drvId,) <$> getBuildInfoIfRunning drvId
         finishBuilds host (toList finishedBuildInfo)
@@ -244,7 +244,7 @@ processJsonMessage now = \case
 
 activityPrefix :: Maybe Activity -> Text
 activityPrefix = \case
-  Just (JSON.Build derivation _ _ _) -> toText (setSGRCode [Reset]) <> markup blue (getReportName derivation <> "> ")
+  Just (JSON.Build derivation _) -> toText (setSGRCode [Reset]) <> markup blue (getReportName derivation <> "> ")
   _ -> ""
 
 movingAverage :: Double
@@ -343,7 +343,7 @@ downloading host pathId start = do
     (drvId,) <$> MaybeT (getBuildInfoIfRunning drvId)
 
 getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
-getBuildInfoIfRunning drvId = 
+getBuildInfoIfRunning drvId =
   runMaybeT $ do
     drvInfos <- MaybeT (gets ((.derivationInfos) .> CMap.lookup drvId))
     MaybeT (pure (preview (typed @BuildStatus % _As @"Building") drvInfos <|>> (() <$)))

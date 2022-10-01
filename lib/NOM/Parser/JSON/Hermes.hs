@@ -151,7 +151,7 @@ parseStartAction object = do
         path' <- unwrap (either Just (const Nothing) path)
         path'' <- unwrap (parseDerivation path')
         host' <- unwrap (either Just (const Nothing) host)
-        pure $ Build path'' (parseHost host') 0 0
+        pure $ Build path'' (parseHost host')
     OptimiseStoreType -> pure OptimiseStore
     VerifyPathsType -> pure VerifyPaths
     SubstituteType ->

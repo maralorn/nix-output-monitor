@@ -157,7 +157,7 @@ parseStartAction object = do
     RealiseType -> pure Realise
     CopyPathsType -> pure CopyPaths
     BuildsType -> pure Builds
-    BuildType -> fourFields object <|>> \(path, host, currentRound, noOfRounds) -> Build path host currentRound noOfRounds
+    BuildType -> fourFields object <|>> \(path, host, _ :: Int, _ :: Int) -> Build path host
     OptimiseStoreType -> pure OptimiseStore
     VerifyPathsType -> pure VerifyPaths
     SubstituteType -> twoFields object <|>> uncurry Substitute

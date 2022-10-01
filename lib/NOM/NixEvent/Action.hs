@@ -36,7 +36,7 @@ data Activity
   | Realise
   | CopyPaths
   | Builds
-  | Build Derivation Host Int Int
+  | Build Derivation Host -- Int Int (let’s ignore what we don‘t use)
   | OptimiseStore
   | VerifyPaths
   | Substitute StorePath Host
