@@ -220,12 +220,13 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   bufferVar <- newTVarIO mempty
   let keepProcessing :: IO ()
       keepProcessing =
-        Stream.drain
-          $ Stream.mapM (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar bufferVar . flip (<>))
-          |$ parser
-          |$ Stream.mapMaybe rightToMaybe
-          |$ Stream.tap (writeErrorsToBuffer bufferVar)
-            inputStream
+        Stream.drain $
+          Stream.mapM (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar bufferVar . flip (<>)) |$
+            parser |$
+              Stream.mapMaybe rightToMaybe |$
+                Stream.tap
+                  (writeErrorsToBuffer bufferVar)
+                  inputStream
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay & maybe keepProcessing \(printer, output_handle) -> do
@@ -239,7 +240,7 @@ processTextStream config parser updater maintenance printerMay finalize initialS
     race_ keepProcessing keepPrinting
     readTVarIO stateVar >>= execStateT finalize >>= atomically . writeTVar stateVar
     writeToScreen
-  (if isNothing printerMay then (>>= execStateT finalize) else id) $ readTVarIO stateVar 
+  (if isNothing printerMay then (>>= execStateT finalize) else id) $ readTVarIO stateVar
 
 writeErrorsToBuffer :: TVar ByteString -> Fold.Fold IO (Either NOMError ByteString) ()
 writeErrorsToBuffer bufferVar = Fold.drainBy saveInput

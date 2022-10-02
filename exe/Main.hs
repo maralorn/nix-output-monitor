@@ -19,8 +19,11 @@ import System.IO.Error qualified as IOError
 import System.Process.Typed qualified as Process
 
 import NOM.Error (NOMError)
-import NOM.IO (interact, StreamParser)
+import NOM.IO (StreamParser, interact)
+import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
+import NOM.IO.ParseStream.Simple (parseStreamSimple)
 import NOM.Parser (NixEvent, parser)
+import NOM.Parser.JSON.Hermes (parseJSON)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
 import NOM.State (NOMV1State (nixErrors), ProcessState (..), failedBuilds, fullSummary, initalState)
@@ -28,9 +31,6 @@ import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache)
-import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
-import NOM.IO.ParseStream.Simple (parseStreamSimple)
-import NOM.Parser.JSON.Hermes (parseJSON)
 import Streamly.Prelude qualified as Streamly
 
 outputHandle :: Handle

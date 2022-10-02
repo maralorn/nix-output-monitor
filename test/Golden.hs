@@ -17,6 +17,7 @@ import Test.HUnit (
  )
 
 import NOM.IO (processTextStream)
+import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
 import NOM.Parser (parseStorePath, parser)
 import NOM.Print (Config (..))
 import NOM.State (
@@ -36,7 +37,6 @@ import NOM.Update (
  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
-import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
 
 tests :: [Bool -> Test]
 tests = [golden1]

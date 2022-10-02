@@ -7,11 +7,11 @@ import Data.Hermes qualified as JSON
 import Data.Hermes.Decoder (listOfInt)
 import System.IO.Unsafe qualified as Unsafe
 
+import Data.ByteString qualified as ByteString
 import NOM.Builds (parseDerivation, parseHost, parseStorePath)
 import NOM.Error (NOMError (..))
 import NOM.NixEvent (NixEvent (JsonMessage))
 import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
-import Data.ByteString qualified as ByteString
 
 parseJSON :: JSON.HermesEnv -> ByteString -> NixEvent
 parseJSON env input = JsonMessage (first translate_hermes_error_to_nom_error json_parse_result)
@@ -24,7 +24,7 @@ parseJSON env input = JsonMessage (first translate_hermes_error_to_nom_error jso
 
 parseWithEnv :: Exception e => JSON.HermesEnv -> (JSON.Value -> JSON.Decoder a) -> ByteString -> Either e a
 parseWithEnv env parser raw_json = Unsafe.unsafePerformIO . try $ JSON.withInputBuffer raw_json $ \input ->
-    flip runReaderT env . JSON.runDecoder $ JSON.withDocumentValue parser input
+  flip runReaderT env . JSON.runDecoder $ JSON.withDocumentValue parser input
 
 parseVerbosity :: JSON.Value -> JSON.Decoder Verbosity
 parseVerbosity = JSON.withInt \case
@@ -58,12 +58,14 @@ parseActivityType = \case
 parseAction :: JSON.Value -> JSON.Decoder NixAction
 parseAction = JSON.withObject $ \object -> do
   action <- JSON.atKey "action" JSON.text object
-  (\case
-    "start" -> Start <$> parseStartAction object
-    "stop" -> Stop <$> parseStopAction object
-    "result" -> Result <$> parseResultAction object
-    "msg" -> Message <$> parseMessageAction object
-    other -> fail ("unknown action type: " <> toString other)) action
+  ( \case
+      "start" -> Start <$> parseStartAction object
+      "stop" -> Stop <$> parseStopAction object
+      "result" -> Result <$> parseResultAction object
+      "msg" -> Message <$> parseMessageAction object
+      other -> fail ("unknown action type: " <> toString other)
+    )
+    action
 
 parseMessageAction :: JSON.Object -> JSON.Decoder MessageAction
 parseMessageAction object = do

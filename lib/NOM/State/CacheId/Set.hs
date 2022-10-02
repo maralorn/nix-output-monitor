@@ -26,7 +26,7 @@ newtype CacheIdSet b = MkCacheIdSet {ints :: IntSet}
   deriving newtype (Semigroup, Monoid, NFData)
 
 insert :: CacheId b -> CacheIdSet b -> CacheIdSet b
-insert (MkCacheId x) = MkCacheIdSet .  IntSet.insert x . (.ints)
+insert (MkCacheId x) = MkCacheIdSet . IntSet.insert x . (.ints)
 
 toList :: CacheIdSet b -> [CacheId b]
 toList = fmap MkCacheId . IntSet.toList . (.ints)

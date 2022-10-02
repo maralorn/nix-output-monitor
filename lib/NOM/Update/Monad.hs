@@ -42,8 +42,13 @@ class Monad m => MonadReadDerivation m where
 
 instance MonadReadDerivation IO where
   getDerivation =
-    fmap (first DerivationReadError
-              >=> first (DerivationParseError . toText) . eitherResult . parse Nix.parseDerivation) . try . TextIO.readFile . toString
+    fmap
+      ( first DerivationReadError
+          >=> first (DerivationParseError . toText) . eitherResult . parse Nix.parseDerivation
+      )
+      . try
+      . TextIO.readFile
+      . toString
 
 instance MonadReadDerivation m => MonadReadDerivation (StateT a m) where
   getDerivation = lift . getDerivation

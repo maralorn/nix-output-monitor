@@ -24,7 +24,9 @@ import Nix.Derivation qualified as Nix
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.Error (NOMError)
 import NOM.IO.ParseStream.Attoparsec (parseOneText, stripANSICodes)
-import NOM.Parser (NixEvent (..), parseDerivation, parseStorePath, oldStyleParser)
+import NOM.NixEvent.Action (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
+import NOM.NixEvent.Action qualified as JSON
+import NOM.Parser (NixEvent (..), oldStyleParser, parseDerivation, parseStorePath)
 import NOM.Parser qualified as Parser
 import NOM.Print.Table (blue, markup)
 import NOM.State (
@@ -66,8 +68,6 @@ import NOM.Update.Monad (
   UpdateMonad,
  )
 import NOM.Util (foldMapEndo)
-import NOM.NixEvent.Action (NixAction(..), MessageAction (..), Verbosity (..), ResultAction (..), ActivityResult (..), StartAction (..), StopAction (..), Activity, ActivityId)
-import NOM.NixEvent.Action qualified as JSON
 
 getReportName :: Derivation -> Text
 getReportName drv = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.storePath.name
@@ -237,7 +237,6 @@ processJsonMessage now = \case
         finishedBuildInfo <- fmap (drvId,) <$> getBuildInfoIfRunning drvId
         finishBuilds host (toList finishedBuildInfo)
       _ -> noChange
-
   _other -> do
     -- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
     noChange
@@ -263,11 +262,13 @@ finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(DerivationId
 finishBuilds host builds = do
   derivationsWithNames <- forM builds \(drvId, buildInfo) ->
     (,buildInfo.start) <$> lookupDerivationId drvId
-  (\case
-    Nothing -> pass
-    Just finishedBuilds -> do
-      newBuildReports <- reportFinishingBuilds host finishedBuilds
-      modify (field @"buildReports" .~ newBuildReports)) $ nonEmpty derivationsWithNames
+  ( \case
+      Nothing -> pass
+      Just finishedBuilds -> do
+        newBuildReports <- reportFinishingBuilds host finishedBuilds
+        modify (field @"buildReports" .~ newBuildReports)
+    )
+    $ nonEmpty derivationsWithNames
   now <- getNow
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
@@ -283,8 +284,8 @@ failedBuild :: UTCTime -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
  where
   update = \case
-    Built a -> State.Failed (a $> (now,code) )
-    Building a -> State.Failed (a $> (now,code))
+    Built a -> State.Failed (a $> (now, code))
+    Building a -> State.Failed (a $> (now, code))
     x -> x
 
 lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT (WriterT [Either NOMError ByteString] m) DerivationId
@@ -321,7 +322,7 @@ insertDerivation derivation drvId = do
           modify (field @"derivationInfos" %~ CMap.adjust (field @"derivationParents" %~ CSet.insert drvId) depId)
           modify (field @"forestRoots" %~ Seq.filter (/= depId))
           pure depId
-      pure $  (,outs) <$> depIdMay
+      pure $ (,outs) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
   modify (field @"derivationInfos" %~ CMap.adjust (\i -> i{outputs = outputs', inputSources, inputDerivations, cached = True, platform = Just derivation.platform, pname = Map.lookup "pname" derivation.env}) drvId)
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
@@ -407,9 +408,12 @@ updateParents stateUpdate update_func = go mempty
 
 updateStorePathStates :: StorePathState -> Maybe (StorePathState -> StorePathState) -> Set StorePathState -> Set StorePathState
 updateStorePathStates new_state update_state =
-  Set.insert new_state . localFilter . (case update_state of
-    Just update_func -> Set.fromList . fmap update_func . Set.toList
-    Nothing -> id)
+  Set.insert new_state
+    . localFilter
+    . ( case update_state of
+          Just update_func -> Set.fromList . fmap update_func . Set.toList
+          Nothing -> id
+      )
  where
   localFilter = case new_state of
     DownloadPlanned -> id

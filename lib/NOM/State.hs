@@ -40,6 +40,7 @@ import Data.Time (UTCTime)
 import Optics ((%~))
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
+import NOM.NixEvent.Action (Activity, ActivityId, ActivityProgress)
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
 import NOM.State.CacheId.Map qualified as CMap
@@ -52,7 +53,6 @@ import NOM.Update.Monad (
   getNow,
  )
 import NOM.Util (foldMapEndo)
-import NOM.NixEvent.Action (ActivityId, Activity, ActivityProgress)
 
 data StorePathState = DownloadPlanned | Downloading RunningTransferInfo | Uploading RunningTransferInfo | Downloaded CompletedTransferInfo | Uploaded CompletedTransferInfo
   deriving stock (Show, Eq, Ord, Generic)
@@ -235,16 +235,18 @@ out2drv path = gets (CMap.lookup path . (.storePathInfos) >=> (.producer))
 -- Only do this with derivationIds that you got via lookupDerivation
 getDerivationInfos :: DerivationId -> NOMState DerivationInfo
 getDerivationInfos drvId =
-  fromMaybe (error "BUG: drvId is no key in derivationInfos") .
-    CMap.lookup drvId .
-    (.derivationInfos) <$> get
+  fromMaybe (error "BUG: drvId is no key in derivationInfos")
+    . CMap.lookup drvId
+    . (.derivationInfos)
+    <$> get
 
 -- Only do this with derivationIds that you got via lookupDerivation
 getStorePathInfos :: StorePathId -> NOMState StorePathInfo
 getStorePathInfos storePathId =
-  fromMaybe (error "BUG: storePathId is no key in storePathInfos") .
-    CMap.lookup storePathId .
-    (.storePathInfos) <$> get
+  fromMaybe (error "BUG: storePathId is no key in storePathInfos")
+    . CMap.lookup storePathId
+    . (.storePathInfos)
+    <$> get
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 updateSummaryForDerivation oldStatus newStatus drvId = addNew . removeOld

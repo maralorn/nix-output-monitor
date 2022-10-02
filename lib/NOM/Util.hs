@@ -17,7 +17,6 @@ addPrintCache updater cacher update (!oldIState, !oldState, oldCache) =
     let (!newState, newCache) = maybe (oldState, oldCache) (toSnd cacher) stateMay
      in (errors, (istate, newState, newCache))
 
-
 -- Like in  'errors'
 {-# INLINE hush #-}
 hush :: Either a b -> Maybe b

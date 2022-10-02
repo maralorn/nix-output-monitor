@@ -1,7 +1,7 @@
-module NOM.NixEvent.Action (NixAction (..), StartAction (..), StopAction (..), MessageAction (..), ResultAction (..), ActivityResult (..), Activity (..), ActivityId (..), Verbosity (..), ActivityProgress (..), ActivityType(..)) where
+module NOM.NixEvent.Action (NixAction (..), StartAction (..), StopAction (..), MessageAction (..), ResultAction (..), ActivityResult (..), Activity (..), ActivityId (..), Verbosity (..), ActivityProgress (..), ActivityType (..)) where
 
+import NOM.Builds (Derivation (..), Host (..), StorePath (..))
 import Relude
-import NOM.Builds (StorePath(..), Host (..), Derivation (..))
 
 newtype ActivityId = MkId {value :: Int}
   deriving newtype (Show, Eq, Ord)

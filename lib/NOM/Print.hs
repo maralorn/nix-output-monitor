@@ -21,6 +21,7 @@ import System.Console.Terminal.Size qualified as Window
 import Data.Map.Strict qualified as Map
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
+import NOM.NixEvent.Action (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos)
@@ -28,7 +29,6 @@ import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
-import NOM.NixEvent.Action (ActivityId(..))
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -240,9 +240,9 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         (_, sorted_set) = execState (goDerivationsToShow forestRoots) mempty
      in CSet.fromFoldable $
           fmap (\(_, (_, _, drvId)) -> drvId) $
-          takeWhile should_be_shown $
-          itoList $
-          Set.toAscList sorted_set
+            takeWhile should_be_shown $
+              itoList $
+                Set.toAscList sorted_set
 
   children :: DerivationId -> Seq DerivationId
   children drv_id = fmap fst $ (.inputDerivations) $ get' $ getDerivationInfos drv_id
@@ -286,25 +286,27 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
 
   showSummary :: DependencySummary -> Text
   showSummary MkDependencySummary{..} =
-    unwords $ join [ memptyIfTrue
-        (CMap.null failedBuilds)
-        [markup red $ show (CMap.size failedBuilds) <> " failed"]
-    , memptyIfTrue
-        (CMap.null runningBuilds)
-        [markup yellow $ show (CMap.size runningBuilds) <> " building"]
-    , memptyIfTrue
-        (CSet.null plannedBuilds)
-        [markup blue $ show (CSet.size plannedBuilds) <> " waiting builds"]
-    , memptyIfTrue
-        (CMap.null runningUploads)
-        [markup magenta $ show (CMap.size runningUploads) <> " uploading"]
-    , memptyIfTrue
-        (CMap.null runningDownloads)
-        [markup yellow $ show (CMap.size runningDownloads) <> " downloads"]
-    , memptyIfTrue
-        (CSet.null plannedDownloads)
-        [markup blue $ show (CSet.size plannedDownloads) <> " waiting downloads"]
-    ]
+    unwords $
+      join
+        [ memptyIfTrue
+            (CMap.null failedBuilds)
+            [markup red $ show (CMap.size failedBuilds) <> " failed"]
+        , memptyIfTrue
+            (CMap.null runningBuilds)
+            [markup yellow $ show (CMap.size runningBuilds) <> " building"]
+        , memptyIfTrue
+            (CSet.null plannedBuilds)
+            [markup blue $ show (CSet.size plannedBuilds) <> " waiting builds"]
+        , memptyIfTrue
+            (CMap.null runningUploads)
+            [markup magenta $ show (CMap.size runningUploads) <> " uploading"]
+        , memptyIfTrue
+            (CMap.null runningDownloads)
+            [markup yellow $ show (CMap.size runningDownloads) <> " downloads"]
+        , memptyIfTrue
+            (CSet.null plannedDownloads)
+            [markup blue $ show (CSet.size plannedDownloads) <> " waiting downloads"]
+        ]
 
   printDerivation :: DerivationInfo -> (Bool, UTCTime -> Text)
   printDerivation drvInfo = do
