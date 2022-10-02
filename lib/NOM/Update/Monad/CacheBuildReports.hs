@@ -32,7 +32,6 @@ import System.IO.LockFile (
  )
 
 import NOM.Builds (Host (..))
-import NOM.Util ((.>))
 
 -- Exposed functions
 
@@ -58,10 +57,10 @@ instance MonadCacheBuildReports IO where
 
 instance MonadCacheBuildReports m => MonadCacheBuildReports (StateT a m) where
   getCachedBuildReports = lift getCachedBuildReports
-  updateBuildReports = updateBuildReports .> lift
+  updateBuildReports = lift . updateBuildReports
 instance (Monoid a, MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
   getCachedBuildReports = lift getCachedBuildReports
-  updateBuildReports = updateBuildReports .> lift
+  updateBuildReports = lift . updateBuildReports
 
 -- Implementation
 

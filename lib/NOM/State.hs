@@ -51,7 +51,7 @@ import NOM.Update.Monad (
   MonadNow,
   getNow,
  )
-import NOM.Util (foldMapEndo, (.>), (<|>>), (|>))
+import NOM.Util (foldMapEndo)
 import NOM.NixEvent.Action (ActivityId, Activity, ActivityProgress)
 
 data StorePathState = DownloadPlanned | Downloading RunningTransferInfo | Uploading RunningTransferInfo | Downloaded CompletedTransferInfo | Uploaded CompletedTransferInfo
@@ -188,13 +188,13 @@ getRunningBuilds :: NOMState (DerivationMap RunningBuildInfo)
 getRunningBuilds = gets (.fullSummary.runningBuilds)
 
 getRunningBuildsByHost :: Host -> NOMState (DerivationMap RunningBuildInfo)
-getRunningBuildsByHost host = getRunningBuilds <|>> CMap.filter (\x -> x.host == host)
+getRunningBuildsByHost host = CMap.filter (\x -> x.host == host) <$> getRunningBuilds
 
 lookupStorePathId :: StorePathId -> NOMState StorePath
-lookupStorePathId pathId = getStorePathInfos pathId <|>> (.name)
+lookupStorePathId pathId = (.name) <$> getStorePathInfos pathId
 
 lookupDerivationId :: DerivationId -> NOMState Derivation
-lookupDerivationId drvId = getDerivationInfos drvId <|>> (.name)
+lookupDerivationId drvId = (.name) <$> getDerivationInfos drvId
 
 type NOMState a = forall m. MonadState NOMV1State m => m a
 
@@ -209,47 +209,45 @@ emptyDerivationInfo drv = MkDerivationInfo drv mempty mempty mempty Unknown memp
 getStorePathId :: StorePath -> NOMState StorePathId
 getStorePathId path = do
   let newId = do
-        key <- gets ((.storePathInfos) .> CMap.nextKey)
+        key <- gets (CMap.nextKey . (.storePathInfos))
         modify (field @"storePathInfos" %~ CMap.insert key (emptyStorePathInfo path))
         modify (field @"storePathIds" %~ Map.insert path key)
         pure key
-  gets ((.storePathIds) .> Map.lookup path) >>= maybe newId pure
+  gets (Map.lookup path . (.storePathIds)) >>= maybe newId pure
 
 getDerivationId :: Derivation -> NOMState DerivationId
 getDerivationId drv = do
   let newId = do
-        key <- gets ((.derivationInfos) .> CMap.nextKey)
+        key <- gets (CMap.nextKey . (.derivationInfos))
         modify (field @"derivationInfos" %~ CMap.insert key (emptyDerivationInfo drv))
         modify (field @"derivationIds" %~ Map.insert drv key)
         pure key
-  gets ((.derivationIds) .> Map.lookup drv) >>= maybe newId pure
+  gets (Map.lookup drv . (.derivationIds)) >>= maybe newId pure
 
 drv2out :: DerivationId -> NOMState (Maybe StorePath)
 drv2out drv =
-  gets ((.derivationInfos) .> CMap.lookup drv >=> (.outputs) .> Map.lookup "out")
+  gets (CMap.lookup drv . (.derivationInfos) >=> Map.lookup "out" . (.outputs))
     >>= mapM (\pathId -> lookupStorePathId pathId)
 
 out2drv :: StorePathId -> NOMState (Maybe DerivationId)
-out2drv path = gets ((.storePathInfos) .> CMap.lookup path >=> (.producer))
+out2drv path = gets (CMap.lookup path . (.storePathInfos) >=> (.producer))
 
 -- Only do this with derivationIds that you got via lookupDerivation
 getDerivationInfos :: DerivationId -> NOMState DerivationInfo
 getDerivationInfos drvId =
-  get
-    <|>> (.derivationInfos)
-    .> CMap.lookup drvId
-    .> fromMaybe (error "BUG: drvId is no key in derivationInfos")
+  fromMaybe (error "BUG: drvId is no key in derivationInfos") .
+    CMap.lookup drvId .
+    (.derivationInfos) <$> get
 
 -- Only do this with derivationIds that you got via lookupDerivation
 getStorePathInfos :: StorePathId -> NOMState StorePathInfo
 getStorePathInfos storePathId =
-  get
-    <|>> (.storePathInfos)
-    .> CMap.lookup storePathId
-    .> fromMaybe (error "BUG: storePathId is no key in storePathInfos")
+  fromMaybe (error "BUG: storePathId is no key in storePathInfos") .
+    CMap.lookup storePathId .
+    (.storePathInfos) <$> get
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
-updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
+updateSummaryForDerivation oldStatus newStatus drvId = addNew . removeOld
  where
   removeOld = case oldStatus of
     Unknown -> id
@@ -266,8 +264,7 @@ updateSummaryForDerivation oldStatus newStatus drvId = removeOld .> addNew
 
 updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 updateSummaryForStorePath oldStates newStates pathId =
-  foldMapEndo remove_deleted deletedStates
-    .> foldMapEndo insert_added addedStates
+  foldMapEndo insert_added addedStates . foldMapEndo remove_deleted deletedStates
  where
   remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
   remove_deleted = \case
@@ -283,5 +280,5 @@ updateSummaryForStorePath oldStates newStates pathId =
     Uploading ho -> field @"runningUploads" %~ CMap.insert pathId ho
     Downloaded ho -> field @"completedDownloads" %~ CMap.insert pathId ho
     Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
-  deletedStates = Set.difference oldStates newStates |> toList
-  addedStates = Set.difference newStates oldStates |> toList
+  deletedStates = toList $ Set.difference oldStates newStates
+  addedStates = toList $ Set.difference newStates oldStates

@@ -30,7 +30,6 @@ import NOM.State (
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
-import NOM.Util ((.>), (<|>>), (|>))
 
 sortDepsOfSet :: DerivationSet -> NOMState ()
 sortDepsOfSet parents = do
@@ -41,11 +40,11 @@ sortDepsOfSet parents = do
         let newDrvInfo = (field @"inputDerivations" %~ sort_derivations) drvInfo
         modify (field @"derivationInfos" %~ CMap.insert drvId newDrvInfo)
       sort_derivations :: Seq (DerivationId, Set Text) -> Seq (DerivationId, Set Text)
-      sort_derivations = Seq.sortOn (fst .> sort_key)
+      sort_derivations = Seq.sortOn (sort_key . fst)
 
       sort_key :: DerivationId -> SortKey
       sort_key = memo (sortKey currentState)
-  parents |> CSet.toList .> mapM_ \drvId -> sort_parent drvId
+  mapM_ (\drvId -> sort_parent drvId) $ CSet.toList parents
 
 type SortKey =
   ( SortOrder
@@ -82,11 +81,11 @@ sortKey :: NOMV1State -> DerivationId -> SortKey
 sortKey nom_state drvId =
   let MkDependencySummary{..} = evalState (summaryIncludingRoot drvId) nom_state
       sort_entries =
-        [ minimumMay (failedBuilds <|>> (.end) .> view _1) <|>> SFailed
-        , minimumMay (runningBuilds <|>> (.start)) <|>> SBuilding
+        [ SFailed <$> minimumMay (view _1 . (.end) <$> failedBuilds)
+        , SBuilding <$> minimumMay ((.start) <$> runningBuilds)
         , pureIf (not (CSet.null plannedBuilds)) SWaiting
         , pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting
-        , maximumMay (completedBuilds <|>> (.end)) <|>> Down .> SDone
+        , SDone <$> maximumMay (Down . (.end) <$> completedBuilds)
         , pureIf (not (CMap.null completedDownloads)) SDownloaded
         , pureIf (not (CMap.null completedUploads)) SUploaded
         ]

@@ -8,8 +8,6 @@ import Data.Word8 qualified as Word8
 import Streamly.Prelude ((.:))
 import Streamly.Prelude qualified as Stream
 
-import NOM.Util ((.>))
-
 type ContParser update = (ByteString -> Result update, ByteString)
 
 parseChunk :: forall update m. Monad m => ContParser update -> (ByteString, ByteString) -> Stream.SerialT (StateT (ContParser update) m) (update, ByteString)
@@ -38,11 +36,7 @@ streamANSIChunks input =
 parseStreamAttoparsec :: Monad m => Parser update -> Stream.SerialT m ByteString -> Stream.SerialT m (update, ByteString)
 parseStreamAttoparsec parser =
   let parserInitState = (parse parser, mempty)
-   in Stream.concatMap streamANSIChunks
-        .> Stream.liftInner
-        .> Stream.concatMap (parseChunk parserInitState)
-        .> Stream.runStateT (pure parserInitState)
-        .> Stream.map snd
+   in Stream.map snd . Stream.runStateT (pure parserInitState) . Stream.concatMap (parseChunk parserInitState) . Stream.liftInner . Stream.concatMap streamANSIChunks
 
 parseOneText :: Parser update -> Text -> Maybe update
 parseOneText parser input = do
@@ -50,4 +44,4 @@ parseOneText parser input = do
   pure result
 
 stripANSICodes :: Text -> Text
-stripANSICodes = encodeUtf8 .> streamANSIChunks .> fmap fst .> Stream.toList .> runIdentity .> ByteString.concat .> decodeUtf8
+stripANSICodes = decodeUtf8 . ByteString.concat . runIdentity . Stream.toList . fmap fst . streamANSIChunks . encodeUtf8

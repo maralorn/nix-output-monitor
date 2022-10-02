@@ -20,29 +20,28 @@ import Relude hiding (head)
 import Data.IntSet qualified as IntSet
 
 import NOM.State.CacheId (CacheId (MkCacheId))
-import NOM.Util ((.>), (<.>>))
 
 newtype CacheIdSet b = MkCacheIdSet {ints :: IntSet}
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving newtype (Semigroup, Monoid, NFData)
 
 insert :: CacheId b -> CacheIdSet b -> CacheIdSet b
-insert (MkCacheId x) = (.ints) .> IntSet.insert x .> MkCacheIdSet
+insert (MkCacheId x) = MkCacheIdSet .  IntSet.insert x . (.ints)
 
 toList :: CacheIdSet b -> [CacheId b]
-toList = (.ints) .> IntSet.toList <.>> MkCacheId
+toList = fmap MkCacheId . IntSet.toList . (.ints)
 
 fromFoldable :: Foldable f => f (CacheId b) -> CacheIdSet b
 fromFoldable = foldl' (flip insert) mempty
 
 null :: CacheIdSet b -> Bool
-null = (.ints) .> IntSet.null
+null = IntSet.null . (.ints)
 
 maxView :: CacheIdSet b -> Maybe (CacheId b, CacheIdSet b)
-maxView = (.ints) .> IntSet.maxView .> coerce
+maxView = coerce . IntSet.maxView . (.ints)
 
 head :: CacheIdSet b -> Maybe (CacheId b)
-head = (.ints) .> IntSet.maxView .> fmap fst .> coerce
+head = coerce . fmap fst . IntSet.maxView . (.ints)
 
 union :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
 union = coerce IntSet.union

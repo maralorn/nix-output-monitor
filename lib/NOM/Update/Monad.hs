@@ -23,7 +23,6 @@ import Nix.Derivation qualified as Nix
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
-import NOM.Util ((.>), (<.>>))
 
 type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
@@ -43,21 +42,15 @@ class Monad m => MonadReadDerivation m where
 
 instance MonadReadDerivation IO where
   getDerivation =
-    toString
-      .> TextIO.readFile
-      .> try
-      <.>> ( first DerivationReadError
-              >=> parse Nix.parseDerivation
-              .> eitherResult
-              .> first (DerivationParseError . toText)
-           )
+    fmap (first DerivationReadError
+              >=> first (DerivationParseError . toText) . eitherResult . parse Nix.parseDerivation) . try . TextIO.readFile . toString
 
 instance MonadReadDerivation m => MonadReadDerivation (StateT a m) where
-  getDerivation = getDerivation .> lift
+  getDerivation = lift . getDerivation
 instance MonadReadDerivation m => MonadReadDerivation (ExceptT a m) where
-  getDerivation = getDerivation .> lift
+  getDerivation = lift . getDerivation
 instance (Monoid a, MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
-  getDerivation = getDerivation .> lift
+  getDerivation = lift . getDerivation
 
 class Monad m => MonadCheckStorePath m where
   storePathExists :: StorePath -> m Bool
@@ -65,6 +58,6 @@ class Monad m => MonadCheckStorePath m where
 instance MonadCheckStorePath IO where
   storePathExists = doesPathExist . toString
 instance MonadCheckStorePath m => MonadCheckStorePath (StateT a m) where
-  storePathExists = storePathExists .> lift
+  storePathExists = lift . storePathExists
 instance (Monoid a, MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
-  storePathExists = storePathExists .> lift
+  storePathExists = lift . storePathExists

@@ -11,7 +11,6 @@ import NOM.Builds (parseDerivation, parseHost, parseStorePath)
 import NOM.Error (NOMError (..))
 import NOM.NixEvent (NixEvent (JsonMessage))
 import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
-import NOM.Util ((<|>>), (|>))
 import Data.ByteString qualified as ByteString
 
 parseJSON :: JSON.HermesEnv -> ByteString -> NixEvent
@@ -59,12 +58,12 @@ parseActivityType = \case
 parseAction :: JSON.Value -> JSON.Decoder NixAction
 parseAction = JSON.withObject $ \object -> do
   action <- JSON.atKey "action" JSON.text object
-  action |> \case
-    "start" -> parseStartAction object <|>> Start
-    "stop" -> parseStopAction object <|>> Stop
-    "result" -> parseResultAction object <|>> Result
-    "msg" -> parseMessageAction object <|>> Message
-    other -> fail ("unknown action type: " <> toString other)
+  (\case
+    "start" -> Start <$> parseStartAction object
+    "stop" -> Stop <$> parseStopAction object
+    "result" -> Result <$> parseResultAction object
+    "msg" -> Message <$> parseMessageAction object
+    other -> fail ("unknown action type: " <> toString other)) action
 
 parseMessageAction :: JSON.Object -> JSON.Decoder MessageAction
 parseMessageAction object = do
@@ -117,22 +116,22 @@ parseResultAction object = do
   let txt = textFields object
   let num = intFields object
   result <- case type' of
-    100 -> two num <|>> uncurry FileLinked
-    101 -> one txt <|>> BuildLogLine
-    102 -> (one txt >>= unwrap . parseStorePath) <|>> UntrustedPath
-    103 -> (one txt >>= unwrap . parseStorePath) <|>> CorruptedPath
-    104 -> one txt <|>> SetPhase
-    105 -> four num <|>> \(done, expected, running, failed) -> Progress (MkActivityProgress{..})
+    100 -> uncurry FileLinked <$> two num
+    101 -> BuildLogLine <$> one txt
+    102 -> UntrustedPath <$> (one txt >>= unwrap . parseStorePath)
+    103 -> CorruptedPath <$> (one txt >>= unwrap . parseStorePath)
+    104 -> SetPhase <$> one txt
+    105 -> (\(done, expected, running, failed) -> Progress (MkActivityProgress{..})) <$> four num
     106 -> do
       (typeNum, number) <- two num
       activityType <- parseActivityType typeNum
       pure $ SetExpected activityType number
-    107 -> one txt <|>> PostBuildLogLine
+    107 -> PostBuildLogLine <$> one txt
     other -> fail ("invalid activity result type: " <> show other)
   pure MkResultAction{id = idField, result}
 
 parseStopAction :: JSON.Object -> JSON.Decoder StopAction
-parseStopAction object = JSON.atKey "id" JSON.int object <|>> MkStopAction . MkId
+parseStopAction object = MkStopAction . MkId <$> JSON.atKey "id" JSON.int object
 
 parseStartAction :: JSON.Object -> JSON.Decoder StartAction
 parseStartAction object = do
@@ -147,7 +146,7 @@ parseStartAction object = do
       three txt >>= \(path, from, to) -> do
         path' <- unwrap (parseStorePath path)
         pure $ CopyPath path' (parseHost from) (parseHost to)
-    FileTransferType -> one txt <|>> FileTransfer
+    FileTransferType -> FileTransfer <$> one txt
     RealiseType -> pure Realise
     CopyPathsType -> pure CopyPaths
     BuildsType -> pure Builds
@@ -167,6 +166,6 @@ parseStartAction object = do
       two txt >>= \(path, host) -> do
         path' <- unwrap (parseStorePath path)
         pure $ QueryPathInfo path' (parseHost host)
-    PostBuildHookType -> (one txt >>= unwrap . parseDerivation) <|>> PostBuildHook
+    PostBuildHookType -> PostBuildHook <$> (one txt >>= unwrap . parseDerivation)
     BuildWaitingType -> pure BuildWaiting
   pure MkStartAction{id = MkId idField, text, activity, level}

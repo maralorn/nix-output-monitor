@@ -15,7 +15,7 @@ import System.Console.Terminal.Size qualified as Terminal.Size
 import System.IO qualified
 
 import Streamly.Data.Fold qualified as Fold
-import Streamly.Prelude ((.:), (|&))
+import Streamly.Prelude ((.:), (|$))
 import Streamly.Prelude qualified as Stream
 
 import System.Console.ANSI (SGR (Reset), setSGRCode)
@@ -25,7 +25,6 @@ import NOM.Error (NOMError (InputError))
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad)
-import NOM.Util ((.>), (<|>>), (|>))
 
 type Stream = Stream.SerialT IO
 type StreamParser update = Stream ByteString -> Stream (update, ByteString)
@@ -97,8 +96,8 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
       -- might be slightly to high in corner cases but that will only trigger
       -- sligthly more redraws which is totally acceptable.
       reflow_line_count_correction =
-        terminalSize <|>> (.width) .> \terminalWidth ->
-          getSum $ foldMap (\line -> Sum (displayWidthBS line `div` terminalWidth)) nix_output
+        terminalSize <&> \size ->
+          getSum $ foldMap (\line -> Sum (displayWidthBS line `div` size.width)) nix_output
 
   (last_printed_line_count, lines_to_pad) <- atomically do
     last_printed_line_count <- readTVar printed_lines_var
@@ -191,8 +190,7 @@ interact ::
   state ->
   IO state
 interact config parser updater maintenance printer finalize inputHandle output_handle initialState =
-  readTextChunks inputHandle
-    |> processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize initialState
+  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize initialState $ readTextChunks inputHandle
 
 -- frame durations are passed to threadDelay and thus are given in microseconds
 
@@ -222,15 +220,15 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   bufferVar <- newTVarIO mempty
   let keepProcessing :: IO ()
       keepProcessing =
-        inputStream
-          |& Stream.tap (writeErrorsToBuffer bufferVar)
-          |& Stream.mapMaybe rightToMaybe
-          |& parser
-          |& Stream.mapM (runUpdate bufferVar stateVar updater >=> flip (<>) .> modifyTVar bufferVar .> atomically)
-            |> Stream.drain
+        Stream.drain
+          $ Stream.mapM (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar bufferVar . flip (<>))
+          |$ parser
+          |$ Stream.mapMaybe rightToMaybe
+          |$ Stream.tap (writeErrorsToBuffer bufferVar)
+            inputStream
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
-  printerMay |> maybe keepProcessing \(printer, output_handle) -> do
+  printerMay & maybe keepProcessing \(printer, output_handle) -> do
     linesVar <- newTVarIO 0
     let writeToScreen :: IO ()
         writeToScreen = writeStateToScreen (not config.silent) linesVar stateVar bufferVar maintenance printer output_handle
@@ -239,9 +237,9 @@ processTextStream config parser updater maintenance printerMay finalize initialS
           race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
           writeToScreen
     race_ keepProcessing keepPrinting
-    readTVarIO stateVar >>= execStateT finalize >>= writeTVar stateVar .> atomically
+    readTVarIO stateVar >>= execStateT finalize >>= atomically . writeTVar stateVar
     writeToScreen
-  readTVarIO stateVar |> (if isNothing printerMay then (>>= execStateT finalize) else id)
+  (if isNothing printerMay then (>>= execStateT finalize) else id) $ readTVarIO stateVar 
 
 writeErrorsToBuffer :: TVar ByteString -> Fold.Fold IO (Either NOMError ByteString) ()
 writeErrorsToBuffer bufferVar = Fold.drainBy saveInput

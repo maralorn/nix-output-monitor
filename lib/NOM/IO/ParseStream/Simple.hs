@@ -6,8 +6,6 @@ import Data.ByteString qualified as ByteString
 import Streamly.Prelude ((.:))
 import Streamly.Prelude qualified as Stream
 
-import NOM.Util ((.>))
-
 type ContParser = Maybe ByteString
 
 parseChunk :: forall update m. Monad m => (ByteString -> update) -> ByteString -> Stream.SerialT (StateT ContParser m) (update, ByteString)
@@ -25,7 +23,4 @@ parseChunk parser input = join $ state \currentState ->
 
 parseStreamSimple :: Monad m => (ByteString -> update) -> Stream.SerialT m ByteString -> Stream.SerialT m (update, ByteString)
 parseStreamSimple parser =
-    Stream.liftInner
-        .> Stream.concatMap (parseChunk parser)
-        .> Stream.runStateT (pure Nothing)
-        .> Stream.map snd
+    Stream.map snd . Stream.runStateT (pure Nothing) . Stream.concatMap (parseChunk parser) . Stream.liftInner

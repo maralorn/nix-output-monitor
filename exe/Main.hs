@@ -27,7 +27,7 @@ import NOM.State (NOMV1State (nixErrors), ProcessState (..), failedBuilds, fullS
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateState)
 import NOM.Update.Monad (UpdateMonad)
-import NOM.Util (addPrintCache, (<|>>), (<||>))
+import NOM.Util (addPrintCache)
 import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
 import NOM.IO.ParseStream.Simple (parseStreamSimple)
 import NOM.Parser.JSON.Hermes (parseJSON)
@@ -78,7 +78,7 @@ main = do
       hPutStrLn stderr helpText
       -- It's not a mistake if the user requests the help text, otherwise tell
       -- them off with a non-zero exit code.
-      if any ((== "-h") <||> (== "--help")) xs then exitSuccess else exitFailure
+      if any (liftA2 (||) (== "-h") (== "--help")) xs then exitSuccess else exitFailure
 
 exitOnFailure :: Process.ExitCode -> IO ()
 exitOnFailure = \case
@@ -147,7 +147,7 @@ finalizer ::
   UpdateMonad m => Config -> StateT CompoundState m ()
 finalizer config = do
   (n, !oldState, _) <- get
-  newState <- execStateT detectLocalFinishedBuilds oldState <|>> (typed .~ Finished)
+  newState <- (typed .~ Finished) <$> execStateT detectLocalFinishedBuilds oldState
   put (n, newState, stateToText config newState)
 
 helpText :: Text

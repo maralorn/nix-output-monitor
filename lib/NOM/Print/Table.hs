@@ -42,7 +42,6 @@ import System.Console.ANSI (
  )
 
 import Data.ByteString.Char8 qualified as ByteString
-import NOM.Util ((|>))
 
 data Entry = Entry
   { codes :: [SGR]
@@ -109,7 +108,7 @@ yellow = addColor Yellow
 blue = addColor Blue
 cyan = addColor Cyan
 magenta = addColor Magenta
-grey = SetColor Foreground Vivid Black |> addCode
+grey = addCode $ SetColor Foreground Vivid Black
 
 prependLines :: Text -> Text -> Text -> NonEmpty Text -> Text
 prependLines top mid bot rows =

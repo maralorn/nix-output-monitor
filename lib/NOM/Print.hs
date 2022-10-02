@@ -28,7 +28,6 @@ import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
-import NOM.Util ((.>), (<.>>), (<|>>), (|>))
 import NOM.NixEvent.Action (ActivityId(..))
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
@@ -61,7 +60,7 @@ data Config = MkConfig
   }
 
 stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
-stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo printWithSize
+stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
  where
   printWithSize :: Maybe Int -> ZonedTime -> Text
   printWithSize maybeWindow = printWithTime
@@ -72,7 +71,7 @@ stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo prin
       | processState == Finished && config.silent = const ""
       | showBuildGraph = \now -> buildsDisplay now <> table (time now)
       | not anythingGoingOn = if config.silent then const "" else time
-      | otherwise = time .> table
+      | otherwise = table . time
     maxHeight = case maybeWindow of
       Just limit -> limit `div` targetRatio
       Nothing -> defaultTreeMax
@@ -88,8 +87,8 @@ stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo prin
     | processState == Finished = \now -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> runTime now)
     | otherwise = \now -> clock <> " " <> runTime now
   MkDependencySummary{..} = fullSummary
-  runningBuilds' = runningBuilds <|>> (.host)
-  completedBuilds' = completedBuilds <|>> (.host)
+  runningBuilds' = (.host) <$> runningBuilds
+  completedBuilds' = (.host) <$> completedBuilds
   numFailedBuilds = CMap.size failedBuilds
   anythingGoingOn = fullSummary /= mempty
   showBuildGraph = not (Seq.null forestRoots)
@@ -143,12 +142,12 @@ stateToText config buildState@MkNOMV1State{..} = fmap Window.height .> memo prin
   uploadsRunning = CMap.size runningUploads
   uploadsDone = CMap.size completedUploads
   finishMarkup
-    | numFailedBuilds > 0 = ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>) .> markup red
-    | not (null nixErrors) = ((warning <> " Exited with " <> show (length nixErrors) <> " errors reported by nix") <>) .> markup red
-    | otherwise = ("Finished" <>) .> markup green
+    | numFailedBuilds > 0 = markup red . ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>)
+    | not (null nixErrors) = markup red . ((warning <> " Exited with " <> show (length nixErrors) <> " errors reported by nix") <>)
+    | otherwise = markup green . ("Finished" <>)
   printHosts :: [NonEmpty Entry]
   printHosts =
-    mapMaybe nonEmpty $ labelForHost <$> hosts
+    mapMaybe (nonEmpty . labelForHost) hosts
    where
     labelForHost :: Host -> [Entry]
     labelForHost host =
@@ -199,7 +198,7 @@ printBuilds ::
 printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
  where
   printBuildsWithTime :: UTCTime -> NonEmpty Text
-  printBuildsWithTime now = preparedPrintForest |> fmap (fmap (now |>)) .> showForest .> (graphHeader :|)
+  printBuildsWithTime now = (graphHeader :|) $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   num_raw_roots = length forestRoots
   num_roots = length preparedPrintForest
   graphTitle = markup bold "Dependency Graph"
@@ -209,7 +208,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     | num_raw_roots == num_roots = unwords [graphTitle, "with", show num_roots, "roots"]
     | otherwise = unwords [graphTitle, "showing", show num_roots, "of", show num_raw_roots, "roots"]
   preparedPrintForest :: Forest (UTCTime -> Text)
-  preparedPrintForest = buildForest <|>> mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf)
+  preparedPrintForest = mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf) <$> buildForest
   printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
   printTreeNode location drvInfo =
     let ~summary = showSummary drvInfo.dependencySummary
@@ -233,21 +232,20 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
                 pure (Node drvInfo subforest :)
             | otherwise = pure id
       prepend_node <- mkNode
-      goBuildForest restDrvs <|>> prepend_node
+      prepend_node <$> goBuildForest restDrvs
     _ -> pure []
   derivationsToShow :: DerivationSet
   derivationsToShow =
     let should_be_shown (index, (can_be_hidden, _, _)) = not can_be_hidden || index < maxHeight
         (_, sorted_set) = execState (goDerivationsToShow forestRoots) mempty
-     in sorted_set
-          |> Set.toAscList
-          .> itoList
-          .> takeWhile should_be_shown
-          .> fmap (\(_, (_, _, drvId)) -> drvId)
-          .> CSet.fromFoldable
+     in CSet.fromFoldable $
+          fmap (\(_, (_, _, drvId)) -> drvId) $
+          takeWhile should_be_shown $
+          itoList $
+          Set.toAscList sorted_set
 
   children :: DerivationId -> Seq DerivationId
-  children drv_id = get' (getDerivationInfos drv_id) |> (.inputDerivations) <.>> fst
+  children drv_id = fmap fst $ (.inputDerivations) $ get' $ getDerivationInfos drv_id
 
   goDerivationsToShow ::
     Seq DerivationId ->
@@ -288,7 +286,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
 
   showSummary :: DependencySummary -> Text
   showSummary MkDependencySummary{..} =
-    [ memptyIfTrue
+    unwords $ join [ memptyIfTrue
         (CMap.null failedBuilds)
         [markup red $ show (CMap.size failedBuilds) <> " failed"]
     , memptyIfTrue
@@ -307,8 +305,6 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         (CSet.null plannedDownloads)
         [markup blue $ show (CSet.size plannedDownloads) <> " waiting downloads"]
     ]
-      |> join
-      .> unwords
 
   printDerivation :: DerivationInfo -> (Bool, UTCTime -> Text)
   printDerivation drvInfo = do
@@ -396,10 +392,8 @@ hostMarkup Localhost = mempty
 hostMarkup host = ["on " <> markup magenta (toText host)]
 
 timeDiff :: UTCTime -> UTCTime -> Text
-timeDiff =
-  diffUTCTime
-    <.>> printDuration
-    .> toText
+timeDiff x =
+  toText . printDuration . diffUTCTime x
 
 printDuration :: NominalDiffTime -> Text
 printDuration diff
@@ -407,7 +401,7 @@ printDuration diff
   | diff < 60 * 60 = p "%Mm%Ss"
   | otherwise = p "%Hh%Mm%Ss"
  where
-  p x = diff |> formatTime defaultTimeLocale x .> toText
+  p x = toText $ formatTime defaultTimeLocale x diff
 
 timeDiffSeconds :: Int -> Text
-timeDiffSeconds = fromIntegral .> printDuration
+timeDiffSeconds = printDuration . fromIntegral

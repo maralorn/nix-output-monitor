@@ -12,7 +12,6 @@ import NOM.Builds (Derivation (..), Host (..), StorePath (..), parseDerivation, 
 import NOM.Error (NOMError (..))
 import NOM.NixEvent (NixEvent (JsonMessage))
 import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
-import NOM.Util ((<|>>), (|>))
 
 deriving newtype instance JSON.FromJSON ActivityId
 
@@ -71,12 +70,12 @@ instance JSON.FromJSON ActivityType where
 instance JSON.FromJSON NixAction where
   parseJSON = JSON.withObject "nix internal-json object" $ \object -> do
     action <- JSON.parseField object "action"
-    action |> JSON.withText "nix internal-json action" \actionType ->
+    action & JSON.withText "nix internal-json action" \actionType ->
       JSON.prependFailure ("While parsing an action of type " <> toString actionType <> ": ") $ case actionType of
-        "start" -> parseStartAction object <|>> Start
-        "stop" -> parseStopAction object <|>> Stop
-        "result" -> parseResultAction object <|>> Result
-        "msg" -> parseMessageAction object <|>> Message
+        "start" -> Start <$> parseStartAction object
+        "stop" -> Stop <$> parseStopAction object
+        "result" -> Result <$> parseResultAction object
+        "msg" -> Message <$> parseMessageAction object
         other -> JSON.parseFail ("unknown action type: " <> toString other)
 
 parseMessageAction :: JSON.Object -> JSON.Parser MessageAction
@@ -130,19 +129,19 @@ parseResultAction object = do
   idField <- JSON.parseField object "id"
   type' :: Int <- JSON.parseField object "type"
   result <- case type' of
-    100 -> twoFields object <|>> uncurry FileLinked
-    101 -> oneField object <|>> BuildLogLine
-    102 -> oneField object <|>> UntrustedPath
-    103 -> oneField object <|>> CorruptedPath
-    104 -> oneField object <|>> SetPhase
-    105 -> fourFields object <|>> \(done, expected, running, failed) -> Progress (MkActivityProgress{..})
-    106 -> twoFields object <|>> uncurry SetExpected
-    107 -> oneField object <|>> PostBuildLogLine
+    100 -> uncurry FileLinked <$> twoFields object
+    101 -> BuildLogLine <$> oneField object
+    102 -> UntrustedPath <$> oneField object
+    103 -> CorruptedPath <$> oneField object
+    104 -> SetPhase <$> oneField object
+    105 -> (\(done, expected, running, failed) -> Progress (MkActivityProgress{..})) <$> fourFields object
+    106 -> uncurry SetExpected <$> twoFields object
+    107 -> PostBuildLogLine <$> oneField object
     other -> JSON.parseFail ("invalid activity result type: " <> show other)
   pure MkResultAction{id = idField, result}
 
 parseStopAction :: JSON.Object -> JSON.Parser StopAction
-parseStopAction object = JSON.parseField object "id" <|>> MkStopAction
+parseStopAction object = MkStopAction <$> JSON.parseField object "id"
 
 parseStartAction :: JSON.Object -> JSON.Parser StartAction
 parseStartAction object = do
@@ -152,16 +151,16 @@ parseStartAction object = do
   activityType <- JSON.parseField object "type"
   activity <- JSON.prependFailure ("While parsing a start activity of " <> show activityType <> ": ") case activityType of
     UnknownType -> pure Unknown
-    CopyPathType -> threeFields object <|>> \(path, from, to) -> CopyPath path from to
-    FileTransferType -> oneField object <|>> FileTransfer
+    CopyPathType -> (\(path, from, to) -> CopyPath path from to) <$> threeFields object
+    FileTransferType -> FileTransfer <$> oneField object
     RealiseType -> pure Realise
     CopyPathsType -> pure CopyPaths
     BuildsType -> pure Builds
-    BuildType -> fourFields object <|>> \(path, host, _ :: Int, _ :: Int) -> Build path host
+    BuildType -> (\(path, host, _ :: Int, _ :: Int) -> Build path host) <$> fourFields object
     OptimiseStoreType -> pure OptimiseStore
     VerifyPathsType -> pure VerifyPaths
-    SubstituteType -> twoFields object <|>> uncurry Substitute
-    QueryPathInfoType -> twoFields object <|>> uncurry QueryPathInfo
-    PostBuildHookType -> oneField object <|>> PostBuildHook
+    SubstituteType -> uncurry Substitute <$> twoFields object
+    QueryPathInfoType -> uncurry QueryPathInfo <$> twoFields object
+    PostBuildHookType -> PostBuildHook <$> oneField object
     BuildWaitingType -> pure BuildWaiting
   pure MkStartAction{id = idField, text, activity, level}
