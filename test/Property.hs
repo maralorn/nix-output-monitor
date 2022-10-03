@@ -7,6 +7,7 @@ import Test.HUnit
 
 import NOM.Builds
 import NOM.Parser
+import NOM.NixMessage.OldStyle (NixOldStyleMessage(..))
 
 assertOldStyleParse :: ByteString -> IO (ByteString, NixOldStyleMessage)
 assertOldStyleParse input = do

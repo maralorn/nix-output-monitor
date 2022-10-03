@@ -2,7 +2,7 @@ module Main (main) where
 
 import Relude
 
-import Data.String qualified as String
+import Data.Text qualified as Text
 import System.Environment qualified
 import System.Process (readProcessWithExitCode)
 import System.Random (randomIO)
@@ -93,7 +93,7 @@ golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDe
   assertBool "Everything built" (CSet.null plannedBuilds)
   assertBool "No running builds" (CMap.null runningBuilds)
   assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)
-  let outputStorePaths = mapMaybe parseStorePath (String.lines output)
+  let outputStorePaths = mapMaybe parseStorePath (Text.lines (toText output))
   assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
   let outputDerivations :: [DerivationId]
       outputDerivations =
