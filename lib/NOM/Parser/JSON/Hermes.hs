@@ -10,16 +10,15 @@ import System.IO.Unsafe qualified as Unsafe
 import Data.ByteString qualified as ByteString
 import NOM.Builds (parseDerivation, parseHost, parseStorePath)
 import NOM.Error (NOMError (..))
-import NOM.NixEvent (NixEvent (JsonMessage))
-import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
+import NOM.NixMessage.JSON (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 
-parseJSON :: JSON.HermesEnv -> ByteString -> NixEvent
-parseJSON env input = JsonMessage (first translate_hermes_error_to_nom_error json_parse_result)
+parseJSON :: JSON.HermesEnv -> ByteString -> Either NOMError NixJSONMessage
+parseJSON env input = first translate_hermes_error_to_nom_error json_parse_result
  where
   raw_json = ByteString.drop 5 input -- Drop the prefix "@nix "
   translate_hermes_error_to_nom_error :: JSON.HermesException -> NOMError
   translate_hermes_error_to_nom_error json_error =
-    ParseNixActionError (show json_error) raw_json
+    ParseNixJSONMessageError (show json_error) raw_json
   json_parse_result = parseWithEnv env parseAction raw_json
 
 parseWithEnv :: Exception e => JSON.HermesEnv -> (JSON.Value -> JSON.Decoder a) -> ByteString -> Either e a
@@ -55,7 +54,7 @@ parseActivityType = \case
   111 -> pure BuildWaitingType
   other -> fail ("invalid activity result type: " <> show other)
 
-parseAction :: JSON.Value -> JSON.Decoder NixAction
+parseAction :: JSON.Value -> JSON.Decoder NixJSONMessage
 parseAction = JSON.withObject $ \object -> do
   action <- JSON.atKey "action" JSON.text object
   ( \case

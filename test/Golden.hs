@@ -16,9 +16,10 @@ import Test.HUnit (
   (~:),
  )
 
+import NOM.Builds (parseStorePath)
 import NOM.IO (processTextStream)
 import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
-import NOM.Parser (parseStorePath, parser)
+import NOM.Parser (parser)
 import NOM.Print (Config (..))
 import NOM.State (
   DependencySummary (..),
@@ -33,7 +34,7 @@ import NOM.State.CacheId.Set qualified as CSet
 import NOM.Update (
   detectLocalFinishedBuilds,
   maintainState,
-  updateState,
+  updateStateNixOldStyleMessage,
  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
@@ -69,7 +70,7 @@ testBuild name asserts withNix =
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalState
-    endState <- processTextStream (MkConfig False False) (parseStreamAttoparsec parser) (preserveStateSnd . updateState) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
+    endState <- processTextStream (MkConfig False False) (parseStreamAttoparsec parser) (preserveStateSnd . updateStateNixOldStyleMessage) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()

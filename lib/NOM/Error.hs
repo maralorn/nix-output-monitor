@@ -8,5 +8,5 @@ data NOMError
   = InputError IOException
   | DerivationReadError IOException
   | DerivationParseError Text
-  | ParseNixActionError Text ByteString
+  | ParseNixJSONMessageError Text ByteString
   deriving stock (Show, Eq)

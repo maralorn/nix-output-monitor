@@ -1,4 +1,4 @@
-module NOM.NixEvent.Action (NixAction (..), StartAction (..), StopAction (..), MessageAction (..), ResultAction (..), ActivityResult (..), Activity (..), ActivityId (..), Verbosity (..), ActivityProgress (..), ActivityType (..)) where
+module NOM.NixMessage.JSON (NixJSONMessage (..), StartAction (..), StopAction (..), MessageAction (..), ResultAction (..), ActivityResult (..), Activity (..), ActivityId (..), Verbosity (..), ActivityProgress (..), ActivityType (..)) where
 
 import NOM.Builds (Derivation (..), Host (..), StorePath (..))
 import Relude
@@ -90,5 +90,5 @@ data MessageAction = MkMessageAction
   }
   deriving stock (Show, Eq)
 
-data NixAction = Stop StopAction | Start StartAction | Result ResultAction | Message MessageAction
+data NixJSONMessage = Stop StopAction | Start StartAction | Result ResultAction | Message MessageAction
   deriving stock (Show, Eq)

@@ -3,22 +3,29 @@ module NOM.IO.ParseStream.Simple (parseStreamSimple) where
 import Relude
 
 import Data.ByteString qualified as ByteString
-import Streamly.Prelude ((.:))
+import Streamly.Prelude ((.:), (|$))
 import Streamly.Prelude qualified as Stream
 
 type ContParser = Maybe ByteString
 
-parseChunk :: forall update m. Monad m => (ByteString -> update) -> ByteString -> Stream.SerialT (StateT ContParser m) (update, ByteString)
-parseChunk parser input = join $ state \currentState ->
+streamLines :: forall m. Monad m => ByteString -> Stream.SerialT (StateT ContParser m) ByteString
+streamLines input = join $ state \currentState ->
   let wholeInput = maybe input (<> input) currentState
       inputLines = ByteString.split 10 wholeInput
+      emitLines :: [ByteString] -> (Stream.SerialT n ByteString, Maybe ByteString)
       emitLines = \case
         [] -> (Stream.nil, Nothing)
         [""] -> (Stream.nil, Nothing)
         [rest] -> (Stream.nil, Just rest)
-        (line : rest) -> first ((parser line, line) .:) (emitLines rest)
+        (line : rest) -> first (line .:) (emitLines rest)
    in emitLines inputLines
 
-parseStreamSimple :: Monad m => (ByteString -> update) -> Stream.SerialT m ByteString -> Stream.SerialT m (update, ByteString)
-parseStreamSimple parser =
-  Stream.map snd . Stream.runStateT (pure Nothing) . Stream.concatMap (parseChunk parser) . Stream.liftInner
+chunksToLines :: Monad m => Stream.SerialT m ByteString -> Stream.SerialT m ByteString
+chunksToLines =
+  Stream.map snd
+    . Stream.runStateT (pure Nothing)
+    . Stream.concatMap streamLines
+    . Stream.liftInner
+
+parseStreamSimple :: Stream.MonadAsync m => (ByteString -> update) -> Stream.SerialT m ByteString -> Stream.SerialT m update
+parseStreamSimple parser chunks = (Stream.fromAhead . Stream.map parser . Stream.fromSerial) |$ chunksToLines chunks

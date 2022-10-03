@@ -80,8 +80,8 @@ library
     NOM.IO
     NOM.IO.ParseStream.Attoparsec
     NOM.IO.ParseStream.Simple
-    NOM.NixEvent
-    NOM.NixEvent.Action
+    NOM.NixMessage.JSON
+    NOM.NixMessage.OldStyle
     NOM.Parser
     NOM.Parser.JSON.Aeson
     NOM.Parser.JSON.Hermes

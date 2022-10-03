@@ -1,12 +1,10 @@
-module NOM.NixEvent (NixEvent (..)) where
+module NOM.NixMessage.OldStyle (NixOldStyleMessage (..)) where
 
 import Relude
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
-import NOM.Error (NOMError)
-import NOM.NixEvent.Action (NixAction)
 
-data NixEvent
+data NixOldStyleMessage
   = Uploading !StorePath !Host
   | Downloading !StorePath !Host
   | PlanCopies !Int
@@ -15,5 +13,4 @@ data NixEvent
   | PlanDownloads !Double !Double (Set StorePath)
   | Checking !Derivation
   | Failed !Derivation !FailType
-  | JsonMessage !(Either NOMError NixAction)
   deriving stock (Show, Eq)

@@ -8,7 +8,7 @@ import Test.HUnit
 import NOM.Builds
 import NOM.Parser
 
-assertOldStyleParse :: ByteString -> IO (ByteString, NixEvent)
+assertOldStyleParse :: ByteString -> IO (ByteString, NixOldStyleMessage)
 assertOldStyleParse input = do
   let res = case parse parser input of
         Done x a -> Just (x, a)

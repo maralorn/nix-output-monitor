@@ -40,7 +40,7 @@ import Data.Time (UTCTime)
 import Optics ((%~))
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
-import NOM.NixEvent.Action (Activity, ActivityId, ActivityProgress)
+import NOM.NixMessage.JSON (Activity, ActivityId, ActivityProgress)
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
 import NOM.State.CacheId.Map qualified as CMap

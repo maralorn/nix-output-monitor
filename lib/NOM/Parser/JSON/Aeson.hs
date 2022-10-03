@@ -10,18 +10,17 @@ import Data.Aeson.Types qualified as JSON
 import Data.Aeson (eitherDecodeStrict')
 import NOM.Builds (Derivation (..), Host (..), StorePath (..), parseDerivation, parseHost, parseStorePath)
 import NOM.Error (NOMError (..))
-import NOM.NixEvent (NixEvent (JsonMessage))
-import NOM.NixEvent.Action (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
+import NOM.NixMessage.JSON (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 
 deriving newtype instance JSON.FromJSON ActivityId
 
-parseJSON :: ByteString -> NixEvent
-parseJSON raw_json = JsonMessage (first translate_aeson_error_to_nom_error json_parse_result)
+parseJSON :: ByteString -> Either NOMError NixJSONMessage
+parseJSON raw_json = first translate_aeson_error_to_nom_error json_parse_result
  where
   json_parse_result = eitherDecodeStrict' raw_json
   translate_aeson_error_to_nom_error :: String -> NOMError
   translate_aeson_error_to_nom_error aeson_error =
-    ParseNixActionError (toText aeson_error) raw_json
+    ParseNixJSONMessageError (toText aeson_error) raw_json
 
 instance JSON.FromJSON StorePath where
   parseJSON = JSON.withText "store path" \text ->
@@ -67,7 +66,7 @@ instance JSON.FromJSON ActivityType where
     111 -> pure BuildWaitingType
     other -> JSON.parseFail ("invalid activity result type: " <> show other)
 
-instance JSON.FromJSON NixAction where
+instance JSON.FromJSON NixJSONMessage where
   parseJSON = JSON.withObject "nix internal-json object" $ \object -> do
     action <- JSON.parseField object "action"
     action & JSON.withText "nix internal-json action" \actionType ->

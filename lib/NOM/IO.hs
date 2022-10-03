@@ -15,7 +15,7 @@ import System.Console.Terminal.Size qualified as Terminal.Size
 import System.IO qualified
 
 import Streamly.Data.Fold qualified as Fold
-import Streamly.Prelude ((.:), (|$))
+import Streamly.Prelude ((.:), (|&), (|&.))
 import Streamly.Prelude qualified as Stream
 
 import System.Console.ANSI (SGR (Reset), setSGRCode)
@@ -27,9 +27,9 @@ import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red
 import NOM.Update.Monad (UpdateMonad)
 
 type Stream = Stream.SerialT IO
-type StreamParser update = Stream ByteString -> Stream (update, ByteString)
+type StreamParser update = Stream ByteString -> Stream update
 type Output = Text
-type UpdateFunc update state = forall m. UpdateMonad m => (update, ByteString) -> StateT state m ([NOMError], ByteString)
+type UpdateFunc update state = forall m. UpdateMonad m => update -> StateT state m ([NOMError], ByteString)
 type OutputFunc state = state -> Maybe Window -> ZonedTime -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 type Window = Terminal.Size.Window Int
@@ -55,7 +55,7 @@ runUpdate ::
   TVar ByteString ->
   TVar state ->
   UpdateFunc update state ->
-  (update, ByteString) ->
+  update ->
   IO ByteString
 runUpdate bufferVar stateVar updater input = do
   oldState <- readTVarIO stateVar
@@ -220,13 +220,11 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   bufferVar <- newTVarIO mempty
   let keepProcessing :: IO ()
       keepProcessing =
-        Stream.drain $
-          Stream.mapM (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar bufferVar . flip (<>)) |$
-            parser |$
-              Stream.mapMaybe rightToMaybe |$
-                Stream.tap
-                  (writeErrorsToBuffer bufferVar)
-                  inputStream
+        inputStream
+          |& Stream.tap (writeErrorsToBuffer bufferVar)
+          |& Stream.mapMaybe rightToMaybe
+          |& parser
+          |&. Stream.mapM_ (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar bufferVar . flip (<>))
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay & maybe keepProcessing \(printer, output_handle) -> do

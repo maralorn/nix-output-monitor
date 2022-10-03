@@ -1,4 +1,4 @@
-module NOM.Parser (parser, oldStyleParser, planBuildLine, planDownloadLine, inTicks, NixEvent (..), parseStorePath, parseDerivation) where
+module NOM.Parser (parser, oldStyleParser, planBuildLine, planDownloadLine, inTicks) where
 
 import Relude hiding (take, takeWhile)
 
@@ -25,16 +25,14 @@ import NOM.Builds (
   Host (..),
   StorePath (..),
   derivation,
-  parseDerivation,
-  parseStorePath,
   storePathParser,
  )
-import NOM.NixEvent (NixEvent (..))
+import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
 
-parser :: Parser (Maybe NixEvent)
+parser :: Parser (Maybe NixOldStyleMessage)
 parser = Just <$> oldStyleParser <|> Nothing <$ noMatch
 
-oldStyleParser :: Parser NixEvent
+oldStyleParser :: Parser NixOldStyleMessage
 oldStyleParser = planBuilds <|> planDownloads <|> copying <|> building <|> failed <|> checking
 
 noMatch :: Parser ByteString
@@ -60,7 +58,7 @@ indent = void $ string "  "
 
 -- these (<decimal> )?derivations will be built:
 --  /nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv
-planBuilds :: Parser NixEvent
+planBuilds :: Parser NixOldStyleMessage
 planBuilds =
   maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x))) . nonEmpty
     =<< choice
@@ -74,7 +72,7 @@ planBuilds =
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivation <* endOfLine
 
-planDownloads :: Parser NixEvent
+planDownloads :: Parser NixOldStyleMessage
 planDownloads =
   PlanDownloads
     <$> ( choice
@@ -91,7 +89,7 @@ planDownloads =
 planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePathParser <* endOfLine
 
-failed :: Parser NixEvent
+failed :: Parser NixOldStyleMessage
 -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed =
   Failed
@@ -113,17 +111,17 @@ failed =
       <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
-checking :: Parser NixEvent
+checking :: Parser NixOldStyleMessage
 checking = Checking <$> (string "checking outputs of " *> inTicks derivation <* ellipsisEnd)
 
 -- copying 1 paths...
 -- copying path '/nix/store/fzyahnw94msbl4ic5vwlnyakslq4x1qm-source' to 'ssh://maralorn@example.org'...
-copying :: Parser NixEvent
+copying :: Parser NixOldStyleMessage
 copying =
   string "copying "
     *> (transmission <|> PlanCopies <$> decimal <* string " paths" <* ellipsisEnd)
 
-transmission :: Parser NixEvent
+transmission :: Parser NixOldStyleMessage
 transmission = do
   p <- string "path " *> inTicks storePathParser
   (Uploading p <$> toHost <|> Downloading p <$> fromHost) <* ellipsisEnd
@@ -138,7 +136,7 @@ onHost :: Parser Host
 onHost = string " on " *> host
 
 -- building '/nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv' on 'ssh://maralorn@example.org'...
-building :: Parser NixEvent
+building :: Parser NixOldStyleMessage
 building = do
   p <- string "building " *> inTicks derivation
   Build p Localhost <$ ellipsisEnd <|> Build p <$> onHost <* ellipsisEnd

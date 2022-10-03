@@ -1,4 +1,4 @@
-module NOM.Update (updateState, maintainState, detectLocalFinishedBuilds) where
+module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, maintainState, detectLocalFinishedBuilds) where
 
 import Relude
 
@@ -21,12 +21,13 @@ import Optics (preview, view, (%), (%~), (.~), (?~), _1, _2, _3)
 
 import Nix.Derivation qualified as Nix
 
-import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
+import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseStorePath)
 import NOM.Error (NOMError)
 import NOM.IO.ParseStream.Attoparsec (parseOneText, stripANSICodes)
-import NOM.NixEvent.Action (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixAction (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
-import NOM.NixEvent.Action qualified as JSON
-import NOM.Parser (NixEvent (..), oldStyleParser, parseDerivation, parseStorePath)
+import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
+import NOM.NixMessage.JSON qualified as JSON
+import NOM.NixMessage.OldStyle (NixOldStyleMessage)
+import NOM.NixMessage.OldStyle qualified as OldStyleMessage
 import NOM.Parser qualified as Parser
 import NOM.Print.Table (blue, markup)
 import NOM.State (
@@ -90,14 +91,27 @@ maintainState = execState $ do
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
-updateState :: forall m. UpdateMonad m => (Maybe NixEvent, ByteString) -> (Maybe UTCTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe UTCTime, Maybe NOMV1State))
-updateState (result, input) (inputAccessTime, inputState) = do
+{-# INLINE updateStateNixJSONMessage #-}
+updateStateNixJSONMessage :: forall m. UpdateMonad m => Either NOMError NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
+updateStateNixJSONMessage input inputState = do
+  now <- getNow
+  let process = case input of
+        Left err -> do
+          tell [Left err]
+          noChange
+        Right jsonMessage -> processJsonMessage now jsonMessage
+  ((!hasChanged, !msgs), !outputState) <- runStateT (runWriterT process) inputState
+  let retval = if hasChanged then Just outputState else Nothing
+      errors = lefts msgs
+  pure ((errors, ByteString.unlines (rights msgs)), retval)
+
+updateStateNixOldStyleMessage :: forall m. UpdateMonad m => (Maybe NixOldStyleMessage, ByteString) -> (Maybe UTCTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe UTCTime, Maybe NOMV1State))
+updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
   now <- getNow
 
-  let (processing, printOutput) = case result of
-        Just result'@(JsonMessage msg) -> (processResult result', Just msg)
-        Just result' -> (processResult result', Nothing)
-        Nothing -> (pure False, Nothing)
+  let processing = case result of
+        Just result' -> processResult result'
+        Nothing -> pure False
       (outputAccessTime, check)
         | maybe True ((>= minTimeBetweenPollingNixStore) . diffUTCTime now) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
@@ -119,11 +133,8 @@ updateState (result, input) (inputAccessTime, inputState) = do
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
   let retval = (outputAccessTime, if hasChanged then Just outputState else Nothing)
-      output = case printOutput of
-        Just _ -> ""
-        Nothing -> input
       errors = lefts msgs
-  pure ((errors, output <> ByteString.unlines (rights msgs)), retval)
+  pure ((errors, input <> ByteString.unlines (rights msgs)), retval)
 
 detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
 detectLocalFinishedBuilds = do
@@ -144,40 +155,35 @@ withChange = (True <$)
 noChange :: Applicative f => f Bool
 noChange = pure False
 
-processResult :: UpdateMonad m => NixEvent -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
+processResult :: UpdateMonad m => NixOldStyleMessage -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
 processResult result = do
   now <- getNow
   case result of
-    Parser.Uploading path host -> withChange do
+    OldStyleMessage.Uploading path host -> withChange do
       pathId <- getStorePathId path
       uploaded host pathId now
-    Parser.Downloading path host -> withChange do
+    OldStyleMessage.Downloading path host -> withChange do
       pathId <- getStorePathId path
-      finishedRemoteBuild <- downloaded host pathId now
-      whenJust finishedRemoteBuild \build -> finishBuilds host [build]
-    PlanCopies _ -> noChange
-    Build drvName host -> withChange do
+      downloaded host pathId now
+      finishBuildByPathId host pathId
+    OldStyleMessage.PlanCopies _ -> noChange
+    OldStyleMessage.Build drvName host -> withChange do
       building host drvName now Nothing
-    PlanBuilds plannedBuilds _lastBuild -> withChange do
+    OldStyleMessage.PlanBuilds plannedBuilds _lastBuild -> withChange do
       plannedDrvIds <- forM (toList plannedBuilds) \drv ->
         lookupDerivation drv
       planBuilds (fromList plannedDrvIds)
-    PlanDownloads _download _unpacked plannedDownloads -> withChange do
+    OldStyleMessage.PlanDownloads _download _unpacked plannedDownloads -> withChange do
       plannedDownloadIds <- forM (toList plannedDownloads) \path ->
         getStorePathId path
       planDownloads (fromList plannedDownloadIds)
-    Checking drvName -> withChange do
+    OldStyleMessage.Checking drvName -> withChange do
       building Localhost drvName now Nothing
-    Parser.Failed drv code -> withChange do
+    OldStyleMessage.Failed drv code -> withChange do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
-    JsonMessage msg -> case msg of
-      Left err -> do
-        tell [Left err]
-        noChange
-      Right jsonMessage -> processJsonMessage now jsonMessage
 
-processJsonMessage :: UpdateMonad m => UTCTime -> NixAction -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
+processJsonMessage :: UpdateMonad m => UTCTime -> NixJSONMessage -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
 processJsonMessage now = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
@@ -197,7 +203,7 @@ processJsonMessage now = \case
         errors <- gets (.nixErrors)
         unless (stripped `elem` errors) do
           modify' (field @"nixErrors" %~ (<> [stripped]))
-          whenJust (parseOneText oldStyleParser message) \result ->
+          whenJust (parseOneText Parser.oldStyleParser message) \result ->
             void (processResult result)
           tell [Right (encodeUtf8 message)]
   Result MkResultAction{result = BuildLogLine line, id = id'} -> do
@@ -217,8 +223,7 @@ processJsonMessage now = \case
         building host drvName now (Just id')
       JSON.CopyPath path from Localhost -> do
         pathId <- getStorePathId path
-        finishedRemoteBuild <- downloading from pathId now
-        whenJust finishedRemoteBuild \build -> finishBuilds from [build]
+        downloading from pathId now
       JSON.CopyPath path Localhost to -> do
         pathId <- getStorePathId path
         uploading to pathId now
@@ -228,14 +233,13 @@ processJsonMessage now = \case
     case activity of
       Just (JSON.CopyPath path from Localhost, _, _) -> withChange do
         pathId <- getStorePathId path
-        void $ downloaded from pathId now
+        downloaded from pathId now
       Just (JSON.CopyPath path Localhost to, _, _) -> withChange do
         pathId <- getStorePathId path
         uploaded to pathId now
       Just (JSON.Build drv host, _, _) -> withChange do
         drvId <- lookupDerivation drv
-        finishedBuildInfo <- fmap (drvId,) <$> getBuildInfoIfRunning drvId
-        finishBuilds host (toList finishedBuildInfo)
+        finishBuildByDrvId host drvId
       _ -> noChange
   _other -> do
     -- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
@@ -336,12 +340,19 @@ planDownloads :: Set StorePathId -> NOMState ()
 planDownloads pathIds = forM_ pathIds \pathId ->
   insertStorePathState pathId DownloadPlanned Nothing
 
-downloading :: Host -> StorePathId -> UTCTime -> NOMState (Maybe (DerivationId, RunningBuildInfo))
+finishBuildByDrvId :: (MonadState NOMV1State m, MonadCacheBuildReports m, MonadNow m) => Host -> DerivationId -> m ()
+finishBuildByDrvId host drvId = do
+  buildInfoMay <- getBuildInfoIfRunning drvId
+  whenJust buildInfoMay \buildInfo -> finishBuilds host [(drvId, buildInfo)]
+
+finishBuildByPathId :: (MonadState NOMV1State m, MonadCacheBuildReports m, MonadNow m) => Host -> StorePathId -> m ()
+finishBuildByPathId host pathId = do
+  drvIdMay <- out2drv pathId
+  whenJust drvIdMay (finishBuildByDrvId host)
+
+downloading :: Host -> StorePathId -> UTCTime -> NOMState ()
 downloading host pathId start = do
   insertStorePathState pathId (State.Downloading MkTransferInfo{host, duration = start}) Nothing
-  runMaybeT $ do
-    drvId <- MaybeT (out2drv pathId)
-    (drvId,) <$> MaybeT (getBuildInfoIfRunning drvId)
 
 getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
@@ -349,14 +360,11 @@ getBuildInfoIfRunning drvId =
     drvInfos <- MaybeT (gets (CMap.lookup drvId . (.derivationInfos)))
     MaybeT (pure ((() <$) <$> preview (typed @BuildStatus % _As @"Building") drvInfos))
 
-downloaded :: Host -> StorePathId -> UTCTime -> NOMState (Maybe (DerivationId, RunningBuildInfo))
+downloaded :: Host -> StorePathId -> UTCTime -> NOMState ()
 downloaded host pathId end = do
   insertStorePathState pathId (Downloaded MkTransferInfo{host, duration = Nothing}) $ Just \case
     State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info{duration = Just $ timeDiffInt end transfer_info.duration})
     other -> other
-  runMaybeT $ do
-    drvId <- MaybeT (out2drv pathId)
-    (drvId,) <$> MaybeT (getBuildInfoIfRunning drvId)
 
 uploading :: Host -> StorePathId -> UTCTime -> NOMState ()
 uploading host pathId start =
