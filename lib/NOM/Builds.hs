@@ -1,12 +1,11 @@
-module NOM.Builds (parseHost, Derivation (..), StorePath (..), Host (..), FailType (..), parseStorePath, parseDerivation, storePathParser, derivation) where
+module NOM.Builds (parseHost, Derivation (..), StorePath (..), Host (..), FailType (..), parseStorePath, parseDerivation, storePathByteStringParser, derivationByteStringParser, parseIndentedStoreObject) where
 
 import Relude
 
 import Data.Attoparsec.ByteString qualified as Parser
-import Data.Attoparsec.ByteString.Char8 qualified as CharParser
+import Data.Attoparsec.ByteString.Char8 qualified as Parser.Char
+import Data.Attoparsec.Text qualified as TextParser
 import Data.Text qualified as Text
-
-import NOM.Util (hush)
 
 data StorePath = StorePath
   { hash :: !Text
@@ -15,23 +14,49 @@ data StorePath = StorePath
   deriving stock (Show, Ord, Eq, Generic)
   deriving anyclass (NFData)
 
-storePathParser :: Parser.Parser StorePath
-storePathParser =
+storePathByteStringParser :: Parser.Parser StorePath
+storePathByteStringParser =
   StorePath
     <$> (decodeUtf8 <$> (Parser.string storePrefixBS *> Parser.take 32))
-    <*> (decodeUtf8 <$> (CharParser.char '-' *> Parser.takeWhile (Parser.inClass "a-zA-Z0-9?=_.+-")))
+    <*> (decodeUtf8 <$> (Parser.Char.char '-' *> Parser.takeWhile (Parser.inClass "a-zA-Z0-9?=_.+-")))
 
-derivation :: Parser.Parser Derivation
-derivation =
-  storePathParser >>= \x -> case Text.stripSuffix ".drv" x.name of
-    Just realName -> pure . Derivation $ x{name = realName}
-    Nothing -> mzero
+derivationByteStringParser :: Parser.Parser Derivation
+derivationByteStringParser =
+  storePathByteStringParser >>= storePathToDerivation
 
-parseDerivation :: ConvertUtf8 a ByteString => a -> Maybe Derivation
-parseDerivation = hush . Parser.parseOnly (derivation <* Parser.endOfInput) . encodeUtf8
+storePathTextParser :: TextParser.Parser StorePath
+storePathTextParser =
+  StorePath
+    <$> (TextParser.string storePrefix *> TextParser.take 32)
+    <*> (TextParser.char '-' *> TextParser.takeWhile (TextParser.inClass "a-zA-Z0-9?=_.+-"))
 
-parseStorePath :: ConvertUtf8 a ByteString => a -> Maybe StorePath
-parseStorePath = hush . Parser.parseOnly (storePathParser <* Parser.endOfInput) . encodeUtf8
+derivationTextParser :: TextParser.Parser Derivation
+derivationTextParser =
+  storePathTextParser >>= storePathToDerivation
+
+storePathToDerivation :: MonadFail m => StorePath -> m Derivation
+storePathToDerivation path = case Text.stripSuffix ".drv" path.name of
+  Just realName -> pure $ Derivation $ path{name = realName}
+  Nothing -> fail "StorePath is not a derivation."
+
+indentedStoreObjectTextParser :: TextParser.Parser (Either Derivation StorePath)
+indentedStoreObjectTextParser =
+  ( StorePath
+      <$> (TextParser.string ("  " <> storePrefix) *> TextParser.take 32)
+      <*> (TextParser.char '-' *> TextParser.takeText)
+  )
+    <&> \path -> case storePathToDerivation path of
+      Just drv -> Left drv
+      Nothing -> Right path
+
+parseDerivation :: MonadFail m => Text -> m Derivation
+parseDerivation = either fail pure . TextParser.parseOnly (derivationTextParser <* TextParser.endOfInput)
+
+parseStorePath :: MonadFail m => Text -> m StorePath
+parseStorePath = either fail pure . TextParser.parseOnly (storePathTextParser <* TextParser.endOfInput)
+
+parseIndentedStoreObject :: MonadFail m => Text -> m (Either Derivation StorePath)
+parseIndentedStoreObject = either fail pure . TextParser.parseOnly indentedStoreObjectTextParser
 
 parseHost :: Text -> Host
 parseHost = \case

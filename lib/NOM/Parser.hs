@@ -24,8 +24,8 @@ import NOM.Builds (
   FailType (ExitCode, HashMismatch),
   Host (..),
   StorePath (..),
-  derivation,
-  storePathParser,
+  derivationByteStringParser,
+  storePathByteStringParser,
  )
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
 
@@ -70,7 +70,7 @@ planBuilds =
       *> many planBuildLine
 
 planBuildLine :: Parser Derivation
-planBuildLine = indent *> derivation <* endOfLine
+planBuildLine = indent *> derivationByteStringParser <* endOfLine
 
 planDownloads :: Parser NixOldStyleMessage
 planDownloads =
@@ -87,32 +87,32 @@ planDownloads =
     <*> (string " MiB unpacked):" *> endOfLine *> (fromList <$> many planDownloadLine))
 
 planDownloadLine :: Parser StorePath
-planDownloadLine = indent *> storePathParser <* endOfLine
+planDownloadLine = indent *> storePathByteStringParser <* endOfLine
 
 failed :: Parser NixOldStyleMessage
 -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed =
   Failed
     <$> ( choice
-            [ string "error: build of " <* inTicks derivation <* manyTill' anyChar (string "failed: error: ")
+            [ string "error: build of " <* inTicks derivationByteStringParser <* manyTill' anyChar (string "failed: error: ")
             , string "error: "
             , pure ""
             ]
             *> string "builder for "
-            *> inTicks derivation
+            *> inTicks derivationByteStringParser
             <* string " failed with exit code "
         )
     <*> (ExitCode <$> decimal <* choice [endOfLine, char ';' *> endOfLine])
     <|>
     -- error: hash mismatch in fixed-output derivation '/nix/store/nrx4swgzs3iy049fqfx51vhnbb9kzkyv-source.drv':
     Failed
-      <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivation <* string ":")
+      <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivationByteStringParser <* string ":")
       <*> pure HashMismatch
       <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser NixOldStyleMessage
-checking = Checking <$> (string "checking outputs of " *> inTicks derivation <* ellipsisEnd)
+checking = Checking <$> (string "checking outputs of " *> inTicks derivationByteStringParser <* ellipsisEnd)
 
 -- copying 1 paths...
 -- copying path '/nix/store/fzyahnw94msbl4ic5vwlnyakslq4x1qm-source' to 'ssh://maralorn@example.org'...
@@ -123,7 +123,7 @@ copying =
 
 transmission :: Parser NixOldStyleMessage
 transmission = do
-  p <- string "path " *> inTicks storePathParser
+  p <- string "path " *> inTicks storePathByteStringParser
   (Uploading p <$> toHost <|> Downloading p <$> fromHost) <* ellipsisEnd
 
 fromHost :: Parser Host
@@ -138,5 +138,5 @@ onHost = string " on " *> host
 -- building '/nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv' on 'ssh://maralorn@example.org'...
 building :: Parser NixOldStyleMessage
 building = do
-  p <- string "building " *> inTicks derivation
+  p <- string "building " *> inTicks derivationByteStringParser
   Build p Localhost <$ ellipsisEnd <|> Build p <$> onHost <* ellipsisEnd

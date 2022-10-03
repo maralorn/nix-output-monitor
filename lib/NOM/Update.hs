@@ -4,7 +4,6 @@ import Relude
 
 import Control.Monad.Writer (MonadWriter (tell))
 import Control.Monad.Writer.Strict (WriterT (runWriterT))
-import Data.Attoparsec.ByteString qualified as Attoparsec
 import Data.ByteString.Char8 qualified as ByteString
 import Data.IntMap qualified as IntMap
 import Data.Map.Strict qualified as Map
@@ -21,7 +20,7 @@ import Optics (preview, view, (%), (%~), (.~), (?~), _1, _2, _3)
 
 import Nix.Derivation qualified as Nix
 
-import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseStorePath)
+import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseStorePath, parseIndentedStoreObject)
 import NOM.Error (NOMError)
 import NOM.IO.ParseStream.Attoparsec (parseOneText, stripANSICodes)
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
@@ -100,7 +99,7 @@ updateStateNixJSONMessage input inputState = do
           tell [Left err]
           noChange
         Right jsonMessage -> processJsonMessage now jsonMessage
-  ((!hasChanged, !msgs), !outputState) <- runStateT (runWriterT process) inputState
+  ((hasChanged, msgs), !outputState) <- runStateT (runWriterT process) inputState
   let retval = if hasChanged then Just outputState else Nothing
       errors = lefts msgs
   pure ((errors, ByteString.unlines (rights msgs)), retval)
@@ -187,13 +186,12 @@ processJsonMessage :: UpdateMonad m => UTCTime -> NixJSONMessage -> NOMStateT (W
 processJsonMessage now = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
-        parseResult = Attoparsec.parseOnly (Left <$> Parser.planBuildLine <|> Right <$> Parser.planDownloadLine) (message' <> "\n")
     tell [Right message']
-    case parseResult of
-      Right (Right download) -> withChange do
+    case parseIndentedStoreObject message of
+      Just (Right download) -> withChange do
         plannedDownloadId <- getStorePathId download
         planDownloads $ one plannedDownloadId
-      Right (Left build) -> withChange do
+      Just (Left build) -> withChange do
         plannedDrvId <- lookupDerivation build
         planBuilds (one plannedDrvId)
       _ -> noChange
@@ -306,14 +304,14 @@ insertDerivation :: MonadReadDerivation m => Nix.Derivation FilePath Text -> Der
 insertDerivation derivation drvId = do
   outputs' <-
     derivation.outputs & Map.traverseMaybeWithKey \_ path -> do
-      parseStorePath (Nix.path path) & mapM \pathName -> do
+      parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
         pathId <- getStorePathId pathName
         modify (field @"storePathInfos" %~ CMap.adjust (field @"producer" ?~ drvId) pathId)
         pure pathId
   inputSources <-
     derivation.inputSrcs & flip foldlM mempty \acc path -> do
       pathIdMay <-
-        parseStorePath path & mapM \pathName -> do
+        parseStorePath (toText path) & mapM \pathName -> do
           pathId <- getStorePathId pathName
           modify (field @"storePathInfos" %~ CMap.adjust (field @"inputFor" %~ CSet.insert drvId) pathId)
           pure pathId
@@ -321,7 +319,7 @@ insertDerivation derivation drvId = do
   inputDerivationsList <-
     derivation.inputDrvs & Map.toList & mapMaybeM \(drvPath, outs) -> do
       depIdMay <-
-        parseDerivation drvPath & mapM \depName -> do
+        parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
           modify (field @"derivationInfos" %~ CMap.adjust (field @"derivationParents" %~ CSet.insert drvId) depId)
           modify (field @"forestRoots" %~ Seq.filter (/= depId))
