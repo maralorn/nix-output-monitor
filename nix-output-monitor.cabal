@@ -13,6 +13,13 @@ author:             maralorn <mail@maralorn.de>
 maintainer:         maralorn <mail@maralorn.de>
 build-type:         Simple
 extra-source-files: CHANGELOG.md
+category:
+  console
+  nix
+
+source-repository head
+  type:     git
+  location: https://git.maralorn.de/nix-output-monitor
 
 common common-config
   default-extensions:
@@ -38,7 +45,7 @@ common common-config
     , ansi-terminal
     , async
     , attoparsec
-    , base
+    , base            >=4.10 && <5.0
     , bytestring
     , cassava
     , containers
@@ -69,7 +76,6 @@ common common-config
     -Wno-missing-safe-haskell-mode -Wno-unsafe
     -Wno-missing-kind-signatures -fshow-warning-groups
     -fexpose-all-unfoldings -Wno-all-missed-specialisations
-    -funfolding-use-threshold=16 -O2 -optc-O3
 
 library
   import:          common-config
@@ -105,13 +111,15 @@ common exes
   ghc-options: -threaded -Wno-unused-packages -with-rtsopts=-maxN4
 
 executable nom
-  import:         exes
-  hs-source-dirs: exe
-  main-is:        Main.hs
-  other-modules:  Paths_nix_output_monitor
+  import:          exes
+  hs-source-dirs:  exe
+  main-is:         Main.hs
+  other-modules:   Paths_nix_output_monitor
   build-depends:
     , nix-output-monitor
     , typed-process
+
+  autogen-modules: Paths_nix_output_monitor
 
 common tests
   import:        exes
