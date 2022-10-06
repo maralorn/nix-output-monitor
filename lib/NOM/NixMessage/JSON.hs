@@ -44,7 +44,6 @@ data Activity
   | PostBuildHook Derivation
   | BuildWaiting
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 data ActivityResult
   = FileLinked Int Int
@@ -64,7 +63,6 @@ data ActivityProgress = MkActivityProgress
   , failed :: Int
   }
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 data StartAction = MkStartAction
   { id :: ActivityId

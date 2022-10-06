@@ -56,7 +56,6 @@ import NOM.Util (foldMapEndo)
 
 data StorePathState = DownloadPlanned | Downloading RunningTransferInfo | Uploading RunningTransferInfo | Downloaded CompletedTransferInfo | Uploaded CompletedTransferInfo
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 data DerivationInfo = MkDerivationInfo
   { name :: Derivation
@@ -91,7 +90,6 @@ data StorePathInfo = MkStorePathInfo
   , inputFor :: DerivationSet
   }
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)
 
 type RunningBuildInfo = BuildInfo ()
 
@@ -157,7 +155,6 @@ data TransferInfo a = MkTransferInfo
   , duration :: a
   }
   deriving stock (Show, Eq, Ord, Generic, Functor)
-  deriving anyclass (NFData)
 
 initalState :: (MonadCacheBuildReports m, MonadNow m) => m NOMV1State
 initalState = do

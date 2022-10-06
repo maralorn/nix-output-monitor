@@ -6,7 +6,6 @@ import Data.MemoTrie (HasTrie (..))
 
 newtype CacheId b = MkCacheId {unCacheId :: Int}
   deriving stock (Show, Eq, Ord, Read, Generic)
-  deriving newtype (NFData)
 
 instance HasTrie (CacheId b) where
   newtype CacheId b :->: c = CacheIdTrie (Int :->: c)

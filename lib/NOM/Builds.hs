@@ -12,7 +12,6 @@ data StorePath = StorePath
   , name :: !Text
   }
   deriving stock (Show, Ord, Eq, Generic)
-  deriving anyclass (NFData)
 
 storePathByteStringParser :: Parser.Parser StorePath
 storePathByteStringParser =
@@ -66,7 +65,7 @@ parseHost = \case
 
 newtype Derivation = Derivation {storePath :: StorePath}
   deriving stock (Show, Generic)
-  deriving newtype (Eq, Ord, NFData)
+  deriving newtype (Eq, Ord)
 
 instance ToText Derivation where
   toText drv = toText drv.storePath <> ".drv"
@@ -88,7 +87,6 @@ instance ToString StorePath where
 
 data Host = Localhost | Host !Text
   deriving stock (Ord, Eq, Show, Generic)
-  deriving anyclass (NFData)
 
 instance ToText Host where
   toText (Host name) = name
@@ -99,4 +97,3 @@ instance ToString Host where
 
 data FailType = ExitCode Int | HashMismatch
   deriving stock (Show, Eq, Ord, Generic)
-  deriving anyclass (NFData)

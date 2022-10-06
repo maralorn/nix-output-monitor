@@ -22,7 +22,7 @@ import NOM.State.CacheId.Set qualified as CSet
 
 newtype CacheIdMap b a = MkCacheIdMap {intMap :: IntMap a}
   deriving stock (Show, Eq, Ord, Read, Generic)
-  deriving newtype (Semigroup, Monoid, Foldable, Functor, NFData)
+  deriving newtype (Semigroup, Monoid, Foldable, Functor)
 
 filter :: (a -> Bool) -> CacheIdMap b a -> CacheIdMap b a
 filter p = MkCacheIdMap . IntMap.filter p . (.intMap)

@@ -23,7 +23,7 @@ import NOM.State.CacheId (CacheId (MkCacheId))
 
 newtype CacheIdSet b = MkCacheIdSet {ints :: IntSet}
   deriving stock (Show, Eq, Ord, Read, Generic)
-  deriving newtype (Semigroup, Monoid, NFData)
+  deriving newtype (Semigroup, Monoid)
 
 insert :: CacheId b -> CacheIdSet b -> CacheIdSet b
 insert (MkCacheId x) = MkCacheIdSet . IntSet.insert x . (.ints)
