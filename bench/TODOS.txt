@@ -1,5 +1,0 @@
-- [ ] deepseq deaktivieren und memory usage überprüfen (potentiell feinere deepseqs einführen)
-- [ ] treetiefe minimieren
-- [ ] lockfiles anzeigen
-- [ ] ghc 9.4
-- [ ] effizienteren store path parser schreiben -> flatparse ausprobieren
