@@ -24,39 +24,42 @@
       system: let
         inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
         haskellPackages = haskell.packages.ghc92;
-        inherit (haskell.lib) doJailbreak dontCheck;
+        hlib = haskell.lib.compose;
+        inherit (hlib) doJailbreak dontCheck;
         golden-test = import ./test/golden1.nix {
           seed = "1";
           inherit system;
         };
-      in rec
-      {
+      in rec {
         packages = {
           default =
-            haskell.lib.justStaticExecutables
-            ((haskell.lib.overrideCabal
-                (haskellPackages.callCabal2nix "nix-output-monitor" ./. {})
-                {
-                  preCheck = ''
-                    # ${lib.concatStringsSep ", " (lib.attrValues golden-test ++ map (x: x.drvPath) (lib.attrValues golden-test))}
-                    export TESTS_FROM_FILE=true;
-                  '';
-                  buildTools = [pkgs.installShellFiles];
-                  postInstall = ''
-                    ln -s nom "$out/bin/nom-build"
-                    ln -s nom "$out/bin/nom-shell"
-                    chmod a+x $out/bin/nom-shell
-                    installShellCompletion --zsh --name _nom-build completions/completion.zsh
-                  '';
-                })
-              .overrideScope (_: prev: {
-                relude = haskell.lib.compose.appendPatch (pkgs.fetchpatch {
-                  url = "https://github.com/kowainik/relude/commit/d1fc18690b31b70ebbe68730270b73f53a5c7f12.patch";
-                  sha256 = "sha256-tsozpK/AkhUE3tgUqjyDK/tnrujNd7yJdbLIUFZvJHk=";
-                }) (doJailbreak (dontCheck prev.relude));
-                optics = dontCheck prev.optics;
-                hermes-json = doJailbreak prev.hermes-json;
-              }));
+            (lib.pipe {}
+              [
+                (haskellPackages.callCabal2nix "nix-output-monitor" ./.)
+                hlib.justStaticExecutables
+                (hlib.overrideCabal
+                  {
+                    preCheck = ''
+                      # ${lib.concatStringsSep ", " (lib.attrValues golden-test ++ map (x: x.drvPath) (lib.attrValues golden-test))}
+                      export TESTS_FROM_FILE=true;
+                    '';
+                    buildTools = [pkgs.installShellFiles];
+                    postInstall = ''
+                      ln -s nom "$out/bin/nom-build"
+                      ln -s nom "$out/bin/nom-shell"
+                      chmod a+x $out/bin/nom-shell
+                      installShellCompletion --zsh --name _nom-build completions/completion.zsh
+                    '';
+                  })
+              ])
+            .overrideScope (_: prev: {
+              relude = hlib.appendPatch (pkgs.fetchpatch {
+                url = "https://github.com/kowainik/relude/commit/d1fc18690b31b70ebbe68730270b73f53a5c7f12.patch";
+                sha256 = "sha256-tsozpK/AkhUE3tgUqjyDK/tnrujNd7yJdbLIUFZvJHk=";
+              }) (doJailbreak (dontCheck prev.relude));
+              optics = dontCheck prev.optics;
+              hermes-json = doJailbreak prev.hermes-json;
+            });
         };
         checks = {
           pre-commit-check = pre-commit-hooks.lib.${system}.run {
@@ -82,8 +85,8 @@
           buildInputs = [
             pre-commit-hooks.defaultPackage.${system}
             haskellPackages.haskell-language-server
-            haskellPackages.cabal-install
-            haskellPackages.hs-speedscope
+            pkgs.haskellPackages.cabal-install
+            pkgs.haskellPackages.hs-speedscope
             pkgs.pv
           ];
           withHoogle = true;
