@@ -109,26 +109,26 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   partial_last_row =
     showCond
       showBuilds
-      [ nonZeroBold numRunningBuilds (yellow (label running (disp numRunningBuilds)))
-      , nonZeroBold numCompletedBuilds (green (label done (disp numCompletedBuilds)))
-      , nonZeroBold numPlannedBuilds (blue (label todo (disp numPlannedBuilds)))
+      [ nonZeroBold numRunningBuilds . yellow . label running $ disp numRunningBuilds
+      , nonZeroBold numCompletedBuilds . green . label done $ disp numCompletedBuilds
+      , nonZeroBold numPlannedBuilds . blue . label todo $ disp numPlannedBuilds
       ]
       <> showCond
         showDownloads
-        [ nonZeroBold downloadsRunning (yellow (label down (disp downloadsRunning)))
-        , nonZeroBold downloadsDone (green (label down (disp downloadsDone)))
-        , nonZeroBold numPlannedDownloads . blue . label todo . disp $ numPlannedDownloads
+        [ nonZeroBold downloadsRunning . yellow . label down $ disp downloadsRunning
+        , nonZeroBold downloadsDone . green . label down $ disp downloadsDone
+        , nonZeroBold numPlannedDownloads . blue . label todo $ disp numPlannedDownloads
         ]
       <> showCond
         showUploads
-        [ nonZeroBold uploadsRunning (yellow (label up (disp uploadsRunning)))
-        , nonZeroBold uploadsDone (green (label up (disp uploadsDone)))
+        [ nonZeroBold uploadsRunning . yellow . label up $ disp uploadsRunning
+        , nonZeroBold uploadsDone . green . label up $ disp uploadsDone
         ]
   lastRow time' = partial_last_row `appendr` one (bold (header time'))
 
   showHosts = numHosts > 0
   showBuilds = totalBuilds > 0
-  showDownloads = downloadsDone + CSet.size plannedDownloads > 0
+  showDownloads = downloadsDone + downloadsRunning + numPlannedDownloads > 0
   showUploads = CMap.size completedUploads > 0
   numPlannedDownloads = CSet.size plannedDownloads
   numHosts =
