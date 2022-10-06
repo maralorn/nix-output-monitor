@@ -321,18 +321,21 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
           (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
           phase
         drvName = drvInfo.name.storePath.name
+        ~runningTransfer
+          | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads =
+              Just ( False
+              , \now ->
+                  markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host)
+              )
+          | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads =
+              Just ( False
+              , \now ->
+                  markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host)
+              )
+          | otherwise = Nothing
     case drvInfo.buildStatus of
       Unknown
-        | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads ->
-            ( False
-            , \now ->
-                markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host)
-            )
-        | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads ->
-            ( False
-            , \now ->
-                markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host)
-            )
+        | Just printData <- runningTransfer -> printData
         | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads ->
             ( False
             , const $
@@ -350,7 +353,10 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))
         | otherwise -> (True, const drvName)
       Planned -> (True, const (markup blue (todo <> " " <> drvName)))
-      Building buildInfo ->
+      Building buildInfo
+        -- Same case as for Unknown, because we want to see running download information for remote builds even when they are finished.
+        | Just printData <- runningTransfer -> printData
+        | otherwise ->
         ( False
         , let phaseList = case phaseMay buildInfo.activityId of
                 Nothing -> []
@@ -375,7 +381,10 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
                     <> hostMarkup buildInfo.host
                     <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
         )
-      Built buildInfo ->
+      Built buildInfo  
+        -- Same case as for Unknown, because we want to see running download information for remote builds even when they are finished.
+        | Just printData <- runningTransfer -> printData
+        | otherwise ->
         ( False
         , const $
             unwords $
