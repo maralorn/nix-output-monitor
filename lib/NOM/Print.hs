@@ -262,22 +262,27 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   goDerivationsToShow = \case
     (thisDrv Seq.:<| restDrvs) -> do
       (seen_ids, sorted_set) <- get
-      let sort_key = sortKey nomState thisDrv
-          summary@MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
-          runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
-          nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path ->
+      let ~sort_key = sortKey nomState thisDrv
+          MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
+          ~runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
+          ~completed_transfers = CMap.keysSet completedDownloads <> CMap.keysSet completedUploads
+          ~relevant_store_paths = runningTransfers <> plannedDownloads <> completed_transfers
+          ~nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path ->
             let infos = get' (getStorePathInfos path)
              in infos.inputFor <> CSet.fromFoldable infos.producer
-          may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
-          new_seen_ids = CSet.insert thisDrv seen_ids
-          new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
-          show_this_node =
-            summary /= mempty
+          ~thisInfos = get' (getDerivationInfos thisDrv)
+          outputs_are paths = any (`CSet.member` paths) (Map.elems thisInfos.outputs)
+          ~unknown = thisInfos.buildStatus == Unknown
+          ~may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
+          ~show_this_node =
+            (not unknown || outputs_are relevant_store_paths)
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
                     || Set.size sorted_set < maxHeight
                     || sort_key < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
                  )
+          ~new_seen_ids = CSet.insert thisDrv seen_ids
+          ~new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
       when show_this_node $ put (new_seen_ids, new_sorted_set) >> goDerivationsToShow (children thisDrv)
       goDerivationsToShow restDrvs
     _ -> pass
