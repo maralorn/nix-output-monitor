@@ -16,7 +16,7 @@ module NOM.State (
   NOMState,
   NOMV1State (..),
   getDerivationInfos,
-  initalState,
+  initalStateFromBuildPlatform,
   updateSummaryForStorePath,
   getStorePathInfos,
   NOMStateT,
@@ -127,6 +127,7 @@ data NOMV1State = MkNOMV1State
   , touchedIds :: DerivationSet
   , activities :: IntMap (Activity, Maybe Text, Maybe ActivityProgress)
   , nixErrors :: [Text]
+  , buildPlatform :: Maybe Text
   }
   deriving stock (Show, Eq, Ord, Generic)
 
@@ -156,8 +157,8 @@ data TransferInfo a = MkTransferInfo
   }
   deriving stock (Show, Eq, Ord, Generic, Functor)
 
-initalState :: (MonadCacheBuildReports m, MonadNow m) => m NOMV1State
-initalState = do
+initalStateFromBuildPlatform :: (MonadCacheBuildReports m, MonadNow m) => Maybe Text -> m NOMV1State
+initalStateFromBuildPlatform platform = do
   now <- getNow
   buildReports <- getCachedBuildReports
   pure $
@@ -174,6 +175,7 @@ initalState = do
       mempty
       mempty
       mempty
+      platform
 
 instance Semigroup DependencySummary where
   (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7 lm8 lm9) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7 rm8 rm9) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7) (lm8 <> rm8) (lm9 <> rm9)

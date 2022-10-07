@@ -1,4 +1,4 @@
-module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, maintainState, detectLocalFinishedBuilds) where
+module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, maintainState, detectLocalFinishedBuilds, appendDifferingPlatform) where
 
 import Relude
 
@@ -20,7 +20,7 @@ import Optics (preview, view, (%), (%~), (.~), (?~), _1, _2, _3)
 
 import Nix.Derivation qualified as Nix
 
-import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseStorePath, parseIndentedStoreObject)
+import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseIndentedStoreObject, parseStorePath)
 import NOM.Error (NOMError)
 import NOM.IO.ParseStream.Attoparsec (parseOneText, stripANSICodes)
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
@@ -50,7 +50,6 @@ import NOM.State (
   getRunningBuildsByHost,
   getStorePathId,
   getStorePathInfos,
-  lookupDerivationId,
   out2drv,
   updateSummaryForDerivation,
   updateSummaryForStorePath,
@@ -69,8 +68,12 @@ import NOM.Update.Monad (
  )
 import NOM.Util (foldMapEndo)
 
-getReportName :: Derivation -> Text
-getReportName drv = Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.storePath.name
+type ProcessingT m a = UpdateMonad m => NOMStateT (WriterT [Either NOMError ByteString] m) a
+
+getReportName :: DerivationInfo -> Text
+getReportName drv = case drv.pname of
+  Just pname -> pname
+  Nothing -> Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.name.storePath.name
 
 setInputReceived :: NOMState Bool
 setInputReceived = do
@@ -135,7 +138,7 @@ updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
       errors = lefts msgs
   pure ((errors, input <> ByteString.unlines (rights msgs)), retval)
 
-detectLocalFinishedBuilds :: UpdateMonad m => NOMStateT m Bool
+detectLocalFinishedBuilds :: ProcessingT m Bool
 detectLocalFinishedBuilds = do
   runningLocalBuilds <- CMap.toList <$> getRunningBuildsByHost Localhost -- .> traceShowId
   let isCompleted :: UpdateMonad m => (DerivationId, b) -> NOMStateT m Bool
@@ -154,7 +157,7 @@ withChange = (True <$)
 noChange :: Applicative f => f Bool
 noChange = pure False
 
-processResult :: UpdateMonad m => NixOldStyleMessage -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
+processResult :: UpdateMonad m => NixOldStyleMessage -> ProcessingT m Bool
 processResult result = do
   now <- getNow
   case result of
@@ -182,7 +185,7 @@ processResult result = do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
 
-processJsonMessage :: UpdateMonad m => UTCTime -> NixJSONMessage -> NOMStateT (WriterT [Either NOMError ByteString] m) Bool
+processJsonMessage :: UpdateMonad m => UTCTime -> NixJSONMessage -> ProcessingT m Bool
 processJsonMessage now = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
@@ -206,7 +209,7 @@ processJsonMessage now = \case
           tell [Right (encodeUtf8 message)]
   Result MkResultAction{result = BuildLogLine line, id = id'} -> do
     nomState <- get
-    let prefix = activityPrefix (view _1 <$> IntMap.lookup id'.value nomState.activities)
+    prefix <- activityPrefix (view _1 <$> IntMap.lookup id'.value nomState.activities)
     tell [Right (encodeUtf8 (prefix <> line))]
     noChange
   Result MkResultAction{result = SetPhase phase, id = id'} -> withChange do
@@ -214,7 +217,8 @@ processJsonMessage now = \case
   Result MkResultAction{result = Progress progress, id = id'} ->
     withChange $ modify' (field @"activities" %~ IntMap.adjust (_3 ?~ progress) id'.value)
   Start startAction@MkStartAction{id = id'} -> withChange do
-    when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right (encodeUtf8 (activityPrefix (Just startAction.activity) <> startAction.text))]
+    prefix <- activityPrefix $ Just startAction.activity
+    when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
     modify' (field @"activities" %~ IntMap.insert id'.value (startAction.activity, Nothing, Nothing))
     case startAction.activity of
       JSON.Build drvName host -> do
@@ -243,15 +247,24 @@ processJsonMessage now = \case
     -- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
     noChange
 
-activityPrefix :: Maybe Activity -> Text
-activityPrefix = \case
-  Just (JSON.Build derivation _) -> toText (setSGRCode [Reset]) <> markup blue (getReportName derivation <> "> ")
-  _ -> ""
+appendDifferingPlatform :: NOMV1State -> DerivationInfo -> Text -> Text
+appendDifferingPlatform nomState drvInfo = case (nomState.buildPlatform, drvInfo.platform) of
+  (Just p1, Just p2) | p1 /= p2 -> (<> "-" <> p2)
+  _ -> id
+
+activityPrefix :: Maybe Activity -> ProcessingT m Text
+activityPrefix activities = do
+  case activities of
+    Just (JSON.Build derivation _) -> do
+      drvInfo <- lookupDerivationInfos derivation
+      nomState <- get
+      pure $ toText (setSGRCode [Reset]) <> markup blue (appendDifferingPlatform nomState drvInfo (getReportName drvInfo) <> "> ")
+    _ -> pure ""
 
 movingAverage :: Double
 movingAverage = 0.5
 
-reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> NonEmpty (Derivation, UTCTime) -> m BuildReportMap
+reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> NonEmpty (DerivationInfo, UTCTime) -> m BuildReportMap
 reportFinishingBuilds host builds = do
   now <- getNow
   updateBuildReports (modifyBuildReports host (timeDiffInt now <<$>> builds))
@@ -260,10 +273,10 @@ reportFinishingBuilds host builds = do
 timeDiffInt :: UTCTime -> UTCTime -> Int
 timeDiffInt = fmap floor . diffUTCTime
 
-finishBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> [(DerivationId, BuildInfo ())] -> NOMStateT m ()
+finishBuilds :: Host -> [(DerivationId, BuildInfo ())] -> ProcessingT m ()
 finishBuilds host builds = do
   derivationsWithNames <- forM builds \(drvId, buildInfo) ->
-    (,buildInfo.start) <$> lookupDerivationId drvId
+    (,buildInfo.start) <$> getDerivationInfos drvId
   ( \case
       Nothing -> pass
       Just finishedBuilds -> do
@@ -274,7 +287,7 @@ finishBuilds host builds = do
   now <- getNow
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
-modifyBuildReports :: Host -> NonEmpty (Derivation, Int) -> BuildReportMap -> BuildReportMap
+modifyBuildReports :: Host -> NonEmpty (DerivationInfo, Int) -> BuildReportMap -> BuildReportMap
 modifyBuildReports host = foldMapEndo (uncurry insertBuildReport)
  where
   insertBuildReport name =
@@ -290,7 +303,7 @@ failedBuild now drv code = updateDerivationState drv update
     Building a -> State.Failed (a $> (now, code))
     x -> x
 
-lookupDerivation :: MonadReadDerivation m => Derivation -> NOMStateT (WriterT [Either NOMError ByteString] m) DerivationId
+lookupDerivation :: Derivation -> ProcessingT m DerivationId
 lookupDerivation drv = do
   drvId <- getDerivationId drv
   isCached <- gets (maybe False (.cached) . CMap.lookup drvId . (.derivationInfos))
@@ -300,7 +313,12 @@ lookupDerivation drv = do
       Right parsedDrv -> insertDerivation parsedDrv drvId
   pure drvId
 
-insertDerivation :: MonadReadDerivation m => Nix.Derivation FilePath Text -> DerivationId -> NOMStateT (WriterT [Either NOMError ByteString] m) ()
+lookupDerivationInfos :: Derivation -> ProcessingT m DerivationInfo
+lookupDerivationInfos drvName = do
+  drvId <- lookupDerivation drvName
+  getDerivationInfos drvId
+
+insertDerivation :: Nix.Derivation FilePath Text -> DerivationId -> ProcessingT m ()
 insertDerivation derivation drvId = do
   outputs' <-
     derivation.outputs & Map.traverseMaybeWithKey \_ path -> do
@@ -338,15 +356,15 @@ planDownloads :: Set StorePathId -> NOMState ()
 planDownloads pathIds = forM_ pathIds \pathId ->
   insertStorePathState pathId DownloadPlanned Nothing
 
-finishBuildByDrvId :: (MonadState NOMV1State m, MonadCacheBuildReports m, MonadNow m) => Host -> DerivationId -> m ()
+finishBuildByDrvId :: Host -> DerivationId -> ProcessingT m ()
 finishBuildByDrvId host drvId = do
   buildInfoMay <- getBuildInfoIfRunning drvId
   whenJust buildInfoMay \buildInfo -> finishBuilds host [(drvId, buildInfo)]
 
-finishBuildByPathId :: (MonadState NOMV1State m, MonadCacheBuildReports m, MonadNow m) => Host -> StorePathId -> m ()
+finishBuildByPathId :: Host -> StorePathId -> ProcessingT m ()
 finishBuildByPathId host pathId = do
   drvIdMay <- out2drv pathId
-  whenJust drvIdMay (finishBuildByDrvId host)
+  whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
 downloading :: Host -> StorePathId -> UTCTime -> NOMState ()
 downloading host pathId start = do
@@ -373,9 +391,10 @@ uploaded host pathId end =
     State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info{duration = Just $ timeDiffInt end transfer_info.duration})
     other -> other
 
-building :: UpdateMonad m => Host -> Derivation -> UTCTime -> Maybe ActivityId -> NOMStateT (WriterT [Either NOMError ByteString] m) ()
+building :: Host -> Derivation -> UTCTime -> Maybe ActivityId -> ProcessingT m ()
 building host drvName now activityId = do
-  lastNeeded <- Map.lookup (host, getReportName drvName) . (.buildReports) <$> get
+  reportName <- getReportName <$> lookupDerivationInfos drvName
+  lastNeeded <- Map.lookup (host, reportName) . (.buildReports) <$> get
   drvId <- lookupDerivation drvName
   updateDerivationState drvId (const (Building (MkBuildInfo now host lastNeeded activityId ())))
 

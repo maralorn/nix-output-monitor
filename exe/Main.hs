@@ -20,6 +20,7 @@ import System.Environment qualified as Environment
 import System.IO.Error qualified as IOError
 import System.Process.Typed qualified as Process
 
+import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import NOM.Error (NOMError)
 import NOM.IO (StreamParser, interact)
 import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
@@ -30,7 +31,7 @@ import NOM.Parser (parser)
 import NOM.Parser.JSON.Hermes (parseJSON)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
-import NOM.State (NOMV1State (nixErrors), ProcessState (..), failedBuilds, fullSummary, initalState)
+import NOM.State (NOMV1State (nixErrors), ProcessState (..), failedBuilds, fullSummary, initalStateFromBuildPlatform)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateStateNixJSONMessage, updateStateNixOldStyleMessage)
 import NOM.Update.Monad (UpdateMonad)
@@ -88,6 +89,13 @@ exitOnFailure = \case
   code@Process.ExitFailure{} -> exitWith code
   _ -> pass
 
+printIOException :: IOError.IOError -> IO ()
+printIOException io_exception = do
+  let error_msg = case (IOError.isDoesNotExistError io_exception, IOError.ioeGetFileName io_exception) of
+        (True, Just cmd) -> "Command '" <> toText cmd <> "' not available from $PATH."
+        _ -> show io_exception
+  hPutStrLn stderr $ markup red ("nix-output-monitor: " <> error_msg)
+
 runMonitoredCommand :: Config -> Process.ProcessConfig () () () -> IO Process.ExitCode
 runMonitoredCommand config process_config = do
   let process_config_with_handles =
@@ -95,14 +103,7 @@ runMonitoredCommand config process_config = do
           Process.setStderr
             Process.createPipe
             process_config
-      catch_io_exception :: IOError.IOError -> IO Process.ExitCode
-      catch_io_exception io_exception = do
-        let error_msg = case (IOError.isDoesNotExistError io_exception, IOError.ioeGetFileName io_exception) of
-              (True, Just cmd) -> "Command '" <> toText cmd <> "' not available from $PATH."
-              _ -> show io_exception
-        hPutStrLn stderr $ markup red ("nix-output-monitor: " <> error_msg)
-        pure (ExitFailure 1)
-  Exception.handle catch_io_exception $
+  Exception.handle ((ExitFailure 1 <$) . printIOException) $
     Process.withProcessWait process_config_with_handles \process -> do
       void $ monitorHandle (Proxy @(Either NOMError NixJSONMessage)) config (Process.getStderr process)
       exitCode <- Process.waitExitCode process
@@ -135,7 +136,8 @@ monitorHandle _ config input_handle = withParser @a \streamParser -> do
       Terminal.hHideCursor outputHandle
       hSetBuffering stdout (BlockBuffering (Just 1_000_000))
 
-      firstState <- initalState
+      current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--impure", "--raw", "--expr", "builtins.currentSystem"])
+      firstState <- initalStateFromBuildPlatform current_system
       let firstCompoundState = (firstAdditionalState @a, firstState, stateToText config firstState)
       interact config streamParser (compoundStateUpdater @a config) (_2 %~ maintainState) compoundStateToText (finalizer config) input_handle outputHandle firstCompoundState
       `Exception.finally` do
@@ -165,7 +167,7 @@ finalizer ::
   UpdateMonad m => Config -> StateT (CompoundState a) m ()
 finalizer config = do
   (n, !oldState, _) <- get
-  newState <- (typed .~ Finished) <$> execStateT detectLocalFinishedBuilds oldState
+  newState <- (typed .~ Finished) <$> execStateT (runWriterT detectLocalFinishedBuilds) oldState
   put (n, newState, stateToText config newState)
 
 helpText :: Text

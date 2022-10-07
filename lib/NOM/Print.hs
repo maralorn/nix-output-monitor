@@ -29,6 +29,7 @@ import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
+import NOM.Update (appendDifferingPlatform)
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -320,18 +321,20 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
           activityId <- activityId'
           (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
           phase
-        drvName = drvInfo.name.storePath.name
+        drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
         ~runningTransfer
           | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads =
-              Just ( False
-              , \now ->
-                  markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host)
-              )
+              Just
+                ( False
+                , \now ->
+                    markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host)
+                )
           | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads =
-              Just ( False
-              , \now ->
-                  markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host)
-              )
+              Just
+                ( False
+                , \now ->
+                    markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host)
+                )
           | otherwise = Nothing
     case drvInfo.buildStatus of
       Unknown
@@ -357,18 +360,18 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
         -- Same case as for Unknown, because we want to see running download information for remote builds even when they are finished.
         | Just printData <- runningTransfer -> printData
         | otherwise ->
-        ( False
-        , let phaseList = case phaseMay buildInfo.activityId of
-                Nothing -> []
-                Just phase -> [markup bold ("(" <> phase <> ")")]
-           in \now ->
-                unwords $
-                  [markups [yellow, bold] (running <> " " <> drvName)]
-                    <> hostMarkup buildInfo.host
-                    <> phaseList
-                    <> [clock, timeDiff now buildInfo.start]
-                    <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-        )
+            ( False
+            , let phaseList = case phaseMay buildInfo.activityId of
+                    Nothing -> []
+                    Just phase -> [markup bold ("(" <> phase <> ")")]
+               in \now ->
+                    unwords $
+                      [markups [yellow, bold] (running <> " " <> drvName)]
+                        <> hostMarkup buildInfo.host
+                        <> phaseList
+                        <> [clock, timeDiff now buildInfo.start]
+                        <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
+            )
       Failed buildInfo ->
         ( False
         , let (endTime, failType) = buildInfo.end
@@ -381,17 +384,17 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
                     <> hostMarkup buildInfo.host
                     <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
         )
-      Built buildInfo  
+      Built buildInfo
         -- Same case as for Unknown, because we want to see running download information for remote builds even when they are finished.
         | Just printData <- runningTransfer -> printData
         | otherwise ->
-        ( False
-        , const $
-            unwords $
-              [markup green (done <> " " <> drvName)]
-                <> hostMarkup buildInfo.host
-                <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
-        )
+            ( False
+            , const $
+                unwords $
+                  [markup green (done <> " " <> drvName)]
+                    <> hostMarkup buildInfo.host
+                    <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
+            )
 
 printFailType :: FailType -> Text
 printFailType = \case

@@ -16,6 +16,7 @@ import Test.HUnit (
   (~:),
  )
 
+import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import NOM.Builds (parseStorePath)
 import NOM.IO (processTextStream)
 import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
@@ -26,7 +27,7 @@ import NOM.State (
   DerivationId,
   NOMV1State (..),
   getStorePathId,
-  initalState,
+  initalStateFromBuildPlatform,
   out2drv,
  )
 import NOM.State.CacheId.Map qualified as CMap
@@ -69,14 +70,14 @@ testBuild name asserts withNix =
             <&> (\(_, a, b) -> (a, b))
         readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
-    firstState <- initalState
+    firstState <- initalStateFromBuildPlatform (Just "x86_64-linux")
     endState <- processTextStream (MkConfig False False) (parseStreamAttoparsec parser) (preserveStateSnd . updateStateNixOldStyleMessage) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()
 finalizer = do
   (a, oldState) <- get
-  newState <- execStateT detectLocalFinishedBuilds oldState
+  newState <- execStateT (runWriterT detectLocalFinishedBuilds) oldState
   put (a, newState)
 
 preserveStateSnd :: Monad m => ((istate, state) -> m (errors, (istate, Maybe state))) -> StateT (istate, state) m errors
