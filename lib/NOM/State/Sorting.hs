@@ -53,8 +53,7 @@ type SortKey =
     Down Int -- Running Builds, prefer more
   , Down Int -- Running Downloads, prefer more
   -- But we want to show the smallest tree showing all builds and downloads to save screen estate.
-  , Int -- Waiting Builds, prefer less
-  , Int -- Waiting Downloads, prefer less
+  , Int -- Waiting Builds and Downloads, prefer less
   )
 
 data SortOrder
@@ -96,4 +95,4 @@ sortKey nom_state drvId =
         , SDownloaded <$> minimumMay (Down . (.start) <$> completedDownloads)
         , SUploaded <$> minimumMay (Down . (.start) <$> completedUploads)
         ]
-   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds, CSet.size plannedDownloads)
+   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds + CSet.size plannedDownloads)
