@@ -1,5 +1,33 @@
 # Revision history for nix-output-monitor
 
+## 2.0.0.0 -- To be released
+
+### Highlights:
+
+* **New ways to use nom**, via different aliases and options. Have a look at the README for new usage or just try `nom build`, `nom develop` or `nom-build` …
+* **Full support for new-style nix commands like `nix build`** and therefor also flakes.
+* Support for parsing the nix "internal-json" log format. This gives us much more information.
+* The output has been massively reworked to accommodate the new information available from json output. This includes:
+  * Running downloads/uploads
+  * Displaying state for every output and input separately
+  * Remote builders are displayed more economically
+  * Build summaries have been reworked to be less overwhelming
+  * Log output is prefixed with build job names.
+* Massive internal refactoring with significant performance improvements and less flickering.
+
+### Further changes:
+
+* The algorithm to layout the rendering tree has been improved.
+* Improved build name display and show build platform if different from our platform.
+* Better error reporting.
+* Pause build time counter while system is suspended.
+* Fixed a color flickering issue in the dependency graph (thx @alyssais).
+* Removed some weird operators. (thx @blachheaven)
+* The old nom-build wrapper is obsolete and has been removed.
+* Updated to use ghc 9.2 with corresponding features like GHC2021 and RecordDotSyntax.
+* Added benchmarking and profiling scripts, to monitor performance.
+* Most performance improvements came from replacing aeson with json-hermes.
+
 ## 1.1.3.0 -- 2022-03-21
 * Update parser to correctly detect failed builds on nix 2.7
 
