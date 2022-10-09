@@ -54,7 +54,6 @@ nix-build --log-format internal-json -v |& nom --json
 ```
 **Warning:** Don‘t forget to redirect stderr. That's what the `&`, does.
 
-
 #### Human readable log parsing
 
 It his highly recommended to always append `--log-format internal-json -v` (or use the above mentioned aliases.) and call `nom` with `--json`. That will give you much more informative output.
