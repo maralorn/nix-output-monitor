@@ -14,7 +14,8 @@ While your build runs nom will draw something like this at the bottom of your bu
 This was an experimental fun project, which proofed to be useful to quite a lot of people.
 The purpose of it is to write something fun and useful in Haskell.
 You are free and very welcome to contribute feedback, issues or PRs, but I do not commit to maintain this project over a long time period.
-nom is by now, quite fully featured with support for nix v1 commands (e.g.`nix-build`) and nix v2 command (e.g. `nix build`).
+
+nom is, by now, quite fully featured with support for nix v1 commands (e.g.`nix-build`) and nix v2 command (e.g. `nix build`).
 
 Issues and pull requests welcome under https://github.com/maralorn/nix-output-monitor
 
@@ -32,15 +33,15 @@ Issues and pull requests welcome under https://github.com/maralorn/nix-output-mo
 
 The `nom` binary (starting from version 2.0) behaves like a `nix` drop in, with much more colorful output, for the following commands:
 
-`nom build <args>`: Behaves like `nix build <args>`.
-`nom shell <args>`: Behaves like `nix shell <args>`.
-`nom develop <args>`: Behaves like `nix develop <args>`.
+`nom build <args>`: Behaves like `nix build <args>`.  
+`nom shell <args>`: Behaves like `nix shell <args>`.  
+`nom develop <args>`: Behaves like `nix develop <args>`.  
 
 The later two commands work by calling `nix shell` or `nix develop` twice, the first time with overriden `--run exit` and monitoring the output, the second time passing output through to the user. This will incur a performance cost by doubling eval time.
 
-Furthermore when called via the corresponding provided symlinks, nom is also a drop-in for the following commands:
-`nom-build <args>`: Behaves like `nix-build <args>`.
-`nom-shell <args>`: Behaves like `nix-shell <args>`.
+Furthermore when called via the corresponding provided symlinks, nom is also a drop-in for the following commands:  
+`nom-build <args>`: Behaves like `nix-build <args>`.  
+`nom-shell <args>`: Behaves like `nix-shell <args>`.  
 
 All aliases internally use the json-based approach (see next section) and propagate error codes.
 If you want nom support for other nix commands please open an issue.
