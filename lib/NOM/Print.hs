@@ -348,15 +348,21 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
             ( False
             , const $
                 markup green (done <> down <> " " <> drvName)
-                  <> maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
-                  <> markup grey (" from " <> markup magenta (toText infos.host))
+                  <> markup
+                    grey
+                    ( maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
+                        <> (" from " <> markup magenta (toText infos.host))
+                    )
             )
         | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads ->
             ( False
             , const $
                 markup green (done <> up <> " " <> drvName)
-                  <> maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
-                  <> markup grey (" to " <> markup magenta (toText infos.host))
+                  <> markup
+                    grey
+                    ( maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
+                        <> (" to " <> markup magenta (toText infos.host))
+                    )
             )
         | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))
         | otherwise -> (True, const drvName)
