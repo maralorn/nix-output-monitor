@@ -12,7 +12,6 @@ import Data.Generics.Product (HasField (field))
 import Data.List.Extra (firstJust)
 import Data.MemoTrie (memo)
 import Data.Sequence qualified as Seq
-import Data.Time (UTCTime)
 import Optics (view, (%~), _1)
 import Safe.Foldable (minimumMay)
 
@@ -31,6 +30,7 @@ import NOM.State (
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
+import Streamly.Internal.Data.Time.Units (AbsTime)
 
 sortDepsOfSet :: DerivationSet -> NOMState ()
 sortDepsOfSet parents = do
@@ -58,21 +58,21 @@ type SortKey =
 
 data SortOrder
   = -- First the failed builds starting with the earliest failures
-    SFailed UTCTime
+    SFailed AbsTime
   | -- Second the running builds starting with longest running
-    SBuilding UTCTime
+    SBuilding AbsTime
   | -- The longer a download is running, the more it matters.
-    SDownloading UTCTime
+    SDownloading AbsTime
   | -- The longer an upload is running, the more it matters.
-    SUploading UTCTime
+    SUploading AbsTime
   | SWaiting
   | SDownloadWaiting
   | -- The longer a build is completed the less it matters
-    SDone (Down UTCTime)
+    SDone (Down AbsTime)
   | -- The longer a download is completed the less it matters
-    SDownloaded (Down UTCTime)
+    SDownloaded (Down AbsTime)
   | -- The longer an upload is completed the less it matters
-    SUploaded (Down UTCTime)
+    SUploaded (Down AbsTime)
   | SUnknown
   deriving stock (Eq, Show, Ord)
 

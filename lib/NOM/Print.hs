@@ -3,14 +3,17 @@ module NOM.Print (stateToText, Config (..)) where
 import Relude
 
 import Data.IntMap qualified as IntMap
+import Data.List qualified as List
 import Data.List.NonEmpty.Extra (appendr)
+import Data.Map.Strict qualified as Map
 import Data.MemoTrie (memo)
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import Data.Time (NominalDiffTime, UTCTime, ZonedTime, defaultTimeLocale, diffUTCTime, formatTime, zonedTimeToUTC)
+import Data.Time (ZonedTime, defaultTimeLocale, formatTime, NominalDiffTime)
 import Data.Tree (Forest, Tree (Node))
 import Optics (itoList, view, _2)
+import Streamly.Internal.Data.Time.Units (AbsTime, diffAbsTime)
 
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
@@ -18,8 +21,6 @@ import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.Terminal.Size (Window)
 import System.Console.Terminal.Size qualified as Window
 
-import Data.List qualified as List
-import Data.Map.Strict qualified as Map
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..))
@@ -31,6 +32,7 @@ import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
+import NOM.Util (diffTime, relTimeToSeconds)
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -61,17 +63,17 @@ data Config = MkConfig
   , piping :: Bool
   }
 
-stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> ZonedTime -> Text
+stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> (ZonedTime, AbsTime) -> Text
 stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
  where
-  printWithSize :: Maybe Int -> ZonedTime -> Text
+  printWithSize :: Maybe Int -> (ZonedTime, AbsTime) -> Text
   printWithSize maybeWindow = printWithTime
    where
-    printWithTime :: ZonedTime -> Text
+    printWithTime :: (ZonedTime, AbsTime) -> Text
     printWithTime
-      | processState == JustStarted && config.piping = \now -> time now <> showCond (diffUTCTime (zonedTimeToUTC now) startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
+      | processState == JustStarted && config.piping = \nows@(_, now) -> time nows <> showCond (diffTime now startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
       | processState == Finished && config.silent = const ""
-      | showBuildGraph = \now -> buildsDisplay now <> table (time now)
+      | showBuildGraph = \nows@(_, now) -> buildsDisplay now <> table (time nows)
       | not anythingGoingOn = if config.silent then const "" else time
       | otherwise = table . time
     maxHeight = case maybeWindow of
@@ -82,12 +84,12 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         (toText (setSGRCode [Reset]) <> upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState hostNums maxHeight (zonedTimeToUTC now))
+        (printBuilds buildState hostNums maxHeight now)
         <> "\n"
-  runTime now = timeDiff (zonedTimeToUTC now) startTime
+  runTime now = timeDiff now startTime
   time
-    | processState == Finished = \now -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" now) <> " after " <> runTime now)
-    | otherwise = \now -> clock <> " " <> runTime now
+    | processState == Finished = \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
+    | otherwise = \(_, now) -> clock <> " " <> runTime now
   MkDependencySummary{..} = fullSummary
   runningBuilds' = (.host) <$> runningBuilds
   completedBuilds' = (.host) <$> completedBuilds
@@ -196,13 +198,13 @@ printBuilds ::
   NOMV1State ->
   [(Host, Int)] ->
   Int ->
-  UTCTime ->
+  AbsTime ->
   NonEmpty Text
 printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
  where
   hostLabel host = markup magenta $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
   disambiguate_transfer_host = if length hostNums > 2 then (<> " ") . hostLabel else const ""
-  printBuildsWithTime :: UTCTime -> NonEmpty Text
+  printBuildsWithTime :: AbsTime -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   num_raw_roots = length forestRoots
   num_roots = length preparedPrintForest
@@ -212,9 +214,9 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
     | num_raw_roots <= 1 = graphTitle
     | num_raw_roots == num_roots = unwords [graphTitle, "with", show num_roots, "roots"]
     | otherwise = unwords [graphTitle, "showing", show num_roots, "of", show num_raw_roots, "roots"]
-  preparedPrintForest :: Forest (UTCTime -> Text)
+  preparedPrintForest :: Forest (AbsTime -> Text)
   preparedPrintForest = mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf) <$> buildForest
-  printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
+  printTreeNode :: TreeLocation -> DerivationInfo -> AbsTime -> Text
   printTreeNode location drvInfo =
     let ~summary = showSummary drvInfo.dependencySummary
         (planned, display_drv) = printDerivation drvInfo (get' (associatedStorePaths drvInfo))
@@ -317,7 +319,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   hostMarkup Localhost = mempty
   hostMarkup host = ["on " <> hostLabel host]
 
-  printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, UTCTime -> Text)
+  printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, AbsTime -> Text)
   printDerivation drvInfo associated_store_paths = do
     let store_paths_in :: StorePathSet -> [Text]
         store_paths_in some_set = Map.keys $ Map.filter (`CSet.member` some_set) associated_store_paths
@@ -333,7 +335,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             <> ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> up) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningUploads)
             <> ((\name -> const $ markup blue (todo <> name <> down)) <$> store_paths_in drvInfo.dependencySummary.plannedDownloads)
             <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> down <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
-            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> up <> " " ) <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
+            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> up <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
         store_path_infos = if null store_path_info_list then const "" else \now -> " (" <> Text.intercalate ", " (($ now) <$> store_path_info_list) <> ")"
         print_func = case drvInfo.buildStatus of
           Unknown -> const drvName
@@ -371,9 +373,9 @@ printFailType = \case
   ExitCode i -> "exit code " <> show i
   HashMismatch -> "hash mismatch"
 
-timeDiff :: UTCTime -> UTCTime -> Text
+timeDiff :: AbsTime -> AbsTime -> Text
 timeDiff x =
-  toText . printDuration . diffUTCTime x
+  toText . printDuration . relTimeToSeconds . diffAbsTime x
 
 printDuration :: NominalDiffTime -> Text
 printDuration diff

@@ -10,7 +10,8 @@ import Data.Map.Strict qualified as Map
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
+import Data.Time (NominalDiffTime)
+import Streamly.Internal.Data.Time.Units (AbsTime, diffAbsTime)
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
 -- optics
@@ -69,7 +70,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (foldMapEndo)
+import NOM.Util (diffTime, foldMapEndo, relTimeToSeconds)
 
 type ProcessingT m a = UpdateMonad m => NOMStateT (WriterT [Either NOMError ByteString] m) a
 
@@ -110,7 +111,7 @@ updateStateNixJSONMessage input inputState = do
       errors = lefts msgs
   pure ((errors, ByteString.unlines (rights msgs)), retval)
 
-updateStateNixOldStyleMessage :: forall m. UpdateMonad m => (Maybe NixOldStyleMessage, ByteString) -> (Maybe UTCTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe UTCTime, Maybe NOMV1State))
+updateStateNixOldStyleMessage :: forall m. UpdateMonad m => (Maybe NixOldStyleMessage, ByteString) -> (Maybe AbsTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe AbsTime, Maybe NOMV1State))
 updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
   now <- getNow
 
@@ -118,7 +119,7 @@ updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
         Just result' -> processResult result'
         Nothing -> pure False
       (outputAccessTime, check)
-        | maybe True ((>= minTimeBetweenPollingNixStore) . diffUTCTime now) inputAccessTime = (Just now, detectLocalFinishedBuilds)
+        | maybe True ((>= minTimeBetweenPollingNixStore) . diffTime now) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
   ((!hasChanged, !msgs), outputState) <-
     runStateT
@@ -188,7 +189,7 @@ processResult result = do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
 
-processJsonMessage :: UpdateMonad m => UTCTime -> NixJSONMessage -> ProcessingT m Bool
+processJsonMessage :: UpdateMonad m => AbsTime -> NixJSONMessage -> ProcessingT m Bool
 processJsonMessage now = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
@@ -267,14 +268,14 @@ activityPrefix activities = do
 movingAverage :: Double
 movingAverage = 0.5
 
-reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> NonEmpty (DerivationInfo, UTCTime) -> m BuildReportMap
+reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> NonEmpty (DerivationInfo, AbsTime) -> m BuildReportMap
 reportFinishingBuilds host builds = do
   now <- getNow
   updateBuildReports (modifyBuildReports host (timeDiffInt now <<$>> builds))
 
 -- | time difference in seconds rounded down
-timeDiffInt :: UTCTime -> UTCTime -> Int
-timeDiffInt = fmap floor . diffUTCTime
+timeDiffInt :: AbsTime -> AbsTime -> Int
+timeDiffInt = fmap (floor . relTimeToSeconds) . diffAbsTime
 
 finishBuilds :: Host -> [(DerivationId, BuildInfo ())] -> ProcessingT m ()
 finishBuilds host builds = do
@@ -298,7 +299,7 @@ modifyBuildReports host = foldMapEndo (uncurry insertBuildReport)
       (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
       (host, getReportName name)
 
-failedBuild :: UTCTime -> DerivationId -> FailType -> NOMState ()
+failedBuild :: AbsTime -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
  where
   update = \case
@@ -369,7 +370,7 @@ finishBuildByPathId host pathId = do
   drvIdMay <- out2drv pathId
   whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
-downloading :: Host -> StorePathId -> UTCTime -> NOMState ()
+downloading :: Host -> StorePathId -> AbsTime -> NOMState ()
 downloading host pathId start = do
   insertStorePathState pathId (State.Downloading MkTransferInfo{host, start, end = ()}) Nothing
 
@@ -379,22 +380,22 @@ getBuildInfoIfRunning drvId =
     drvInfos <- MaybeT (gets (CMap.lookup drvId . (.derivationInfos)))
     MaybeT (pure ((() <$) <$> preview (typed @BuildStatus % _As @"Building") drvInfos))
 
-downloaded :: Host -> StorePathId -> UTCTime -> NOMState ()
+downloaded :: Host -> StorePathId -> AbsTime -> NOMState ()
 downloaded host pathId end = do
   insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Nothing}) $ Just \case
     State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Just end)
     other -> other
 
-uploading :: Host -> StorePathId -> UTCTime -> NOMState ()
+uploading :: Host -> StorePathId -> AbsTime -> NOMState ()
 uploading host pathId start =
   insertStorePathState pathId (State.Uploading MkTransferInfo{host, start, end = ()}) Nothing
-uploaded :: Host -> StorePathId -> UTCTime -> NOMState ()
+uploaded :: Host -> StorePathId -> AbsTime -> NOMState ()
 uploaded host pathId end =
   insertStorePathState pathId (Uploaded MkTransferInfo{host, start = end, end = Nothing}) $ Just \case
     State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info $> Just end)
     other -> other
 
-building :: Host -> Derivation -> UTCTime -> Maybe ActivityId -> ProcessingT m ()
+building :: Host -> Derivation -> AbsTime -> Maybe ActivityId -> ProcessingT m ()
 building host drvName now activityId = do
   reportName <- getReportName <$> lookupDerivationInfos drvName
   lastNeeded <- Map.lookup (host, reportName) . (.buildReports) <$> get

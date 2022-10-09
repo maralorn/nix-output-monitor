@@ -7,9 +7,11 @@ import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, modifyTVar, swapTVar)
 import Control.Exception (IOException, try)
 import Data.ByteString qualified as ByteString
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
 import Data.Time (ZonedTime, getZonedTime)
+import Streamly.Internal.Data.Time.Units (AbsTime)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
 import System.IO qualified
@@ -20,17 +22,16 @@ import Streamly.Prelude qualified as Stream
 
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
-import Data.ByteString.Builder qualified as Builder
 import NOM.Error (NOMError (InputError))
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
-import NOM.Update.Monad (UpdateMonad)
+import NOM.Update.Monad (UpdateMonad, getNow)
 
 type Stream = Stream.SerialT IO
 type StreamParser update = Stream ByteString -> Stream update
 type Output = Text
 type UpdateFunc update state = forall m. UpdateMonad m => update -> StateT state m ([NOMError], ByteString)
-type OutputFunc state = state -> Maybe Window -> ZonedTime -> Output
+type OutputFunc state = state -> Maybe Window -> (ZonedTime, AbsTime) -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 type Window = Terminal.Size.Window Int
 
@@ -67,7 +68,8 @@ runUpdate bufferVar stateVar updater input = do
 
 writeStateToScreen :: forall state. Bool -> TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> Handle -> IO ()
 writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
-  now <- getZonedTime
+  nowClock <- getZonedTime
+  now <- getNow
   terminalSize <- Terminal.Size.hSize output_handle
 
   (nom_state, nix_output_raw) <- atomically do
@@ -84,7 +86,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
   let nix_output = ByteString.lines nix_output_raw
       nix_output_length = length nix_output
 
-      nom_output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer nom_state terminalSize now)
+      nom_output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer nom_state terminalSize (nowClock, now))
       nom_output_length = length nom_output
 
       -- We will try to calculate how many lines we can draw without reaching the end

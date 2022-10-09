@@ -11,7 +11,6 @@ import Relude
 import Control.Exception (try)
 import Control.Monad.Writer.Strict (WriterT)
 import Data.Text.IO qualified as TextIO
-import Data.Time (UTCTime, getCurrentTime)
 import System.Directory (doesPathExist)
 
 -- attoparsec
@@ -23,14 +22,17 @@ import Nix.Derivation qualified as Nix
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
+import Streamly.Internal.Data.Time.Units (AbsTime)
+import Streamly.Internal.Data.Time.Clock (getTime)
+import Streamly.Internal.Data.Time.Clock.Type (Clock(Monotonic))
 
 type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
 class Monad m => MonadNow m where
-  getNow :: m UTCTime
+  getNow :: m AbsTime
 
 instance MonadNow IO where
-  getNow = getCurrentTime
+  getNow = getTime Monotonic
 
 instance MonadNow m => MonadNow (StateT a m) where
   getNow = lift getNow

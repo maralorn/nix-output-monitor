@@ -40,8 +40,8 @@ import Relude
 import Data.Generics.Product (HasField (field))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Data.Time (UTCTime)
 import Optics ((%~))
+import Streamly.Internal.Data.Time.Units (AbsTime)
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityProgress)
@@ -102,13 +102,13 @@ data StorePathInfo = MkStorePathInfo
 
 type RunningBuildInfo = BuildInfo ()
 
-type CompletedBuildInfo = BuildInfo UTCTime
+type CompletedBuildInfo = BuildInfo AbsTime
 
 type RunningTransferInfo = TransferInfo ()
 
-type CompletedTransferInfo = TransferInfo (Maybe UTCTime)
+type CompletedTransferInfo = TransferInfo (Maybe AbsTime)
 
-type FailedBuildInfo = BuildInfo (UTCTime, FailType)
+type FailedBuildInfo = BuildInfo (AbsTime, FailType)
 
 data DependencySummary = MkDependencySummary
   { plannedBuilds :: DerivationSet
@@ -129,7 +129,7 @@ data NOMV1State = MkNOMV1State
   , fullSummary :: DependencySummary
   , forestRoots :: Seq DerivationId
   , buildReports :: BuildReportMap
-  , startTime :: UTCTime
+  , startTime :: AbsTime
   , processState :: ProcessState
   , storePathIds :: Map StorePath StorePathId
   , derivationIds :: Map Derivation DerivationId
@@ -147,12 +147,12 @@ data BuildStatus
   = Unknown
   | Planned
   | Building (BuildInfo ())
-  | Failed (BuildInfo (UTCTime, FailType)) -- End
-  | Built (BuildInfo UTCTime) -- End
+  | Failed (BuildInfo (AbsTime, FailType)) -- End
+  | Built (BuildInfo AbsTime) -- End
   deriving stock (Show, Eq, Ord, Generic)
 
 data BuildInfo a = MkBuildInfo
-  { start :: UTCTime
+  { start :: AbsTime
   , host :: Host
   , estimate :: Maybe Int
   , activityId :: Maybe ActivityId
@@ -162,7 +162,7 @@ data BuildInfo a = MkBuildInfo
 
 data TransferInfo a = MkTransferInfo
   { host :: Host
-  , start :: UTCTime
+  , start :: AbsTime
   , end :: a
   }
   deriving stock (Show, Eq, Ord, Generic, Functor)

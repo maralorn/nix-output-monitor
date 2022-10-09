@@ -5,11 +5,12 @@ module Main (main) where
 import Relude
 
 import Control.Exception qualified as Exception
+import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.ByteString qualified as ByteString
 import Data.Generics.Product (typed)
 import Data.Hermes qualified as JSON
 import Data.Text.IO (hPutStrLn)
-import Data.Time (UTCTime, ZonedTime)
+import Data.Time (ZonedTime)
 import Data.Version (showVersion)
 import GHC.IO.Exception (ExitCode (ExitFailure))
 import Optics (view, (%~), (.~), _2, _3)
@@ -20,7 +21,6 @@ import System.Environment qualified as Environment
 import System.IO.Error qualified as IOError
 import System.Process.Typed qualified as Process
 
-import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import NOM.Error (NOMError)
 import NOM.IO (StreamParser, interact)
 import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
@@ -36,6 +36,7 @@ import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateStateNixJSONMessage, updateStateNixOldStyleMessage)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (addPrintCache)
+import Streamly.Internal.Data.Time.Units (AbsTime)
 
 outputHandle :: Handle
 outputHandle = stderr
@@ -125,7 +126,7 @@ instance NOMInput (Either NOMError NixJSONMessage) where
 
 instance NOMInput (Maybe NixOldStyleMessage, ByteString) where
   withParser body = body (parseStreamAttoparsec parser)
-  type AdditionalState (Maybe NixOldStyleMessage, ByteString) = Maybe UTCTime
+  type AdditionalState (Maybe NixOldStyleMessage, ByteString) = Maybe AbsTime
   firstAdditionalState = Nothing
   updateState = updateStateNixOldStyleMessage
 
@@ -145,7 +146,7 @@ monitorHandle _ config input_handle = withParser @a \streamParser -> do
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.
   pure finalState
 
-type CompoundState istate = (istate, NOMV1State, Maybe (Window Int) -> ZonedTime -> Text)
+type CompoundState istate = (istate, NOMV1State, Maybe (Window Int) -> (ZonedTime,AbsTime) -> Text)
 
 compoundStateToText :: (a, b, c) -> c
 compoundStateToText = view _3
