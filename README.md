@@ -8,12 +8,15 @@ While your build runs nom will draw something like this at the bottom of your bu
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/nix-output-monitor.svg)](https://repology.org/project/nix-output-monitor/versions)
 
+
 ## Status
 
 This was an experimental fun project, which proofed to be useful to quite a lot of people.
 The purpose of it is to write something fun and useful in Haskell.
 You are free and very welcome to contribute feedback, issues or PRs, but I do not commit to maintain this project over a long time period.
-This program relies on the output of the v1 nix commands (i.e. `nix-build` and not `nix build`) support for v2 output may come in the future.
+nom is by now, quite fully featured with support for nix v1 commands (e.g.`nix-build`) and nix v2 command (e.g. `nix build`).
+
+Issues and pull requests welcome under https://github.com/maralorn/nix-output-monitor
 
 ## Installing
 
@@ -25,21 +28,49 @@ This program relies on the output of the v1 nix commands (i.e. `nix-build` and n
 
 ### The Easy Way
 
-When installed from nixpkgs you can replace every call to `nix-build` with the bundled wrapper script `nom-build`.
+**Warning: The displayed build tree might be incomplete when using nix < 2.10 and with new-style commands like `nix build`.**
+
+The `nom` binary (starting from version 2.0) behaves like a `nix` drop in, with much more colorful output, for the following commands:
+
+`nom build <args>`: Behaves like `nix build <args>`.
+`nom shell <args>`: Behaves like `nix shell <args>`.
+`nom develop <args>`: Behaves like `nix develop <args>`.
+
+The later two commands work by calling `nix shell` or `nix develop` twice, the first time with overriden `--run exit` and monitoring the output, the second time passing output through to the user. This will incur a performance cost by doubling eval time.
+
+Furthermore when called via the corresponding provided symlinks, nom is also a drop-in for the following commands:
+`nom-build <args>`: Behaves like `nix-build <args>`.
+`nom-shell <args>`: Behaves like `nix-shell <args>`.
+
+All aliases internally use the json-based approach (see next section) and propagate error codes.
+If you want nom support for other nix commands please open an issue.
 
 ### The Flexible Way
 
-Once you have installed `nix-output-monitor` to your path, run any nix command (`nixos-rebuild`,`nix-build`,`home-manager switch`, **not** `nix build`.) and pipe stderr and stdout into `nom`.
+#### JSON based
+```shell
+nix-build --log-format internal-json -v |& nom --json
+```
+**Don‘t forget to redirect stderr.** That's what the `&`, does.
 
+**It his highly recommended to always append `--log-format internal-json -v` (or use the above mentioned aliases.) and call `nom` with `--json`.** That will give you much more informative output.
+
+#### Human readable log parsing
+
+If you are in a situation, where you can‘t use the json based nix output you can still use
 ```shell
 nix-build |& nom
 ```
 
-**Don‘t forget to redirect stderr, too.** That's what the `&`, does.
+**Don‘t forget to redirect stderr.** That's what the `&`, does.
+
+This has the advantage to also work with other commands like `nixos-rebuild` or `home-manager`, where it is not trivial to pass in the `--log-format internal-json -v` flag. nom will pass everything it reads through, if it does not understand it. This makes it ideal to attach it to scripts which output more then just `nix` output.
 
 ### Preserving Colored Text
 
-To preserve the color of the redirected text you can use the `unbuffer` command from the `expect` package. (The `nom-build` wrapper does this for you.)
+Colored text will work as expected in json-mode.
+
+In human-readable log mode you can preserve the color of the redirected text by using the `unbuffer` command from the `expect` package.
 
 ```shell
 unbuffer nix-build |& nom
@@ -54,9 +85,12 @@ Nom tries to convey informations via symbols and colors
 * ▶, yellow: running builds
 * ✔, green: completed builds
 * ⏳︎︎︎, blue: planned builds
-* ⬇, cyan: downloads often in the form `completed/total`
-* ⬆, magenta: uploads
 * ⚠, red: failed builds
+* ▶⬇, yellow: running downloads
+* ▶⬆, yellow: running uploads
+* ✔⬇, green: completed downloads
+* ✔⬆, green: completed uploads
+* ⏳︎︎︎⬇, blue: waiting downloads
 * ∅: a moving average over past builds of this derivation
 * ⏱︎: running time 
 * ∑: a summary over all packages and hosts
@@ -71,10 +105,12 @@ Also different terminals might work differently well. I recommend: `pkgs.foot`.
 * Children of a node are direct dependencies.
 * nom will try to show you the most relevant part of the dependency tree, roughly aiming to fill a third of your terminal
 * No build will be printed twice in the tree, it will only be shown for the lower most dependency.
-* Everytime nom decides to not show all direct dependencies of a build (and for root nodes), it will print a `&` and a summary over the build state of all dependencies.
+* nom will do it’s best to print all running or failed builds, downloads and uploads, but it does not print every direct child of a node.
 * Use the colors from above to read the summary
 
 ## Example Runs
+
+These examples are currently very outdated, but might give you a first impression:
 
 An example remote build:
 [![asciicast](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65.svg)](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65)
@@ -92,19 +128,20 @@ An example running `sudo nixos-rebuild switch`:
 
 Right now nom uses four sources of information:
 
-1. The parsed nix-build output
-2. it checks if build results exist in the nix-store
+1. The parsed nix-build output (json or human-readable)
+2. it checks if build results exist in the nix-store (only in human-readable mode)
 3. it querys `.drv` files for information about the `out` output path.
 4. It caches build times in `$XDG_CACHE_HOME/nix-output-monitor/build-reports.csv`.
 
 ## Limitations
 
 * This will fail in unexpected and expected ways.
+* Luckily I don‘t think this program screws up anything more than your terminal.
+* remote builds will sometimes be shown as running even when they are actually still waiting for uploads or downloads. This is how nix reports it.
+* Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width. But at this point I‘ve invested some effort to make it usable.
+* This program also makes assumptions like your nix-store is at "/nix/store".
+
+### For human-readable log parsing mode:
 * nix-output-monitor receives most it's information from parsing nix-build output. The parser might be to strict or to loose for use cases I didn‘t think of. Then **the numbers displayed will be off**!
 * nix-build does not show info when a download or upload is finished, so we currently cannot differentiate between started and completed downloads.
-* remote builds will sometimes be shown as running even when they are actually still waiting for uploads or downloads.
-
-* Terminal clearing and reprinting is brittle. It might fail with your terminal or terminal width. But at this point I‘ve invested some effort to make it usable.
-* This program also makes assumptions like your nix-store is at "/nix/store" or that every derivation has an output at "out".
-
-* Luckily I don‘t think this program screws up anything more than your terminal.
+* For completed build detection we assume that every derivation has an output called "out".
