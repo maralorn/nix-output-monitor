@@ -71,7 +71,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
    where
     printWithTime :: (ZonedTime, AbsTime) -> Text
     printWithTime
-      | processState == JustStarted && config.piping = \nows@(_, now) -> time nows <> showCond (diffTime now startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See the README for details.)")
+      | processState == JustStarted && config.piping = \nows@(_, now) -> time nows <> showCond (diffTime now startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See -h and the README for details.)")
       | processState == Finished && config.silent = const ""
       | showBuildGraph = \nows@(_, now) -> buildsDisplay now <> table (time nows)
       | not anythingGoingOn = if config.silent then const "" else time
