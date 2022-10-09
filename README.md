@@ -15,9 +15,9 @@ This was an experimental fun project, which proofed to be useful to quite a lot 
 The purpose of it is to write something fun and useful in Haskell.
 You are free and very welcome to contribute feedback, issues or PRs, but I do not commit to maintain this project over a long time period.
 
-nom is, by now, quite fully featured with support for nix v1 commands (e.g.`nix-build`) and nix v2 command (e.g. `nix build`).
+By now, nom is quite fully featured with support for nix v1 commands (e.g. `nix-build`) and nix v2 command (e.g. `nix build`).
 
-Issues and pull requests welcome under https://github.com/maralorn/nix-output-monitor
+Issues and pull requests welcome under https://github.com/maralorn/nix-output-monitor.
 
 ## Installing
 
