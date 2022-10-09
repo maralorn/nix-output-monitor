@@ -29,7 +29,7 @@ Issues and pull requests welcome under https://github.com/maralorn/nix-output-mo
 
 ### The Easy Way
 
-**Warning: The displayed build tree might be incomplete when using nix < 2.10 and with new-style commands like `nix build`.**
+**Warning:** The displayed build tree might be incomplete with new-style commands like `nix build` for nix versions <2.10.
 
 The `nom` binary (starting from version 2.0) behaves like a `nix` drop in, with much more colorful output, for the following commands:
 
@@ -52,18 +52,19 @@ If you want nom support for other nix commands please open an issue.
 ```shell
 nix-build --log-format internal-json -v |& nom --json
 ```
-**Don‘t forget to redirect stderr.** That's what the `&`, does.
+**Warning:** Don‘t forget to redirect stderr. That's what the `&`, does.
 
-**It his highly recommended to always append `--log-format internal-json -v` (or use the above mentioned aliases.) and call `nom` with `--json`.** That will give you much more informative output.
 
 #### Human readable log parsing
+
+It his highly recommended to always append `--log-format internal-json -v` (or use the above mentioned aliases.) and call `nom` with `--json`. That will give you much more informative output.
 
 If you are in a situation, where you can‘t use the json based nix output you can still use
 ```shell
 nix-build |& nom
 ```
 
-**Don‘t forget to redirect stderr.** That's what the `&`, does.
+**Warning:** Don‘t forget to redirect stderr. That's what the `&`, does.
 
 This has the advantage to also work with other commands like `nixos-rebuild` or `home-manager`, where it is not trivial to pass in the `--log-format internal-json -v` flag. nom will pass everything it reads through, if it does not understand it. This makes it ideal to attach it to scripts which output more then just `nix` output.
 
