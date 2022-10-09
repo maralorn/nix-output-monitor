@@ -413,14 +413,14 @@ updateDerivationState drvId updateStatus = do
         clear_summary = clearDerivationIdFromSummary oldStatus drvId
 
     -- Update summaries of all parents and sort them
-    updateParents update_summary clear_summary (derivation_infos.derivationParents)
+    updateParents False update_summary clear_summary (derivation_infos.derivationParents)
 
     -- Update fullSummary
     modify (field @"fullSummary" %~ update_summary)
 
-updateParents :: (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
-updateParents update_func clear_func direct_parents = do
-  relevant_parents <- collect_parents True mempty direct_parents
+updateParents :: Bool -> (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
+updateParents force_direct update_func clear_func direct_parents = do
+  relevant_parents <- (if force_direct then CSet.union direct_parents else id) <$> collect_parents True mempty direct_parents
   parents <- collect_parents False mempty direct_parents
   modify
     ( field @"derivationInfos"
@@ -440,9 +440,9 @@ updateParents update_func clear_func direct_parents = do
     Nothing -> pure collected_parents
     Just (current_parent, rest_to_scan) -> do
       drv_infos <- getDerivationInfos current_parent
-      transfer_states <- fold <$> forM (Map.elems drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
-      --let has_completed_transfer = any (\x -> has (_As @"Downloaded") x || has (_As @"Uploaded") x) transfer_states
-      let is_irrelevant = Set.null transfer_states && has (_As @"Unknown") drv_infos.buildStatus
+      transfer_states <- fold <$> forM (Map.lookup "out" drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
+      let all_transfers_completed = all (\x -> has (_As @"Downloaded") x || has (_As @"Uploaded") x) transfer_states
+          is_irrelevant = all_transfers_completed && has (_As @"Unknown") drv_infos.buildStatus || has (_As @"Built") drv_infos.buildStatus
           proceed = collect_parents no_irrelevant
       if is_irrelevant && no_irrelevant
         then proceed collected_parents rest_to_scan
@@ -476,7 +476,7 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
       clear_summary = clearStorePathsFromSummary oldStatus storePathId
 
   -- Update summaries of all parents
-  updateParents update_summary clear_summary (maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
+  updateParents True update_summary clear_summary (maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)

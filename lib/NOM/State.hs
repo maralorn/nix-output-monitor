@@ -32,6 +32,7 @@ module NOM.State (
   out2drv,
   drv2out,
   updateSummaryForDerivation,
+  associatedStorePaths,
 ) where
 
 import Relude
@@ -232,6 +233,13 @@ getDerivationId drv = do
         pure key
   gets (Map.lookup drv . (.derivationIds)) >>= maybe newId pure
 
+associatedStorePaths :: DerivationInfo -> NOMState (Map Text StorePathId)
+associatedStorePaths drv_info = do
+  inputs <- forM (CSet.toList drv_info.inputSources) \source -> do
+    store_path_infos <- getStorePathInfos source
+    pure ("input:" <> store_path_infos.name.name, source)
+  pure $ drv_info.outputs <> Map.fromList inputs
+
 drv2out :: DerivationId -> NOMState (Maybe StorePath)
 drv2out drv =
   gets (CMap.lookup drv . (.derivationInfos) >=> Map.lookup "out" . (.outputs))
@@ -258,14 +266,15 @@ getStorePathInfos storePathId =
 
 clearDerivationIdFromSummary :: BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 clearDerivationIdFromSummary oldStatus drvId = case oldStatus of
-    Unknown -> id
-    Planned -> field @"plannedBuilds" %~ CSet.delete drvId
-    Building _ -> field @"runningBuilds" %~ CMap.delete drvId
-    Failed _ -> field @"failedBuilds" %~ CMap.delete drvId
-    Built _ -> field @"completedBuilds" %~ CMap.delete drvId
+  Unknown -> id
+  Planned -> field @"plannedBuilds" %~ CSet.delete drvId
+  Building _ -> field @"runningBuilds" %~ CMap.delete drvId
+  Failed _ -> field @"failedBuilds" %~ CMap.delete drvId
+  Built _ -> field @"completedBuilds" %~ CMap.delete drvId
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
-updateSummaryForDerivation oldStatus newStatus drvId = clearDerivationIdFromSummary oldStatus drvId . case newStatus of
+updateSummaryForDerivation oldStatus newStatus drvId =
+  clearDerivationIdFromSummary oldStatus drvId . case newStatus of
     Unknown -> id
     Planned -> field @"plannedBuilds" %~ CSet.insert drvId
     Building bi -> field @"runningBuilds" %~ CMap.insert drvId (void bi)

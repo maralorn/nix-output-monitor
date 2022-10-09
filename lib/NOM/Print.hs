@@ -18,13 +18,14 @@ import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.Terminal.Size (Window)
 import System.Console.Terminal.Size qualified as Window
 
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos)
+import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), associatedStorePaths, getDerivationInfos, getStorePathInfos)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
@@ -81,7 +82,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         (toText (setSGRCode [Reset]) <> upperleft <> horizontal)
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState maxHeight (zonedTimeToUTC now))
+        (printBuilds buildState hostNums maxHeight (zonedTimeToUTC now))
         <> "\n"
   runTime now = timeDiff (zonedTimeToUTC now) startTime
   time
@@ -90,6 +91,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   MkDependencySummary{..} = fullSummary
   runningBuilds' = (.host) <$> runningBuilds
   completedBuilds' = (.host) <$> completedBuilds
+  failedBuilds' = (.host) <$> failedBuilds
   numFailedBuilds = CMap.size failedBuilds
   anythingGoingOn = fullSummary /= mempty
   showBuildGraph = not (Seq.null forestRoots)
@@ -127,13 +129,15 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         ]
   lastRow time' = partial_last_row `appendr` one (bold (header time'))
 
-  showHosts = numHosts > 0
+  showHosts = Set.size hosts > 1
+  manyHosts = Set.size buildHosts > 1 || Set.size hosts > 2 -- We only need number labels on hosts if we are using remote builders or more then one transfer peer (normally a substitution cache).
+  hostNums = zip (toList hosts) [0 ..]
   showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + downloadsRunning + numPlannedDownloads > 0
   showUploads = CMap.size completedUploads > 0
   numPlannedDownloads = CSet.size plannedDownloads
-  numHosts =
-    Set.size (Set.filter (/= Localhost) (foldMap one runningBuilds' <> foldMap one completedBuilds' <> foldMap (one . (.host)) completedUploads))
+  buildHosts = one Localhost <> foldMap (foldMap one) [runningBuilds', completedBuilds', failedBuilds']
+  hosts = buildHosts <> foldMap (foldMap (one . (.host))) [completedUploads, completedDownloads]
   numRunningBuilds = CMap.size runningBuilds
   numCompletedBuilds = CMap.size completedBuilds
   numPlannedBuilds = CSet.size plannedBuilds
@@ -148,10 +152,10 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
     | otherwise = markup green . ("Finished" <>)
   printHosts :: [NonEmpty Entry]
   printHosts =
-    mapMaybe (nonEmpty . labelForHost) hosts
+    mapMaybe (nonEmpty . labelForHost) hostNums
    where
-    labelForHost :: Host -> [Entry]
-    labelForHost host =
+    labelForHost :: (Host, Int) -> [Entry]
+    labelForHost (host, index) =
       showCond
         showBuilds
         [ nonZeroShowBold numRunningBuildsOnHost (yellow (label running (disp numRunningBuildsOnHost)))
@@ -169,7 +173,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
           [ nonZeroShowBold uploadsRunning' (yellow (label up (disp uploadsRunning')))
           , nonZeroShowBold uploads (green (label up (disp uploads)))
           ]
-        <> one (magenta (header (toText host)))
+        <> one (magenta . header $ (if index > 0 && manyHosts then "[" <> show index <> "]: " else "") <> toText host)
      where
       uploads = action_count_for_host host completedUploads
       uploadsRunning' = action_count_for_host host runningUploads
@@ -177,9 +181,6 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       downloadsRunning' = action_count_for_host host runningDownloads
       numRunningBuildsOnHost = action_count_for_host host runningBuilds
       doneBuilds = action_count_for_host host completedBuilds
-    hosts =
-      sort . toList @Set $
-        foldMap (foldMap one) [runningBuilds', completedBuilds'] <> foldMap (foldMap (one . (.host))) [completedUploads, completedDownloads]
     action_count_for_host :: HasField "host" a Host => Host -> CMap.CacheIdMap b a -> Int
     action_count_for_host host = CMap.size . CMap.filter (\x -> host == x.host)
 
@@ -193,11 +194,14 @@ data TreeLocation = Root | Twig | Leaf deriving stock (Eq)
 
 printBuilds ::
   NOMV1State ->
+  [(Host, Int)] ->
   Int ->
   UTCTime ->
   NonEmpty Text
-printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
+printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
  where
+  hostLabel host = markup magenta $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
+  disambiguate_transfer_host = if length hostNums > 2 then (<> " ") . hostLabel else const ""
   printBuildsWithTime :: UTCTime -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   num_raw_roots = length forestRoots
@@ -213,7 +217,7 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
   printTreeNode :: TreeLocation -> DerivationInfo -> UTCTime -> Text
   printTreeNode location drvInfo =
     let ~summary = showSummary drvInfo.dependencySummary
-        (planned, display_drv) = printDerivation drvInfo
+        (planned, display_drv) = printDerivation drvInfo (get' (associatedStorePaths drvInfo))
         displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
      in \now -> display_drv now <> displayed_summary
 
@@ -309,107 +313,63 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
             [markup blue $ show (CSet.size plannedDownloads) <> " " <> todo <> down]
         ]
 
-  printDerivation :: DerivationInfo -> (Bool, UTCTime -> Text)
-  printDerivation drvInfo = do
-    let outputs_list = Map.elems drvInfo.outputs
-        outputs = CSet.fromFoldable outputs_list
-        outputs_in :: StorePathSet -> Bool
-        outputs_in = not . CSet.null . CSet.intersection outputs
-        outputs_in_map :: StorePathMap (TransferInfo a) -> Maybe (TransferInfo a)
-        outputs_in_map info_map = viaNonEmpty head . mapMaybe (\output -> CMap.lookup output info_map) $ outputs_list
+  hostMarkup :: Host -> [Text]
+  hostMarkup Localhost = mempty
+  hostMarkup host = ["on " <> hostLabel host]
+
+  printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, UTCTime -> Text)
+  printDerivation drvInfo associated_store_paths = do
+    let store_paths_in :: StorePathSet -> [Text]
+        store_paths_in some_set = Map.keys $ Map.filter (`CSet.member` some_set) associated_store_paths
+        store_paths_in_map :: StorePathMap (TransferInfo a) -> [(Text, TransferInfo a)]
+        store_paths_in_map info_map = Map.toList $ Map.mapMaybe (`CMap.lookup` info_map) associated_store_paths
         phaseMay activityId' = do
           activityId <- activityId'
           (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
           phase
         drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
-        ~runningTransfer
-          | Just infos <- outputs_in_map drvInfo.dependencySummary.runningDownloads =
-              Just
-                ( False
-                , \now ->
-                    markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.start <> " from " <> markup magenta (toText infos.host)
-                )
-          | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads =
-              Just
-                ( False
-                , \now ->
-                    markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.start <> " to " <> markup magenta (toText infos.host)
-                )
-          | otherwise = Nothing
-    case drvInfo.buildStatus of
-      Unknown
-        | Just printData <- runningTransfer -> printData
-        | Just infos <- outputs_in_map drvInfo.dependencySummary.completedDownloads ->
-            ( False
-            , const $
-                markup green (done <> down <> " " <> drvName)
-                  <> markup
-                    grey
-                    ( maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
-                        <> (" from " <> markup magenta (toText infos.host))
-                    )
-            )
-        | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads ->
-            ( False
-            , const $
-                markup green (done <> up <> " " <> drvName)
-                  <> markup
-                    grey
-                    ( maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
-                        <> (" to " <> markup magenta (toText infos.host))
-                    )
-            )
-        | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))
-        | otherwise -> (True, const drvName)
-      Planned -> (True, const (markup blue (todo <> " " <> drvName)))
-      Building buildInfo
-        -- Same case as for Unknown, because we want to see running download information for remote builds even when they are finished.
-        | Just printData <- runningTransfer -> printData
-        | otherwise ->
-            ( False
-            , let phaseList = case phaseMay buildInfo.activityId of
-                    Nothing -> []
-                    Just phase -> [markup bold ("(" <> phase <> ")")]
-               in \now ->
-                    unwords $
-                      [markups [yellow, bold] (running <> " " <> drvName)]
-                        <> hostMarkup buildInfo.host
-                        <> phaseList
-                        <> [clock, timeDiff now buildInfo.start]
-                        <> maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-            )
-      Failed buildInfo ->
-        ( False
-        , let (endTime, failType) = buildInfo.end
-              phaseInfo = case phaseMay buildInfo.activityId of
-                Nothing -> []
-                Just phase -> ["in", phase]
-           in const $
-                unwords $
-                  [markups [red, bold] (warning <> " " <> drvName)]
+        store_path_info_list =
+          ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> down) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningDownloads)
+            <> ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> up) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningUploads)
+            <> ((\name -> const $ markup blue (todo <> name <> down)) <$> store_paths_in drvInfo.dependencySummary.plannedDownloads)
+            <> ((\(name, infos) -> const $ markup green (done <> " " <> name <> down <> " " <> markup magenta (disambiguate_transfer_host infos.host)) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
+            <> ((\(name, infos) -> const $ markup green (done <> " " <> name <> up <> " " <> markup magenta (disambiguate_transfer_host infos.host)) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
+        store_path_infos = if null store_path_info_list then const "" else \now -> " (" <> Text.intercalate ", " (($ now) <$> store_path_info_list) <> ")"
+        print_func = case drvInfo.buildStatus of
+          Unknown -> const drvName
+          Planned -> const $ markup blue (todo <> " " <> drvName)
+          Building buildInfo ->
+            let phaseList = case phaseMay buildInfo.activityId of
+                  Nothing -> []
+                  Just phase -> [markup bold ("(" <> phase <> ")")]
+                before_time =
+                  [markups [yellow, bold] (running <> " " <> drvName)]
                     <> hostMarkup buildInfo.host
-                    <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
-        )
-      Built buildInfo
-        -- Same case as for Unknown, because we want to see running download information for remote builds even when they are finished.
-        | Just printData <- runningTransfer -> printData
-        | otherwise ->
-            ( False
-            , const $
-                unwords $
-                  [markup green (done <> " " <> drvName)]
-                    <> hostMarkup buildInfo.host
-                    <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
-            )
+                    <> phaseList
+                after_time = maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
+             in \now -> unwords $ before_time <> [clock, timeDiff now buildInfo.start] <> after_time
+          Failed buildInfo ->
+            let (endTime, failType) = buildInfo.end
+                phaseInfo = case phaseMay buildInfo.activityId of
+                  Nothing -> []
+                  Just phase -> ["in", phase]
+             in const $
+                  unwords $
+                    [markups [red, bold] (warning <> " " <> drvName)]
+                      <> hostMarkup buildInfo.host
+                      <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
+          Built buildInfo ->
+            const $
+              unwords $
+                [markup green (done <> " " <> drvName)]
+                  <> hostMarkup buildInfo.host
+                  <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
+     in (drvInfo.buildStatus == Planned || not (null $ store_paths_in drvInfo.dependencySummary.plannedDownloads), \now -> print_func now <> store_path_infos now)
 
 printFailType :: FailType -> Text
 printFailType = \case
   ExitCode i -> "exit code " <> show i
   HashMismatch -> "hash mismatch"
-
-hostMarkup :: Host -> [Text]
-hostMarkup Localhost = mempty
-hostMarkup host = ["on " <> markup magenta (toText host)]
 
 timeDiff :: UTCTime -> UTCTime -> Text
 timeDiff x =
