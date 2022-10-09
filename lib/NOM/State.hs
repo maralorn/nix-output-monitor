@@ -54,7 +54,12 @@ import NOM.Update.Monad (
  )
 import NOM.Util (foldMapEndo)
 
-data StorePathState = DownloadPlanned | Downloading RunningTransferInfo | Uploading RunningTransferInfo | Downloaded CompletedTransferInfo | Uploaded CompletedTransferInfo
+data StorePathState
+  = DownloadPlanned
+  | Downloading RunningTransferInfo
+  | Uploading RunningTransferInfo
+  | Downloaded CompletedTransferInfo
+  | Uploaded CompletedTransferInfo
   deriving stock (Show, Eq, Ord, Generic)
 
 data DerivationInfo = MkDerivationInfo
@@ -95,9 +100,9 @@ type RunningBuildInfo = BuildInfo ()
 
 type CompletedBuildInfo = BuildInfo UTCTime
 
-type RunningTransferInfo = TransferInfo UTCTime
+type RunningTransferInfo = TransferInfo ()
 
-type CompletedTransferInfo = TransferInfo (Maybe Int)
+type CompletedTransferInfo = TransferInfo (Maybe UTCTime)
 
 type FailedBuildInfo = BuildInfo (UTCTime, FailType)
 
@@ -153,7 +158,8 @@ data BuildInfo a = MkBuildInfo
 
 data TransferInfo a = MkTransferInfo
   { host :: Host
-  , duration :: a
+  , start :: UTCTime
+  , end :: a
   }
   deriving stock (Show, Eq, Ord, Generic, Functor)
 

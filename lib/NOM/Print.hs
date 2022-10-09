@@ -332,13 +332,13 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
               Just
                 ( False
                 , \now ->
-                    markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " from " <> markup magenta (toText infos.host)
+                    markups [bold, yellow] (down <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.start <> " from " <> markup magenta (toText infos.host)
                 )
           | Just infos <- outputs_in_map drvInfo.dependencySummary.runningUploads =
               Just
                 ( False
                 , \now ->
-                    markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.duration <> " to " <> markup magenta (toText infos.host)
+                    markups [bold, yellow] (up <> " " <> drvName) <> " " <> clock <> " " <> timeDiff now infos.start <> " to " <> markup magenta (toText infos.host)
                 )
           | otherwise = Nothing
     case drvInfo.buildStatus of
@@ -348,14 +348,14 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
             ( False
             , const $
                 markup green (done <> down <> " " <> drvName)
-                  <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
+                  <> maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
                   <> markup grey (" from " <> markup magenta (toText infos.host))
             )
         | Just infos <- outputs_in_map drvInfo.dependencySummary.completedUploads ->
             ( False
             , const $
                 markup green (done <> up <> " " <> drvName)
-                  <> maybe "" (\diff -> " " <> clock <> " " <> timeDiffSeconds diff) infos.duration
+                  <> maybe "" (\end -> " " <> clock <> " " <> timeDiff end infos.start) infos.end
                   <> markup grey (" to " <> markup magenta (toText infos.host))
             )
         | outputs_in drvInfo.dependencySummary.plannedDownloads -> (True, const $ markup blue (todo <> down <> " " <> drvName))

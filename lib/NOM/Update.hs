@@ -368,7 +368,7 @@ finishBuildByPathId host pathId = do
 
 downloading :: Host -> StorePathId -> UTCTime -> NOMState ()
 downloading host pathId start = do
-  insertStorePathState pathId (State.Downloading MkTransferInfo{host, duration = start}) Nothing
+  insertStorePathState pathId (State.Downloading MkTransferInfo{host, start, end = ()}) Nothing
 
 getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
@@ -378,17 +378,17 @@ getBuildInfoIfRunning drvId =
 
 downloaded :: Host -> StorePathId -> UTCTime -> NOMState ()
 downloaded host pathId end = do
-  insertStorePathState pathId (Downloaded MkTransferInfo{host, duration = Nothing}) $ Just \case
-    State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info{duration = Just $ timeDiffInt end transfer_info.duration})
+  insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Nothing}) $ Just \case
+    State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Just end)
     other -> other
 
 uploading :: Host -> StorePathId -> UTCTime -> NOMState ()
 uploading host pathId start =
-  insertStorePathState pathId (State.Uploading MkTransferInfo{host, duration = start}) Nothing
+  insertStorePathState pathId (State.Uploading MkTransferInfo{host, start, end = ()}) Nothing
 uploaded :: Host -> StorePathId -> UTCTime -> NOMState ()
 uploaded host pathId end =
-  insertStorePathState pathId (Uploaded MkTransferInfo{host, duration = Nothing}) $ Just \case
-    State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info{duration = Just $ timeDiffInt end transfer_info.duration})
+  insertStorePathState pathId (Uploaded MkTransferInfo{host, start = end, end = Nothing}) $ Just \case
+    State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info $> Just end)
     other -> other
 
 building :: Host -> Derivation -> UTCTime -> Maybe ActivityId -> ProcessingT m ()
