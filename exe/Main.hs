@@ -186,7 +186,7 @@ helpText =
     , "  Direct piping:"
     , "    via json parsing:"
     , "      nix build --log-format internal-json -v <nix-args> |& nom --json"
-    , "      nix-build <nix-args> |& nom"
+    , "      nix-build --log-format internal-json -v <nix-args> |& nom --json"
     , ""
     , "    via human-readable log parsing:"
     , "      nix-build |& nom"
