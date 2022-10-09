@@ -295,22 +295,22 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
       join
         [ memptyIfTrue
             (CMap.null failedBuilds)
-            [markup red $ show (CMap.size failedBuilds) <> " " <> warning]
+            [markup red $ show (CMap.size failedBuilds) <> " " <> markup bold warning]
         , memptyIfTrue
             (CMap.null runningBuilds)
-            [markup yellow $ show (CMap.size runningBuilds) <> " " <> running]
+            [markup yellow $ show (CMap.size runningBuilds) <> " " <> markup bold running]
         , memptyIfTrue
             (CSet.null plannedBuilds)
             [markup blue $ show (CSet.size plannedBuilds) <> " " <> todo]
         , memptyIfTrue
             (CMap.null runningUploads)
-            [markup magenta $ show (CMap.size runningUploads) <> " " <> running <> up]
+            [markup yellow $ show (CMap.size runningUploads) <> " " <> markup bold (running <> up)]
         , memptyIfTrue
             (CMap.null runningDownloads)
-            [markup yellow $ show (CMap.size runningDownloads) <> " " <> running <> down]
+            [markup yellow $ show (CMap.size runningDownloads) <> " " <> markup bold (running <> down)]
         , memptyIfTrue
             (CSet.null plannedDownloads)
-            [markup blue $ show (CSet.size plannedDownloads) <> " " <> todo <> down]
+            [markup blue $ show (CSet.size plannedDownloads) <> " " <> todo <> markup bold down]
         ]
 
   hostMarkup :: Host -> [Text]
@@ -332,8 +332,8 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
           ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> down) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningDownloads)
             <> ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> up) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningUploads)
             <> ((\name -> const $ markup blue (todo <> name <> down)) <$> store_paths_in drvInfo.dependencySummary.plannedDownloads)
-            <> ((\(name, infos) -> const $ markup green (done <> " " <> name <> down <> " " <> markup magenta (disambiguate_transfer_host infos.host)) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
-            <> ((\(name, infos) -> const $ markup green (done <> " " <> name <> up <> " " <> markup magenta (disambiguate_transfer_host infos.host)) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
+            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> down <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
+            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> up <> " " ) <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
         store_path_infos = if null store_path_info_list then const "" else \now -> " (" <> Text.intercalate ", " (($ now) <$> store_path_info_list) <> ")"
         print_func = case drvInfo.buildStatus of
           Unknown -> const drvName
@@ -361,7 +361,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
           Built buildInfo ->
             const $
               unwords $
-                [markup green (done <> " " <> drvName)]
+                [markups [green, bold] done <> markup green (" " <> drvName)]
                   <> hostMarkup buildInfo.host
                   <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
      in (drvInfo.buildStatus == Planned || not (null $ store_paths_in drvInfo.dependencySummary.plannedDownloads), \now -> print_func now <> store_path_infos now)
