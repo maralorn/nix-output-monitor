@@ -296,22 +296,22 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
       join
         [ memptyIfTrue
             (CMap.null failedBuilds)
-            [markup red $ show (CMap.size failedBuilds) <> " failed"]
+            [markup red $ show (CMap.size failedBuilds) <> " " <> warning]
         , memptyIfTrue
             (CMap.null runningBuilds)
-            [markup yellow $ show (CMap.size runningBuilds) <> " building"]
+            [markup yellow $ show (CMap.size runningBuilds) <> " " <> running]
         , memptyIfTrue
             (CSet.null plannedBuilds)
-            [markup blue $ show (CSet.size plannedBuilds) <> " waiting builds"]
+            [markup blue $ show (CSet.size plannedBuilds) <> " " <> todo]
         , memptyIfTrue
             (CMap.null runningUploads)
-            [markup magenta $ show (CMap.size runningUploads) <> " uploading"]
+            [markup magenta $ show (CMap.size runningUploads) <> " " <> running <> up]
         , memptyIfTrue
             (CMap.null runningDownloads)
-            [markup yellow $ show (CMap.size runningDownloads) <> " downloads"]
+            [markup yellow $ show (CMap.size runningDownloads) <> " " <> running <> down]
         , memptyIfTrue
             (CSet.null plannedDownloads)
-            [markup blue $ show (CSet.size plannedDownloads) <> " waiting downloads"]
+            [markup blue $ show (CSet.size plannedDownloads) <> " " <> todo <> down]
         ]
 
   printDerivation :: DerivationInfo -> (Bool, UTCTime -> Text)
