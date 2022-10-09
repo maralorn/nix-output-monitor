@@ -263,19 +263,14 @@ printBuilds nomState@MkNOMV1State{..} maxHeight = printBuildsWithTime
     (thisDrv Seq.:<| restDrvs) -> do
       (seen_ids, sorted_set) <- get
       let ~sort_key = sortKey nomState thisDrv
-          MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
+          summary@MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
           ~runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
-          ~completed_transfers = CMap.keysSet completedDownloads <> CMap.keysSet completedUploads
-          ~relevant_store_paths = runningTransfers <> plannedDownloads <> completed_transfers
           ~nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path ->
             let infos = get' (getStorePathInfos path)
              in infos.inputFor <> CSet.fromFoldable infos.producer
-          ~thisInfos = get' (getDerivationInfos thisDrv)
-          outputs_are paths = any (`CSet.member` paths) (Map.elems thisInfos.outputs)
-          ~unknown = thisInfos.buildStatus == Unknown
           ~may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           ~show_this_node =
-            (not unknown || outputs_are relevant_store_paths)
+            summary /= mempty
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
                     || Set.size sorted_set < maxHeight
