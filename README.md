@@ -111,19 +111,11 @@ Also different terminals might work differently well. I recommend: `pkgs.foot`.
 
 ## Example Runs
 
-These examples are currently very outdated, but might give you a first impression:
-
 An example remote build:
-[![asciicast](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65.svg)](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65)
+[![asciicast](https://asciinema.org/a/KwCh38ujQ9wusHw8kyW4KCMZo.svg)](https://asciinema.org/a/KwCh38ujQ9wusHw8kyW4KCMZo)
 
-An example failing remote build:
-[![asciicast](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65.svg)](https://asciinema.org/a/TASdstyOJm3reqFcKZrekgH65)
-
-An example really large build (`haskell-language-server`):
-[![asciicast](https://asciinema.org/a/DDdRLAaiL65PsYUS4dvEaFWBm.svg)](https://asciinema.org/a/DDdRLAaiL65PsYUS4dvEaFWBm)
-
-An example running `sudo nixos-rebuild switch`:
-[![asciicast](https://asciinema.org/a/fQTfaxCjNQoNz9eJYGGrLZTcw.svg)](https://asciinema.org/a/fQTfaxCjNQoNz9eJYGGrLZTcw)
+An example with a lot of downloads:
+[![asciicast](https://asciinema.org/a/7hJXH2iFLEkKxG1lL25lspqNn.svg)](https://asciinema.org/a/7hJXH2iFLEkKxG1lL25lspqNn)
 
 ## Implementation
 
