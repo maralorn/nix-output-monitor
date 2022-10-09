@@ -31,7 +31,7 @@ Issues and pull requests welcome under https://github.com/maralorn/nix-output-mo
 
 **Warning:** The displayed build tree might be incomplete with new-style commands like `nix build` for nix versions <2.10.
 
-The `nom` binary (starting from version 2.0) behaves like a `nix` drop in, with much more colorful output, for the following commands:
+The `nom` binary (starting from version 2.0) behaves as a `nix` drop in, with much more colorful output, for the following commands:
 
 `nom build <args>`: Behaves like `nix build <args>`.  
 `nom shell <args>`: Behaves like `nix shell <args>`.  
