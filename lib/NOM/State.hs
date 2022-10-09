@@ -12,12 +12,15 @@ module NOM.State (
   DerivationId,
   DerivationInfo (..),
   DerivationSet,
+  DerivationMap,
   TransferInfo (..),
   NOMState,
   NOMV1State (..),
   getDerivationInfos,
   initalStateFromBuildPlatform,
   updateSummaryForStorePath,
+  clearDerivationIdFromSummary,
+  clearStorePathsFromSummary,
   getStorePathInfos,
   NOMStateT,
   getRunningBuilds,
@@ -253,39 +256,44 @@ getStorePathInfos storePathId =
     . (.storePathInfos)
     <$> get
 
-updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
-updateSummaryForDerivation oldStatus newStatus drvId = addNew . removeOld
- where
-  removeOld = case oldStatus of
+clearDerivationIdFromSummary :: BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
+clearDerivationIdFromSummary oldStatus drvId = case oldStatus of
     Unknown -> id
     Planned -> field @"plannedBuilds" %~ CSet.delete drvId
     Building _ -> field @"runningBuilds" %~ CMap.delete drvId
-    Failed _ -> id
-    Built _ -> id
-  addNew = case newStatus of
+    Failed _ -> field @"failedBuilds" %~ CMap.delete drvId
+    Built _ -> field @"completedBuilds" %~ CMap.delete drvId
+
+updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
+updateSummaryForDerivation oldStatus newStatus drvId = clearDerivationIdFromSummary oldStatus drvId . case newStatus of
     Unknown -> id
     Planned -> field @"plannedBuilds" %~ CSet.insert drvId
     Building bi -> field @"runningBuilds" %~ CMap.insert drvId (void bi)
     Failed bi -> field @"failedBuilds" %~ CMap.insert drvId bi
     Built bi -> field @"completedBuilds" %~ CMap.insert drvId bi
 
-updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
-updateSummaryForStorePath oldStates newStates pathId =
-  foldMapEndo insert_added addedStates . foldMapEndo remove_deleted deletedStates
+clearStorePathsFromSummary :: Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
+clearStorePathsFromSummary deleted_states path_id =
+  foldMapEndo remove_deleted deleted_states
  where
   remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
   remove_deleted = \case
-    DownloadPlanned -> field @"plannedDownloads" %~ CSet.delete pathId
-    Downloading _ -> field @"runningDownloads" %~ CMap.delete pathId
-    Uploading _ -> field @"runningUploads" %~ CMap.delete pathId
-    Downloaded _ -> error "BUG: Don’t remove a completed download"
-    Uploaded _ -> error "BUG: Don‘t remove a completed upload"
+    DownloadPlanned -> field @"plannedDownloads" %~ CSet.delete path_id
+    Downloading _ -> field @"runningDownloads" %~ CMap.delete path_id
+    Uploading _ -> field @"runningUploads" %~ CMap.delete path_id
+    Downloaded _ -> field @"completedDownloads" %~ CMap.delete path_id
+    Uploaded _ -> field @"completedUploads" %~ CMap.delete path_id
+
+updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
+updateSummaryForStorePath old_states new_states path_id =
+  foldMapEndo insert_added added_states . clearStorePathsFromSummary deleted_states path_id
+ where
   insert_added :: StorePathState -> DependencySummary -> DependencySummary
   insert_added = \case
-    DownloadPlanned -> field @"plannedDownloads" %~ CSet.insert pathId
-    Downloading ho -> field @"runningDownloads" %~ CMap.insert pathId ho
-    Uploading ho -> field @"runningUploads" %~ CMap.insert pathId ho
-    Downloaded ho -> field @"completedDownloads" %~ CMap.insert pathId ho
-    Uploaded ho -> field @"completedUploads" %~ CMap.insert pathId ho
-  deletedStates = toList $ Set.difference oldStates newStates
-  addedStates = toList $ Set.difference newStates oldStates
+    DownloadPlanned -> field @"plannedDownloads" %~ CSet.insert path_id
+    Downloading ho -> field @"runningDownloads" %~ CMap.insert path_id ho
+    Uploading ho -> field @"runningUploads" %~ CMap.insert path_id ho
+    Downloaded ho -> field @"completedDownloads" %~ CMap.insert path_id ho
+    Uploaded ho -> field @"completedUploads" %~ CMap.insert path_id ho
+  deleted_states = Set.difference old_states new_states
+  added_states = Set.difference new_states old_states

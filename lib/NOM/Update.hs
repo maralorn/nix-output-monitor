@@ -16,7 +16,7 @@ import System.Console.ANSI (SGR (Reset), setSGRCode)
 -- optics
 import Data.Generics.Product (field, typed)
 import Data.Generics.Sum (_As)
-import Optics (preview, view, (%), (%~), (.~), (?~), _1, _2, _3)
+import Optics (has, preview, view, (%), (%~), (.~), (?~), _1, _2, _3)
 
 import Nix.Derivation qualified as Nix
 
@@ -35,6 +35,7 @@ import NOM.State (
   DependencySummary,
   DerivationId,
   DerivationInfo (..),
+  DerivationMap,
   DerivationSet,
   NOMState,
   NOMStateT,
@@ -44,6 +45,8 @@ import NOM.State (
   StorePathId,
   StorePathState (..),
   TransferInfo (..),
+  clearDerivationIdFromSummary,
+  clearStorePathsFromSummary,
   drv2out,
   getDerivationId,
   getDerivationInfos,
@@ -407,29 +410,43 @@ updateDerivationState drvId updateStatus = do
   when (oldStatus /= newStatus) do
     modify (field @"derivationInfos" %~ CMap.adjust (field @"buildStatus" .~ newStatus) drvId)
     let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
-        update_status
-          | Building{} <- newStatus = \case
-              Unknown -> Planned
-              other -> other
-          | otherwise = id
+        clear_summary = clearDerivationIdFromSummary oldStatus drvId
 
     -- Update summaries of all parents and sort them
-    updateParents update_status update_summary (derivation_infos.derivationParents)
+    updateParents update_summary clear_summary (derivation_infos.derivationParents)
 
     -- Update fullSummary
     modify (field @"fullSummary" %~ update_summary)
 
-updateParents :: (BuildStatus -> BuildStatus) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
-updateParents stateUpdate update_func = go mempty
+updateParents :: (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
+updateParents update_func clear_func direct_parents = do
+  relevant_parents <- collect_parents True mempty direct_parents
+  parents <- collect_parents False mempty direct_parents
+  modify
+    ( field @"derivationInfos"
+        %~ apply_to_all_summaries update_func relevant_parents
+          . apply_to_all_summaries clear_func (CSet.difference parents relevant_parents)
+    )
+  modify (field @"touchedIds" %~ CSet.union parents)
  where
-  go :: DerivationSet -> DerivationSet -> NOMState ()
-  go updated_parents parentsToUpdate = case CSet.maxView parentsToUpdate of
-    Nothing -> modify (field @"touchedIds" %~ CSet.union updated_parents)
-    Just (parentToUpdate, restToUpdate) -> do
-      updateDerivationState parentToUpdate stateUpdate
-      modify (field @"derivationInfos" %~ CMap.adjust (field @"dependencySummary" %~ update_func) parentToUpdate)
-      next_parents <- (.derivationParents) <$> getDerivationInfos parentToUpdate
-      go (CSet.insert parentToUpdate updated_parents) (CSet.union (CSet.difference next_parents updated_parents) restToUpdate)
+  apply_to_all_summaries ::
+    (DependencySummary -> DependencySummary) ->
+    DerivationSet ->
+    DerivationMap DerivationInfo ->
+    DerivationMap DerivationInfo
+  apply_to_all_summaries func = foldMapEndo (CMap.adjust (field @"dependencySummary" %~ func)) . CSet.toList
+  collect_parents :: Bool -> DerivationSet -> DerivationSet -> NOMState DerivationSet
+  collect_parents no_irrelevant collected_parents parents_to_scan = case CSet.maxView parents_to_scan of
+    Nothing -> pure collected_parents
+    Just (current_parent, rest_to_scan) -> do
+      drv_infos <- getDerivationInfos current_parent
+      transfer_states <- fold <$> forM (Map.elems drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
+      --let has_completed_transfer = any (\x -> has (_As @"Downloaded") x || has (_As @"Uploaded") x) transfer_states
+      let is_irrelevant = Set.null transfer_states && has (_As @"Unknown") drv_infos.buildStatus
+          proceed = collect_parents no_irrelevant
+      if is_irrelevant && no_irrelevant
+        then proceed collected_parents rest_to_scan
+        else proceed (CSet.insert current_parent collected_parents) (CSet.union (CSet.difference drv_infos.derivationParents collected_parents) rest_to_scan)
 
 updateStorePathStates :: StorePathState -> Maybe (StorePathState -> StorePathState) -> Set StorePathState -> Set StorePathState
 updateStorePathStates new_state update_state =
@@ -456,9 +473,10 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   modify (field @"storePathInfos" %~ CMap.adjust (field @"states" .~ newStatus) storePathId)
 
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
+      clear_summary = clearStorePathsFromSummary oldStatus storePathId
 
   -- Update summaries of all parents
-  updateParents id update_summary (maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
+  updateParents update_summary clear_summary (maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
 
   -- Update fullSummary
   modify (field @"fullSummary" %~ update_summary)
