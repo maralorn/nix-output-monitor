@@ -75,7 +75,7 @@ main = do
         then exitSuccess
         else exitFailure
     (["--json"], _) -> do
-      finalState <- monitorHandle (Proxy @(Either NOMError NixJSONMessage)) defaultConfig{piping = False} stdin
+      finalState <- monitorHandle (Proxy @(Either NOMError NixJSONMessage)) defaultConfig{piping = True} stdin
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure

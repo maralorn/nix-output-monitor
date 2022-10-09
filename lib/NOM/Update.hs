@@ -106,7 +106,7 @@ updateStateNixJSONMessage input inputState = do
           tell [Left err]
           noChange
         Right jsonMessage -> processJsonMessage now jsonMessage
-  ((hasChanged, msgs), !outputState) <- runStateT (runWriterT process) inputState
+  ((hasChanged, msgs), !outputState) <- runStateT (runWriterT (setInputReceived >> process)) inputState
   let retval = if hasChanged then Just outputState else Nothing
       errors = lefts msgs
   pure ((errors, ByteString.unlines (rights msgs)), retval)
