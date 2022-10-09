@@ -89,7 +89,6 @@ library
     NOM.NixMessage.OldStyle
     NOM.Parser
     NOM.Parser.JSON.Hermes
-    NOM.Parser.JSON.Manual
     NOM.Print
     NOM.Print.Table
     NOM.Print.Tree
