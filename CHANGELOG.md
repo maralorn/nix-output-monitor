@@ -10,6 +10,7 @@
 * The output has been massively reworked to accommodate the new information available from json output. This includes:
   * Running downloads/uploads
   * Displaying state for every output and input separately
+  * Show current build phase (only possible for local builds).
   * Remote builders are displayed more economically
   * Build summaries have been reworked to be less overwhelming
   * Log output is prefixed with build job names.
