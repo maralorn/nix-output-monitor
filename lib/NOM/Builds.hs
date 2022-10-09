@@ -8,8 +8,8 @@ import Data.Attoparsec.Text qualified as TextParser
 import Data.Text qualified as Text
 
 data StorePath = StorePath
-  { hash :: !Text
-  , name :: !Text
+  { hash :: Text
+  , name :: Text
   }
   deriving stock (Show, Ord, Eq, Generic)
 
