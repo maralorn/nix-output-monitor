@@ -353,11 +353,11 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
           phase
         drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
         store_path_info_list =
-          ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> down) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningDownloads)
-            <> ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> up) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningUploads)
-            <> ((\name -> const $ markup blue (todo <> name <> down)) <$> store_paths_in drvInfo.dependencySummary.plannedDownloads)
-            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> down <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
-            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> up <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
+          ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> " " <> down) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningDownloads)
+            <> ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> " " <> up) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningUploads)
+            <> ((\name -> const $ markup blue (todo <> name <> " " <> down)) <$> store_paths_in drvInfo.dependencySummary.plannedDownloads)
+            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> " " <> down <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
+            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> " " <> up <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
         store_path_infos = if null store_path_info_list then const "" else \now -> " (" <> Text.intercalate ", " (($ now) <$> store_path_info_list) <> ")"
         print_func = case drvInfo.buildStatus of
           Unknown -> const drvName
