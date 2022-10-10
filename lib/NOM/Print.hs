@@ -1,4 +1,4 @@
-module NOM.Print (stateToText, Config (..)) where
+module NOM.Print (stateToText, showCode, Config (..)) where
 
 import Relude
 
@@ -33,6 +33,10 @@ import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
 import NOM.Util (diffTime, relTimeToSeconds)
+import Text.Printf(printf)
+
+showCode :: Text -> [String]
+showCode = map (printf "%02X". fromEnum) . toString
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -41,15 +45,33 @@ lowerleft = "┗"
 upperleft = "┏"
 leftT = "┣"
 horizontal = "━"
-down = "⬇" <> textRep
-up = "⬆" <> textRep
+-- >>> showCode down
+-- ["2193","FE0E"]
+down = "↓" <> textRep
+-- >>> showCode up
+-- ["2191","FE0E"]
+up = "↑" <> textRep
+-- >>> showCode clock
+-- ["23F1","FE0E"]
 clock = "⏱" <> textRep
-running = "▶" <> textRep
+-- >>> showCode running
+-- ["25B6","FE0E"]
+running = "⏵" <> textRep
+-- >>> showCode done
+-- ["2714","FE0E"]
 done = "✔" <> textRep
-todo = "⏳︎︎" <> textRep
+-- >>> showCode todo
+-- ["23F3","FE0E"]
+todo = "⏳" <> textRep
+-- >>> showCode warning
+-- ["26A0","FE0E"]
 warning = "⚠" <> textRep
-average = "∅"
-bigsum = "∑"
+-- >>> showCode average
+-- ["2205","FE0E"]
+average = "∅" <> textRep
+-- >>> showCode bigsum
+-- ["2211","FE0E"]
+bigsum = "∑" <> textRep
 
 showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
@@ -306,10 +328,10 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             [markup blue $ show (CSet.size plannedBuilds) <> " " <> todo]
         , memptyIfTrue
             (CMap.null runningUploads)
-            [markup yellow $ show (CMap.size runningUploads) <> " " <> markup bold (running <> up)]
+            [markup yellow $ show (CMap.size runningUploads) <> " " <> markup bold up]
         , memptyIfTrue
             (CMap.null runningDownloads)
-            [markup yellow $ show (CMap.size runningDownloads) <> " " <> markup bold (running <> down)]
+            [markup yellow $ show (CMap.size runningDownloads) <> " " <> markup bold down]
         , memptyIfTrue
             (CSet.null plannedDownloads)
             [markup blue $ show (CSet.size plannedDownloads) <> " " <> todo <> markup bold down]
