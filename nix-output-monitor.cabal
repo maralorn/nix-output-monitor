@@ -12,7 +12,12 @@ license-file:       LICENSE
 author:             maralorn <mail@maralorn.de>
 maintainer:         maralorn <mail@maralorn.de>
 build-type:         Simple
-extra-source-files: CHANGELOG.md
+extra-source-files:
+  CHANGELOG.md
+  completions/completion.zsh
+  test/golden1.stderr
+  test/golden1.stdout
+
 category:
   console
   nix

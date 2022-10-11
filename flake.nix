@@ -30,12 +30,22 @@
           seed = "1";
           inherit system;
         };
+        cleanSelf = lib.sourceFilesBySuffices self [
+          ".hs"
+          ".cabal"
+          ".stderr"
+          ".stdout"
+          ".zsh"
+          "LICENSE"
+          "CHANGELOG.md"
+        ];
       in rec {
         packages = {
           default =
             (lib.pipe {}
               [
-                (haskellPackages.callCabal2nix "nix-output-monitor" ./.)
+                (haskellPackages.callCabal2nix "nix-output-monitor" cleanSelf)
+                haskellPackages.buildFromCabalSdist
                 hlib.justStaticExecutables
                 (hlib.overrideCabal
                   {
