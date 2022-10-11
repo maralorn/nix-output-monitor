@@ -22,15 +22,17 @@ import NOM.State (
   DerivationId,
   DerivationInfo (..),
   DerivationSet,
+  StorePathInfo (..),
   NOMState,
   NOMV1State,
   TransferInfo (..),
   getDerivationInfos,
-  updateSummaryForDerivation,
+  updateSummaryForDerivation, getStorePathInfos, updateSummaryForStorePath,
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import Streamly.Internal.Data.Time.Units (AbsTime)
+import NOM.Util (foldMapEndo)
 
 sortDepsOfSet :: DerivationSet -> NOMState ()
 sortDepsOfSet parents = do
@@ -48,7 +50,8 @@ sortDepsOfSet parents = do
   mapM_ (\drvId -> sort_parent drvId) $ CSet.toList parents
 
 type SortKey =
-  ( SortOrder -- Sort by the most important kind of build for all children
+  ( SortOrder -- First sort by the state of this build
+  , SortOrder -- Sort by the most important kind of build for all children
   , -- We always want to show all running builds and transfers so we try to display them low in the tree.
     Down Int -- Running Builds, prefer more
   , Down Int -- Running Downloads, prefer more
@@ -81,18 +84,30 @@ summaryIncludingRoot drvId = do
   MkDerivationInfo{dependencySummary, buildStatus} <- getDerivationInfos drvId
   pure (updateSummaryForDerivation Unknown buildStatus drvId dependencySummary)
 
+summaryOnlyThisNode :: DerivationId -> NOMState DependencySummary
+summaryOnlyThisNode drvId = do
+  MkDerivationInfo{outputs, buildStatus} <- getDerivationInfos drvId
+  output_infos <- mapM (\x -> (x,) <$> getStorePathInfos x) (toList outputs)
+  pure $ foldMapEndo (\(output_id, output_info) ->
+     updateSummaryForStorePath mempty output_info.states output_id) output_infos . updateSummaryForDerivation Unknown buildStatus drvId 
+     $ mempty
+
+sortOrder :: DependencySummary -> SortOrder
+sortOrder MkDependencySummary{..} = fromMaybe SUnknown (firstJust id sort_entries)
+ where
+  sort_entries =
+    [ SFailed <$> minimumMay (view _1 . (.end) <$> failedBuilds)
+    , SBuilding <$> minimumMay ((.start) <$> runningBuilds)
+    , SDownloading <$> minimumMay ((.start) <$> runningDownloads)
+    , SUploading <$> minimumMay ((.start) <$> runningUploads)
+    , pureIf (not (CSet.null plannedBuilds)) SWaiting
+    , pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting
+    , SDone <$> minimumMay (Down . (.end) <$> completedBuilds)
+    , SDownloaded <$> minimumMay (Down . (.start) <$> completedDownloads)
+    , SUploaded <$> minimumMay (Down . (.start) <$> completedUploads)
+    ]
+
 sortKey :: NOMV1State -> DerivationId -> SortKey
 sortKey nom_state drvId =
-  let MkDependencySummary{..} = evalState (summaryIncludingRoot drvId) nom_state
-      sort_entries =
-        [ SFailed <$> minimumMay (view _1 . (.end) <$> failedBuilds)
-        , SBuilding <$> minimumMay ((.start) <$> runningBuilds)
-        , SDownloading <$> minimumMay ((.start) <$> runningDownloads)
-        , SUploading <$> minimumMay ((.start) <$> runningUploads)
-        , pureIf (not (CSet.null plannedBuilds)) SWaiting
-        , pureIf (not (CSet.null plannedDownloads)) SDownloadWaiting
-        , SDone <$> minimumMay (Down . (.end) <$> completedBuilds)
-        , SDownloaded <$> minimumMay (Down . (.start) <$> completedDownloads)
-        , SUploaded <$> minimumMay (Down . (.start) <$> completedUploads)
-        ]
-   in (fromMaybe SUnknown (firstJust id sort_entries), Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds + CSet.size plannedDownloads)
+  let (only_this_summary,summary@MkDependencySummary{..}) = evalState ((,) <$> summaryOnlyThisNode drvId <*> summaryIncludingRoot drvId) nom_state
+   in (sortOrder only_this_summary, sortOrder summary, Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds + CSet.size plannedDownloads)

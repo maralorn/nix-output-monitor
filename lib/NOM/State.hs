@@ -32,7 +32,7 @@ module NOM.State (
   out2drv,
   drv2out,
   updateSummaryForDerivation,
-  associatedStorePaths,
+  inputStorePaths,
 ) where
 
 import Relude
@@ -233,12 +233,12 @@ getDerivationId drv = do
         pure key
   gets (Map.lookup drv . (.derivationIds)) >>= maybe newId pure
 
-associatedStorePaths :: DerivationInfo -> NOMState (Map Text StorePathId)
-associatedStorePaths drv_info = do
+inputStorePaths :: DerivationInfo -> NOMState (Map Text StorePathId)
+inputStorePaths drv_info = do
   inputs <- forM (CSet.toList drv_info.inputSources) \source -> do
     store_path_infos <- getStorePathInfos source
-    pure ("input:" <> store_path_infos.name.name, source)
-  pure $ drv_info.outputs <> Map.fromList inputs
+    pure (store_path_infos.name.name, source)
+  pure $ Map.fromList inputs
 
 drv2out :: DerivationId -> NOMState (Maybe StorePath)
 drv2out drv =

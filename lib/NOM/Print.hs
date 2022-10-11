@@ -10,7 +10,7 @@ import Data.MemoTrie (memo)
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import Data.Time (ZonedTime, defaultTimeLocale, formatTime, NominalDiffTime)
+import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
 import Data.Tree (Forest, Tree (Node))
 import Optics (itoList, view, _2)
 import Streamly.Internal.Data.Time.Units (AbsTime, diffAbsTime)
@@ -21,22 +21,23 @@ import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.Terminal.Size (Window)
 import System.Console.Terminal.Size qualified as Window
 
+import Data.Foldable qualified as Unsafe
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), associatedStorePaths, getDerivationInfos, getStorePathInfos)
+import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), inputStorePaths, getDerivationInfos, getStorePathInfos)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
 import NOM.Util (diffTime, relTimeToSeconds)
-import Text.Printf(printf)
+import Text.Printf (printf)
 
 showCode :: Text -> [String]
-showCode = map (printf "%02X". fromEnum) . toString
+showCode = map (printf "%02X" . fromEnum) . toString
 
 textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
@@ -241,7 +242,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   printTreeNode :: TreeLocation -> DerivationInfo -> AbsTime -> Text
   printTreeNode location drvInfo =
     let ~summary = showSummary drvInfo.dependencySummary
-        (planned, display_drv) = printDerivation drvInfo (get' (associatedStorePaths drvInfo))
+        (planned, display_drv) = printDerivation drvInfo (get' (inputStorePaths drvInfo))
         displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
      in \now -> display_drv now <> displayed_summary
 
@@ -328,13 +329,13 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             [markup blue $ show (CSet.size plannedBuilds) <> " " <> todo]
         , memptyIfTrue
             (CMap.null runningUploads)
-            [markup yellow $ show (CMap.size runningUploads) <> " " <> markup bold up]
+            [markup yellow $ show (CMap.size runningUploads) <> " " <> up]
         , memptyIfTrue
             (CMap.null runningDownloads)
-            [markup yellow $ show (CMap.size runningDownloads) <> " " <> markup bold down]
+            [markup yellow $ show (CMap.size runningDownloads) <> " " <> down]
         , memptyIfTrue
             (CSet.null plannedDownloads)
-            [markup blue $ show (CSet.size plannedDownloads) <> " " <> todo <> markup bold down]
+            [markup blue $ show (CSet.size plannedDownloads) <> " " <> down <> " " <> todo]
         ]
 
   hostMarkup :: Host -> [Text]
@@ -342,26 +343,78 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   hostMarkup host = ["on " <> hostLabel host]
 
   printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, AbsTime -> Text)
-  printDerivation drvInfo associated_store_paths = do
-    let store_paths_in :: StorePathSet -> [Text]
-        store_paths_in some_set = Map.keys $ Map.filter (`CSet.member` some_set) associated_store_paths
-        store_paths_in_map :: StorePathMap (TransferInfo a) -> [(Text, TransferInfo a)]
-        store_paths_in_map info_map = Map.toList $ Map.mapMaybe (`CMap.lookup` info_map) associated_store_paths
+  printDerivation drvInfo _input_store_paths = do
+    let store_paths_in :: StorePathSet -> Bool
+        store_paths_in some_set = not $ Map.null $ Map.filter (`CSet.member` some_set) drvInfo.outputs
+        store_paths_in_map :: StorePathMap (TransferInfo a) -> [TransferInfo a]
+        store_paths_in_map info_map = toList $ Map.mapMaybe (`CMap.lookup` info_map) drvInfo.outputs
+        hosts :: [TransferInfo a] -> [Host]
+        hosts = toList . Set.fromList . fmap (.host)
+        earliest_start :: [TransferInfo a] -> AbsTime
+        earliest_start = Unsafe.minimum . fmap (.start)
+        build_sum :: [TransferInfo (Maybe AbsTime)] -> NominalDiffTime
+        build_sum = relTimeToSeconds . sum . fmap (\transfer_info -> maybe 0 (diffAbsTime transfer_info.start) transfer_info.end)
         phaseMay activityId' = do
           activityId <- activityId'
           (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
           phase
         drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
-        store_path_info_list =
-          ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> " " <> down) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningDownloads)
-            <> ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> " " <> up) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningUploads)
-            <> ((\name -> const $ markup blue (todo <> name <> " " <> down)) <$> store_paths_in drvInfo.dependencySummary.plannedDownloads)
-            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> " " <> down <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
-            <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> " " <> up <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
-        store_path_infos = if null store_path_info_list then const "" else \now -> " (" <> Text.intercalate ", " (($ now) <$> store_path_info_list) <> ")"
-        print_func = case drvInfo.buildStatus of
-          Unknown -> const drvName
-          Planned -> const $ markup blue (todo <> " " <> drvName)
+        downloadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningDownloads
+        uploadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningUploads
+        plannedDownloads = store_paths_in drvInfo.dependencySummary.plannedDownloads
+        downloadedOutputs = store_paths_in_map drvInfo.dependencySummary.completedDownloads
+        uploadedOutputs = store_paths_in_map drvInfo.dependencySummary.completedUploads
+     in -- This code for printing info about every output proved to be to verbose. Keeping it in case we want something like that later on, maybe as an option.
+        -- store_path_info_list =
+        --  ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> " " <> down) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningDownloads)
+        --    <> ((\(name, infos) now -> markups [bold, yellow] (running <> " " <> name <> " " <> up) <> " " <> markup magenta (disambiguate_transfer_host infos.host) <> clock <> " " <> timeDiff now infos.start) <$> store_paths_in_map drvInfo.dependencySummary.runningUploads)
+        --    <> ((\name -> const $ markup blue (todo <> name <> " " <> down)) <$> store_paths_in drvInfo.dependencySummary.plannedDownloads)
+        --    <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> " " <> down <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedDownloads)
+        --    <> ((\(name, infos) -> const $ markups [bold, green] (done <> " ") <> markup green (name <> " " <> up <> " ") <> markup magenta (disambiguate_transfer_host infos.host) <> markup grey (maybe "" (\end -> clock <> " " <> timeDiff end infos.start) infos.end)) <$> store_paths_in_map drvInfo.dependencySummary.completedUploads)
+        -- store_path_infos = if null store_path_info_list then const "" else \now -> " (" <> Text.intercalate ", " (($ now) <$> store_path_info_list) <> ")"
+
+        case drvInfo.buildStatus of
+          _
+            | not $ null downloadingOutputs ->
+                ( False
+                , \now ->
+                    markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
+                      <> unwords
+                        ( (markup magenta . disambiguate_transfer_host <$> hosts downloadingOutputs)
+                            <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start downloadingOutputs) in if age > 1 then [clock, printDuration age] else [])
+                        )
+                )
+            | not $ null uploadingOutputs ->
+                ( False
+                , \now ->
+                    markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
+                      <> unwords
+                        ( (markup magenta . disambiguate_transfer_host <$> hosts uploadingOutputs)
+                            <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start uploadingOutputs) in if age > 1 then [clock, printDuration age] else [])
+                        )
+                )
+          Unknown 
+            | plannedDownloads -> (True, const $ markup blue (down <> " " <> todo <> " " <> drvName))
+            | not $ null downloadedOutputs ->
+                ( False
+                , const $
+                    markup green (down <> " " <> done <> " " <> drvName)
+                      <> unwords
+                        ( (markup magenta . disambiguate_transfer_host <$> hosts downloadedOutputs)
+                            <> (let age = build_sum downloadedOutputs in ([markup grey $ clock <> " " <> printDuration age | age > 1]))
+                        )
+                )
+            | not $ null uploadedOutputs ->
+                ( False
+                , const $
+                    markup green (up <> " " <> done <> " " <> drvName)
+                      <> unwords
+                        ( (markup magenta . disambiguate_transfer_host <$> hosts uploadedOutputs)
+                            <> (let age = build_sum uploadedOutputs in ([markup grey $ clock <> " " <> printDuration age | age > 1]))
+                        )
+                )
+            | otherwise -> (False, const drvName)
+          Planned -> (True, const $ markup blue (todo <> " " <> drvName))
           Building buildInfo ->
             let phaseList = case phaseMay buildInfo.activityId of
                   Nothing -> []
@@ -371,24 +424,27 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                     <> hostMarkup buildInfo.host
                     <> phaseList
                 after_time = maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-             in \now -> unwords $ before_time <> [clock, timeDiff now buildInfo.start] <> after_time
+             in (False, \now -> unwords $ before_time <> [clock, timeDiff now buildInfo.start] <> after_time)
           Failed buildInfo ->
             let (endTime, failType) = buildInfo.end
                 phaseInfo = case phaseMay buildInfo.activityId of
                   Nothing -> []
                   Just phase -> ["in", phase]
-             in const $
-                  unwords $
-                    [markups [red, bold] (warning <> " " <> drvName)]
-                      <> hostMarkup buildInfo.host
-                      <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
+             in ( False
+                , const $
+                    unwords $
+                      [markups [red, bold] (warning <> " " <> drvName)]
+                        <> hostMarkup buildInfo.host
+                        <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
+                )
           Built buildInfo ->
-            const $
-              unwords $
-                [markups [green, bold] done <> markup green (" " <> drvName)]
-                  <> hostMarkup buildInfo.host
-                  <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
-     in (drvInfo.buildStatus == Planned || not (null $ store_paths_in drvInfo.dependencySummary.plannedDownloads), \now -> print_func now <> store_path_infos now)
+            ( False
+            , const $
+                unwords $
+                  [markups [green, bold] done <> markup green (" " <> drvName)]
+                    <> hostMarkup buildInfo.host
+                    <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
+            )
 
 printFailType :: FailType -> Text
 printFailType = \case
@@ -397,7 +453,7 @@ printFailType = \case
 
 timeDiff :: AbsTime -> AbsTime -> Text
 timeDiff x =
-  toText . printDuration . relTimeToSeconds . diffAbsTime x
+  printDuration . relTimeToSeconds . diffAbsTime x
 
 printDuration :: NominalDiffTime -> Text
 printDuration diff
