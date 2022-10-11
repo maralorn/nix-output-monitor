@@ -9,7 +9,6 @@
 * Support for parsing the nix "internal-json" log format. This gives us much more information.
 * The output has been massively reworked to accommodate the new information available from json output. This includes:
   * Running downloads/uploads
-  * Displaying state for every output and input separately
   * Show current build phase (only possible for local builds).
   * Remote builders are displayed more economically
   * Build summaries have been reworked to be less overwhelming
