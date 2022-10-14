@@ -27,7 +27,7 @@ import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, disp, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), inputStorePaths, getDerivationInfos, getStorePathInfos)
+import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProcessState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos, inputStorePaths)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
@@ -137,20 +137,20 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   partial_last_row =
     showCond
       showBuilds
-      [ nonZeroBold numRunningBuilds . yellow . label running $ disp numRunningBuilds
-      , nonZeroBold numCompletedBuilds . green . label done $ disp numCompletedBuilds
-      , nonZeroBold numPlannedBuilds . blue . label todo $ disp numPlannedBuilds
+      [ yellow $ nonZeroBold running numRunningBuilds
+      , green $ nonZeroBold done numCompletedBuilds
+      , blue $ nonZeroBold todo numPlannedBuilds
       ]
       <> showCond
         showDownloads
-        [ nonZeroBold downloadsRunning . yellow . label down $ disp downloadsRunning
-        , nonZeroBold downloadsDone . green . label down $ disp downloadsDone
-        , nonZeroBold numPlannedDownloads . blue . label todo $ disp numPlannedDownloads
+        [ yellow $ nonZeroBold down downloadsRunning
+        , green $ nonZeroBold down downloadsDone
+        , blue $ nonZeroBold todo numPlannedDownloads
         ]
       <> showCond
         showUploads
-        [ nonZeroBold uploadsRunning . yellow . label up $ disp uploadsRunning
-        , nonZeroBold uploadsDone . green . label up $ disp uploadsDone
+        [ yellow $ nonZeroBold up uploadsRunning
+        , green $ nonZeroBold up uploadsDone
         ]
   lastRow time' = partial_last_row `appendr` one (bold (header time'))
 
@@ -183,20 +183,20 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
     labelForHost (host, index) =
       showCond
         showBuilds
-        [ nonZeroShowBold numRunningBuildsOnHost (yellow (label running (disp numRunningBuildsOnHost)))
-        , nonZeroShowBold doneBuilds (green (label done (disp doneBuilds)))
+        [ yellow $ nonZeroShowBold running numRunningBuildsOnHost
+        , green $ nonZeroShowBold done doneBuilds
         , dummy
         ]
         <> showCond
           showDownloads
-          [ nonZeroShowBold downloadsRunning' (yellow (label down (disp downloadsRunning')))
-          , nonZeroShowBold downloads (green (label down (disp downloads)))
+          [ yellow $ nonZeroShowBold down downloadsRunning'
+          , green $ nonZeroShowBold down downloads
           , dummy
           ]
         <> showCond
           showUploads
-          [ nonZeroShowBold uploadsRunning' (yellow (label up (disp uploadsRunning')))
-          , nonZeroShowBold uploads (green (label up (disp uploads)))
+          [ yellow $ nonZeroShowBold up uploadsRunning'
+          , green $ nonZeroShowBold up uploads
           ]
         <> one (magenta . header $ (if index > 0 && manyHosts then "[" <> show index <> "]: " else "") <> toText host)
      where
@@ -209,11 +209,11 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
     action_count_for_host :: HasField "host" a Host => Host -> CMap.CacheIdMap b a -> Int
     action_count_for_host host = CMap.size . CMap.filter (\x -> host == x.host)
 
-nonZeroShowBold :: Int -> Entry -> Entry
-nonZeroShowBold num = if num > 0 then bold else const dummy
+nonZeroShowBold :: Text -> Int -> Entry
+nonZeroShowBold label' num = if num > 0 then label label' $ text (markup bold (show num)) else dummy
 
-nonZeroBold :: Int -> Entry -> Entry
-nonZeroBold num = if num > 0 then bold else id
+nonZeroBold :: Text -> Int -> Entry
+nonZeroBold label' num = label label' $ text (markup (if num > 0 then bold else id) (show num))
 
 data TreeLocation = Root | Twig | Leaf deriving stock (Eq)
 
@@ -320,10 +320,10 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
       join
         [ memptyIfTrue
             (CMap.null failedBuilds)
-            [markup red $ show (CMap.size failedBuilds) <> " " <> markup bold warning]
+            [markup red $ show (CMap.size failedBuilds) <> " " <> warning]
         , memptyIfTrue
             (CMap.null runningBuilds)
-            [markup yellow $ show (CMap.size runningBuilds) <> " " <> markup bold running]
+            [markup yellow $ show (CMap.size runningBuilds) <> " " <> running]
         , memptyIfTrue
             (CSet.null plannedBuilds)
             [markup blue $ show (CSet.size plannedBuilds) <> " " <> todo]
@@ -393,7 +393,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                             <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start uploadingOutputs) in if age > 1 then [clock, printDuration age] else [])
                         )
                 )
-          Unknown 
+          Unknown
             | plannedDownloads -> (True, const $ markup blue (down <> " " <> todo <> " " <> drvName))
             | not $ null downloadedOutputs ->
                 ( False
@@ -423,7 +423,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                   [markups [yellow, bold] (running <> " " <> drvName)]
                     <> hostMarkup buildInfo.host
                     <> phaseList
-                after_time = maybe [] (\x -> ["(" <> average <> timeDiffSeconds x <> ")"]) buildInfo.estimate
+                after_time = maybe [] (\x -> ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
              in (False, \now -> unwords $ before_time <> [clock, timeDiff now buildInfo.start] <> after_time)
           Failed buildInfo ->
             let (endTime, failType) = buildInfo.end
@@ -441,7 +441,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             ( False
             , const $
                 unwords $
-                  [markups [green, bold] done <> markup green (" " <> drvName)]
+                  [markup green (done <> " " <> drvName)]
                     <> hostMarkup buildInfo.host
                     <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
             )
