@@ -1,6 +1,6 @@
 # Revision history for nix-output-monitor
 
-## 2.0.0.0 -- To be released
+## 2.0.0.0 -- 2022-10-15
 
 ### Highlights:
 
