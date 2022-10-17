@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## Unreleased
+
+* Fix formatting for transfer host labels.
+
 ## 2.0.0.0 -- 2022-10-15
 
 ### Highlights:
