@@ -7,12 +7,10 @@ module NOM.State.CacheId.Set (
   maxView,
   union,
   difference,
-  intersection,
   delete,
   size,
   isSubsetOf,
   member,
-  head,
 ) where
 
 import Relude hiding (head)
@@ -40,14 +38,8 @@ null = IntSet.null . (.ints)
 maxView :: CacheIdSet b -> Maybe (CacheId b, CacheIdSet b)
 maxView = coerce . IntSet.maxView . (.ints)
 
-head :: CacheIdSet b -> Maybe (CacheId b)
-head = coerce . fmap fst . IntSet.maxView . (.ints)
-
 union :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
 union = coerce IntSet.union
-
-intersection :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
-intersection = coerce IntSet.intersection
 
 difference :: CacheIdSet b -> CacheIdSet b -> CacheIdSet b
 difference = coerce IntSet.difference

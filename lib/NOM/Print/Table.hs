@@ -9,10 +9,8 @@ module NOM.Print.Table (
   green,
   yellow,
   blue,
-  cyan,
   magenta,
   red,
-  disp,
   dummy,
   header,
   displayWidth,
@@ -33,7 +31,7 @@ import Data.Char.WCWidth (wcwidth)
 
 -- ansi-terminal
 import System.Console.ANSI (
-  Color (Black, Blue, Cyan, Green, Magenta, Red, Yellow),
+  Color (Black, Blue, Green, Magenta, Red, Yellow),
   ColorIntensity (Dull, Vivid),
   ConsoleIntensity (BoldIntensity),
   ConsoleLayer (Foreground),
@@ -78,9 +76,6 @@ widthFold (x, True) _ = (x, True)
 widthFold (x, False) (fromEnum -> 27) = (x, True) -- Escape sequence
 widthFold (x, False) c = (x + wcwidth c, False)
 
-disp :: Int -> Entry
-disp = text . show
-
 dummy :: Entry
 dummy = text ""
 
@@ -100,13 +95,12 @@ addCode code e = e{codes = code : e.codes}
 addColor :: Color -> Entry -> Entry
 addColor = addCode . SetColor Foreground Dull
 
-bold, red, green, yellow, blue, cyan, magenta, grey :: Entry -> Entry
+bold, red, green, yellow, blue, magenta, grey :: Entry -> Entry
 bold = addCode (SetConsoleIntensity BoldIntensity)
 green = addColor Green
 red = addColor Red
 yellow = addColor Yellow
 blue = addColor Blue
-cyan = addColor Cyan
 magenta = addColor Magenta
 grey = addCode $ SetColor Foreground Vivid Black
 

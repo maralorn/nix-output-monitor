@@ -26,7 +26,6 @@ module NOM.State (
   getRunningBuilds,
   getRunningBuildsByHost,
   lookupStorePathId,
-  lookupDerivationId,
   getStorePathId,
   getDerivationId,
   out2drv,
@@ -201,9 +200,6 @@ getRunningBuildsByHost host = CMap.filter (\x -> x.host == host) <$> getRunningB
 
 lookupStorePathId :: StorePathId -> NOMState StorePath
 lookupStorePathId pathId = (.name) <$> getStorePathInfos pathId
-
-lookupDerivationId :: DerivationId -> NOMState Derivation
-lookupDerivationId drvId = (.name) <$> getDerivationInfos drvId
 
 type NOMState a = forall m. MonadState NOMV1State m => m a
 

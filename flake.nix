@@ -95,6 +95,7 @@
           buildInputs = [
             pre-commit-hooks.defaultPackage.${system}
             haskellPackages.haskell-language-server
+            haskellPackages.weeder
             pkgs.haskellPackages.cabal-install
             pkgs.haskellPackages.hs-speedscope
             pkgs.pv
