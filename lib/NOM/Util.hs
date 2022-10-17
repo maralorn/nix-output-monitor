@@ -1,4 +1,4 @@
-module NOM.Util (foldMapEndo, addPrintCache, diffTime, relTimeToSeconds) where
+module NOM.Util (foldMapEndo, forMaybeM, addPrintCache, diffTime, relTimeToSeconds) where
 
 import Data.Time (NominalDiffTime)
 import Relude
@@ -7,6 +7,9 @@ import Streamly.Internal.Data.Time.Units (AbsTime, MilliSecond64 (..), RelTime, 
 
 foldMapEndo :: Foldable f => (b -> a -> a) -> f b -> a -> a
 foldMapEndo f = appEndo . foldMap (Endo . f)
+
+forMaybeM :: Monad m => [a] -> (a -> m (Maybe b)) -> m [b]
+forMaybeM = flip mapMaybeM
 
 -- Like in 'flow'
 {-# INLINE addPrintCache #-}
