@@ -119,7 +119,7 @@ class NOMInput a where
   withParser :: (StreamParser a -> IO t) -> IO t
 
 instance NOMInput (Either NOMError NixJSONMessage) where
-  withParser body = JSON.withHermesEnv \env -> body (parseStreamSimple (parseJSON env))
+  withParser body = JSON.withHermesEnv (body . parseStreamSimple . parseJSON)
   type AdditionalState (Either NOMError NixJSONMessage) = ()
   firstAdditionalState = ()
   updateState input = fmap (second ((),)) <$> updateStateNixJSONMessage input . snd
