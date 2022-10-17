@@ -225,8 +225,8 @@ printBuilds ::
   NonEmpty Text
 printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
  where
+  hostLabel :: Host -> Text
   hostLabel host = markup magenta $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
-  disambiguate_transfer_host = if length hostNums > 2 then (<> " ") . hostLabel else const ""
   printBuildsWithTime :: AbsTime -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   num_raw_roots = length forestRoots
@@ -342,6 +342,13 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   hostMarkup Localhost = mempty
   hostMarkup host = ["on " <> hostLabel host]
 
+  print_hosts :: Text -> [Host] -> [Text]
+  print_hosts direction_label hosts
+    | null hosts || length hostNums <= 2 = []
+    | otherwise = direction_label : (hostLabel <$> hosts)
+  print_hosts_down = print_hosts "from"
+  print_hosts_up = print_hosts "to"
+
   printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, AbsTime -> Text)
   printDerivation drvInfo _input_store_paths = do
     let store_paths_in :: StorePathSet -> Bool
@@ -378,18 +385,18 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             | not $ null downloadingOutputs ->
                 ( False
                 , \now ->
-                    markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
-                      <> unwords
-                        ( (markup magenta . disambiguate_transfer_host <$> hosts downloadingOutputs)
-                            <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start downloadingOutputs) in if age > 1 then [clock, printDuration age] else [])
-                        )
+                    unwords $
+                      markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
+                        : ( print_hosts_down (hosts downloadingOutputs)
+                              <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start downloadingOutputs) in if age > 1 then [clock, printDuration age] else [])
+                          )
                 )
             | not $ null uploadingOutputs ->
                 ( False
                 , \now ->
-                    markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
-                      <> unwords
-                        ( (markup magenta . disambiguate_transfer_host <$> hosts uploadingOutputs)
+                       unwords $
+                    markups [bold, yellow] (up <> " " <> running <> " " <> drvName):
+                        ( print_hosts_up (hosts uploadingOutputs)
                             <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start uploadingOutputs) in if age > 1 then [clock, printDuration age] else [])
                         )
                 )
@@ -398,18 +405,18 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             | not $ null downloadedOutputs ->
                 ( False
                 , const $
-                    markup green (down <> " " <> done <> " " <> drvName)
-                      <> unwords
-                        ( (markup magenta . disambiguate_transfer_host <$> hosts downloadedOutputs)
+                      unwords $
+                    markup green (down <> " " <> done <> " " <> drvName) :
+                        ( print_hosts_down (hosts downloadedOutputs)
                             <> (let age = build_sum downloadedOutputs in ([markup grey $ clock <> " " <> printDuration age | age > 1]))
                         )
                 )
             | not $ null uploadedOutputs ->
                 ( False
                 , const $
-                    markup green (up <> " " <> done <> " " <> drvName)
-                      <> unwords
-                        ( (markup magenta . disambiguate_transfer_host <$> hosts uploadedOutputs)
+                      unwords $
+                    markup green (up <> " " <> done <> " " <> drvName):
+                        ( print_hosts_up (hosts uploadedOutputs)
                             <> (let age = build_sum uploadedOutputs in ([markup grey $ clock <> " " <> printDuration age | age > 1]))
                         )
                 )
