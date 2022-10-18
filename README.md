@@ -83,18 +83,18 @@ unbuffer nix-build |& nom
 
 Nom tries to convey informations via symbols and colors
 
-* ▶, yellow: running builds
-* ✔, green: completed builds
-* ⏳︎︎︎, blue: planned builds
-* ⚠, red: failed builds
-* ▶⬇, yellow: running downloads
-* ▶⬆, yellow: running uploads
-* ✔⬇, green: completed downloads
-* ✔⬆, green: completed uploads
-* ⏳︎︎︎⬇, blue: waiting downloads
-* ∅: a moving average over past builds of this derivation
-* ⏱︎: running time 
-* ∑: a summary over all packages and hosts
+* `⏵` , yellow: running builds
+* `✔` , green: completed builds
+* `⏳︎︎︎`, blue: planned builds
+* `⚠` , red: failed builds
+* `↓ ⏵`, yellow: running downloads
+* `↑ ⏵`, yellow: running uploads
+* `↓ ✔`, green: completed downloads
+* `↑ ✔`, green: completed uploads
+* `↓ ⏳︎︎︎`, blue: waiting downloads
+* `∅` : a moving average over past builds of this derivation
+* `⏱︎` : running time
+* `∑`: a summary over all packages and hosts
 
 If you can‘t see all icons you maybe need another terminal font.
 I recommend any font from `pkgs.nerdfonts` e.g. `"JetBrainsMono Nerd Font"`.
@@ -102,7 +102,7 @@ Also different terminals might work differently well. I recommend: `pkgs.foot`.
 
 ### How to Read the Dependency Graph
 
-* nom will sort all builds into a tree.
+* Every entry in the nom tree stands for one derivation.
 * Children of a node are direct dependencies.
 * nom will try to show you the most relevant part of the dependency tree, roughly aiming to fill a third of your terminal
 * No build will be printed twice in the tree, it will only be shown for the lower most dependency.
