@@ -1,2 +1,5 @@
 package *
   ghc-options: -fwrite-ide-info
+constraints: relude >=1.0.0.0
+allow-newer: *:base, *:ghc-prim
+ignore-project: False
