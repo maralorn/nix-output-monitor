@@ -58,7 +58,7 @@ main = do
         else pure (test' False)
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
-testBuild :: String -> (String -> NOMV1State -> IO ()) -> Bool -> Test
+testBuild :: String -> (Text -> NOMV1State -> IO ()) -> Bool -> Test
 testBuild name asserts withNix =
   label withNix name ~: do
     let callNix = do
@@ -67,11 +67,11 @@ testBuild name asserts withNix =
             "nix-build"
             ["test/" <> name <> ".nix", "--no-out-link", "--argstr", "seed", show seed]
             ""
-            <&> (\(_, a, b) -> (a, b))
-        readFiles = (,) <$> readFile ("test/" <> name <> ".stdout") <*> readFile ("test/" <> name <> ".stderr")
+            <&> (\(_, a, b) -> (toText a, encodeUtf8 b))
+        readFiles = (,) . decodeUtf8 <$> readFileBS ("test/" <> name <> ".stdout") <*> readFileBS ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalStateFromBuildPlatform (Just "x86_64-linux")
-    endState <- processTextStream (MkConfig False False) (parseStreamAttoparsec parser) (preserveStateSnd . updateStateNixOldStyleMessage) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right (encodeUtf8 errors))
+    endState <- processTextStream (MkConfig False False) (parseStreamAttoparsec parser) (preserveStateSnd . updateStateNixOldStyleMessage) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right errors)
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()
@@ -94,7 +94,7 @@ golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDe
   assertBool "Everything built" (CSet.null plannedBuilds)
   assertBool "No running builds" (CMap.null runningBuilds)
   assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)
-  let outputStorePaths = mapMaybe parseStorePath (Text.lines (toText output))
+  let outputStorePaths = mapMaybe parseStorePath (Text.lines output)
   assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
   let outputDerivations :: [DerivationId]
       outputDerivations =
