@@ -1,8 +1,9 @@
 # Revision history for nix-output-monitor
 
-## Unreleased
+## 2.0.0.1 -- 2022-10-18
 
 * Fix formatting for transfer host labels.
+* Declutter tree: Only show timers over 1s. Reduce host label colors.
 
 ## 2.0.0.0 -- 2022-10-15
 
