@@ -83,17 +83,17 @@ unbuffer nix-build |& nom
 
 Nom tries to convey informations via symbols and colors
 
-* `⏵` , yellow: running builds
-* `✔` , green: completed builds
+* `⏵`, yellow: running builds
+* `✔`, green: completed builds
 * `⏳︎︎︎`, blue: planned builds
-* `⚠` , red: failed builds
+* `⚠`, red: failed builds
 * `↓ ⏵`, yellow: running downloads
 * `↑ ⏵`, yellow: running uploads
 * `↓ ✔`, green: completed downloads
 * `↑ ✔`, green: completed uploads
 * `↓ ⏳︎︎︎`, blue: waiting downloads
-* `∅` : a moving average over past builds of this derivation
-* `⏱︎` : running time
+* `∅`: a moving average over past builds of this derivation
+* `⏱︎`: running time
 * `∑`: a summary over all packages and hosts
 
 If you can‘t see all icons you maybe need another terminal font.
