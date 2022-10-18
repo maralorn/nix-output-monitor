@@ -299,7 +299,8 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
              in infos.inputFor <> CSet.fromFoldable infos.producer
           ~may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           ~show_this_node =
-            summary /= mempty
+             maxHeight > 0
+              && summary /= mempty
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
                     || Set.size sorted_set < maxHeight
