@@ -22,8 +22,9 @@
   }:
     flake-utils.lib.eachSystem ["x86_64-linux"] (
       system: let
+        ghc-version = "92";
         inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
-        haskellPackages = haskell.packages.ghc92;
+        haskellPackages = haskell.packages."ghc${ghc-version}";
         hlib = haskell.lib.compose;
         inherit (hlib) doJailbreak dontCheck;
         golden-test = import ./test/golden1.nix {
@@ -62,14 +63,21 @@
                     '';
                   })
               ])
-            .overrideScope (_: prev: {
-              relude = hlib.appendPatch (pkgs.fetchpatch {
-                url = "https://github.com/kowainik/relude/commit/d1fc18690b31b70ebbe68730270b73f53a5c7f12.patch";
-                sha256 = "sha256-tsozpK/AkhUE3tgUqjyDK/tnrujNd7yJdbLIUFZvJHk=";
-              }) (doJailbreak (dontCheck prev.relude));
-              optics = dontCheck prev.optics;
-              hermes-json = doJailbreak prev.hermes-json;
-            });
+            .overrideScope (
+              if ghc-version == "94"
+              then
+                (final: prev: {
+                  tasty-hedgehog = null;
+                  doctest = null;
+                  newtype-generics = doJailbreak prev.newtype-generics;
+                  streamly = doJailbreak final.streamly_0_8_3;
+                  optics = dontCheck prev.optics;
+                  hermes-json = dontCheck (doJailbreak prev.hermes-json);
+                  relude = dontCheck (doJailbreak final.relude_1_1_0_0);
+                  unicode-data = dontCheck prev.unicode-data;
+                })
+              else _: _: {}
+            );
         };
         checks = {
           pre-commit-check = pre-commit-hooks.lib.${system}.run {
@@ -95,9 +103,8 @@
           buildInputs = [
             pre-commit-hooks.defaultPackage.${system}
             haskellPackages.haskell-language-server
-            haskellPackages.weeder
+            # haskellPackages.weeder
             pkgs.haskellPackages.cabal-install
-            pkgs.haskellPackages.hs-speedscope
             pkgs.pv
           ];
           withHoogle = true;
