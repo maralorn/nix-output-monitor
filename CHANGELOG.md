@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## 2.0.0.2 -- 2022-10-19
+
+* Fix crash on too small windows
+
 ## 2.0.0.1 -- 2022-10-18
 
 * Fix formatting for transfer host labels.

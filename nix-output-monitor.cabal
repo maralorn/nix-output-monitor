@@ -1,6 +1,6 @@
 cabal-version:      2.2
 name:               nix-output-monitor
-version:            2.0.0.1
+version:            2.0.0.2
 synopsis:           Parses output of nix-build to show additional information
 description:
   A tool you can pipe stdout and stderr into to get your terminal output enriched with useful information.
