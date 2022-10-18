@@ -28,6 +28,7 @@ source-repository head
 
 common common-config
   default-extensions:
+    NoFieldSelectors
     NoImplicitPrelude
     BlockArguments
     DataKinds
@@ -36,14 +37,13 @@ common common-config
     DuplicateRecordFields
     ImportQualifiedPost
     LambdaCase
+    OverloadedRecordDot
     OverloadedStrings
     RecordWildCards
     Strict
     TypeFamilies
     TypeOperators
     ViewPatterns
-    NoFieldSelectors
-    OverloadedRecordDot
 
   build-depends:
     , ansi-terminal
