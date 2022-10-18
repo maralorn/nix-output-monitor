@@ -225,8 +225,8 @@ printBuilds ::
   NonEmpty Text
 printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
  where
-  hostLabel :: Host -> Text
-  hostLabel host = markup magenta $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
+  hostLabel :: Bool -> Host -> Text
+  hostLabel color host = (if color then markup magenta else id) $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
   printBuildsWithTime :: AbsTime -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   num_raw_roots = length forestRoots
@@ -338,16 +338,16 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             [markup blue $ show (CSet.size plannedDownloads) <> " " <> down <> " " <> todo]
         ]
 
-  hostMarkup :: Host -> [Text]
-  hostMarkup Localhost = mempty
-  hostMarkup host = ["on " <> hostLabel host]
+  hostMarkup :: Bool -> Host -> [Text]
+  hostMarkup _ Localhost = mempty
+  hostMarkup color host = ["on", hostLabel color host]
 
-  print_hosts :: Text -> [Host] -> [Text]
-  print_hosts direction_label hosts
+  print_hosts :: Bool -> Text -> [Host] -> [Text]
+  print_hosts color direction_label hosts
     | null hosts || length hostNums <= 2 = []
-    | otherwise = direction_label : (hostLabel <$> hosts)
-  print_hosts_down = print_hosts "from"
-  print_hosts_up = print_hosts "to"
+    | otherwise = direction_label : (hostLabel color <$> hosts)
+  print_hosts_down color = print_hosts color "from"
+  print_hosts_up color = print_hosts color "to"
 
   printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, AbsTime -> Text)
   printDerivation drvInfo _input_store_paths = do
@@ -361,6 +361,10 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
         earliest_start = Unsafe.minimum . fmap (.start)
         build_sum :: [TransferInfo (Maybe AbsTime)] -> NominalDiffTime
         build_sum = relTimeToSeconds . sum . fmap (\transfer_info -> maybe 0 (diffAbsTime transfer_info.start) transfer_info.end)
+        if_time_diff_relevant :: AbsTime -> AbsTime -> ([Text] -> [Text]) -> [Text]
+        if_time_diff_relevant to from = if_time_dur_relevant (relTimeToSeconds $ diffAbsTime to from)
+        if_time_dur_relevant :: NominalDiffTime -> ([Text] -> [Text]) -> [Text]
+        if_time_dur_relevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration dur])
         phaseMay activityId' = do
           activityId <- activityId'
           (_, phase, _) <- IntMap.lookup activityId.value nomState.activities
@@ -387,8 +391,8 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                 , \now ->
                     unwords $
                       markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
-                        : ( print_hosts_down (hosts downloadingOutputs)
-                              <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start downloadingOutputs) in if age > 1 then [clock, printDuration age] else [])
+                        : ( print_hosts_down True (hosts downloadingOutputs)
+                              <> if_time_diff_relevant now (earliest_start downloadingOutputs) id
                           )
                 )
             | not $ null uploadingOutputs ->
@@ -396,8 +400,8 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                 , \now ->
                        unwords $
                     markups [bold, yellow] (up <> " " <> running <> " " <> drvName):
-                        ( print_hosts_up (hosts uploadingOutputs)
-                            <> (let age = relTimeToSeconds $ diffAbsTime now (earliest_start uploadingOutputs) in if age > 1 then [clock, printDuration age] else [])
+                        ( print_hosts_up True (hosts uploadingOutputs)
+                            <> if_time_diff_relevant now (earliest_start uploadingOutputs) id
                         )
                 )
           Unknown
@@ -406,18 +410,18 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                 ( False
                 , const $
                       unwords $
-                    markup green (down <> " " <> done <> " " <> drvName) :
-                        ( print_hosts_down (hosts downloadedOutputs)
-                            <> (let age = build_sum downloadedOutputs in ([markup grey $ clock <> " " <> printDuration age | age > 1]))
+                    markup green (down <> " " <> done <> " " <> drvName) : fmap (markup grey)
+                        ( print_hosts_down False (hosts downloadedOutputs)
+                            <> if_time_dur_relevant (build_sum downloadedOutputs) id
                         )
                 )
             | not $ null uploadedOutputs ->
                 ( False
                 , const $
                       unwords $
-                    markup green (up <> " " <> done <> " " <> drvName):
-                        ( print_hosts_up (hosts uploadedOutputs)
-                            <> (let age = build_sum uploadedOutputs in ([markup grey $ clock <> " " <> printDuration age | age > 1]))
+                    markup green (up <> " " <> done <> " " <> drvName): fmap (markup grey)
+                        ( print_hosts_up False (hosts uploadedOutputs)
+                            <> if_time_dur_relevant (build_sum uploadedOutputs) id
                         )
                 )
             | otherwise -> (False, const drvName)
@@ -428,29 +432,25 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                   Just phase -> [markup bold ("(" <> phase <> ")")]
                 before_time =
                   [markups [yellow, bold] (running <> " " <> drvName)]
-                    <> hostMarkup buildInfo.host
+                    <> hostMarkup True buildInfo.host
                     <> phaseList
                 after_time = maybe [] (\x -> ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-             in (False, \now -> unwords $ before_time <> [clock, timeDiff now buildInfo.start] <> after_time)
+             in (False, \now -> unwords $ before_time <> if_time_diff_relevant now buildInfo.start (<> after_time))
           Failed buildInfo ->
             let (endTime, failType) = buildInfo.end
                 phaseInfo = case phaseMay buildInfo.activityId of
                   Nothing -> []
                   Just phase -> ["in", phase]
              in ( False
-                , const $
-                    unwords $
-                      [markups [red, bold] (warning <> " " <> drvName)]
-                        <> hostMarkup buildInfo.host
-                        <> [markups [red, bold] (unwords $ ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo)]
+                , const .
+                      markups [red, bold] . unwords $ [warning,drvName] <> hostMarkup False buildInfo.host <> ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo
                 )
           Built buildInfo ->
             ( False
             , const $
-                unwords $
-                  [markup green (done <> " " <> drvName)]
-                    <> hostMarkup buildInfo.host
-                    <> [markup grey (clock <> " " <> timeDiff buildInfo.end buildInfo.start)]
+                  markup green (done <> " " <> drvName) <> " " <> (markup grey . unwords $
+                    (hostMarkup False buildInfo.host
+                    <> if_time_diff_relevant buildInfo.end buildInfo.start id))
             )
 
 printFailType :: FailType -> Text
