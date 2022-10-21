@@ -5,6 +5,7 @@ Pipe your nix-build output through the nix-output-monitor (aka nom) to get addit
 While your build runs nom will draw something like this at the bottom of your build log:
 
 ![](example-screenshot.png)
+*(note that to reduce clutter nom only shows timers over 1s build or download time.)*
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/nix-output-monitor.svg)](https://repology.org/project/nix-output-monitor/versions)
 
