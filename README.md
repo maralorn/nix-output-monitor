@@ -15,7 +15,7 @@ While your build runs nom will draw something like this at the bottom of your bu
 
 This was an experimental fun project, which proofed to be useful to quite a lot of people.
 The purpose of it is to write something fun and useful in Haskell.
-You are free and very welcome to contribute feedback, issues or PRs, but I do not commit to maintain this project over a long time period.
+You are free and very welcome to contribute feedback, issues or PRs. I do not commit to maintain this project over a long time period, but it doesn’t look, like I am stopping anytime soon.
 
 By now, nom is quite fully featured with support for nix v1 commands (e.g. `nix-build`) and nix v2 command (e.g. `nix build`).
 
