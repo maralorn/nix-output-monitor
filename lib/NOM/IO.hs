@@ -70,7 +70,11 @@ writeStateToScreen :: forall state. Bool -> TVar Int -> TVar state -> TVar ByteS
 writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
   nowClock <- getZonedTime
   now <- getNow
-  terminalSize <- Terminal.Size.hSize output_handle
+  terminalSize <- Terminal.Size.hSize output_handle <&> \case
+      -- We throw away non positive window sizes, which some terminals apparently report
+      -- to avoid divisions by zero later on.
+      val@(Just window) | window.width > 0, window.height > 0 -> val
+      _ -> Nothing
 
   (nom_state, nix_output_raw) <- atomically do
     -- ==== Time Critical Segment - calculating to much in atomically can lead
@@ -99,6 +103,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
       -- sligthly more redraws which is totally acceptable.
       reflow_line_count_correction =
         terminalSize <&> \size ->
+          -- This division is fine, because we don‘t accept non positiv window sizes.
           getSum $ foldMap (\line -> Sum (displayWidthBS line `div` size.width)) nix_output
 
   (last_printed_line_count, lines_to_pad) <- atomically do

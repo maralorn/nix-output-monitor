@@ -78,7 +78,7 @@ showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
 targetRatio, defaultTreeMax :: Int
-targetRatio = 3
+targetRatio = 3 -- We divide by this, don‘t set this to zero.
 defaultTreeMax = 20
 
 data Config = MkConfig
@@ -100,7 +100,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       | not anythingGoingOn = if config.silent then const "" else time
       | otherwise = table . time
     maxHeight = case maybeWindow of
-      Just limit -> limit `div` targetRatio
+      Just limit -> limit `div` targetRatio -- targetRatio is hardcoded to be bigger than zero.
       Nothing -> defaultTreeMax
     buildsDisplay now =
       prependLines
