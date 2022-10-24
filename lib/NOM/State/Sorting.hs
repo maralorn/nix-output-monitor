@@ -8,11 +8,10 @@ module NOM.State.Sorting (
 import Relude
 
 import Control.Monad.Extra (pureIf)
-import Data.Generics.Product (HasField (field))
 import Data.List.Extra (firstJust)
 import Data.MemoTrie (memo)
 import Data.Sequence qualified as Seq
-import Optics (view, (%~), _1)
+import Optics (gfield, view, (%~), _1)
 import Safe.Foldable (minimumMay)
 
 import NOM.State (
@@ -23,7 +22,7 @@ import NOM.State (
   DerivationInfo (..),
   DerivationSet,
   NOMState,
-  NOMV1State,
+  NOMV1State (..),
   StorePathInfo (..),
   TransferInfo (..),
   getDerivationInfos,
@@ -42,8 +41,8 @@ sortDepsOfSet parents = do
   let sort_parent :: DerivationId -> NOMState ()
       sort_parent drvId = do
         drvInfo <- getDerivationInfos drvId
-        let newDrvInfo = (field @"inputDerivations" %~ sort_derivations) drvInfo
-        modify (field @"derivationInfos" %~ CMap.insert drvId newDrvInfo)
+        let newDrvInfo = (gfield @"inputDerivations" %~ sort_derivations) drvInfo
+        modify' (gfield @"derivationInfos" %~ CMap.insert drvId newDrvInfo)
       sort_derivations :: Seq (DerivationId, Set Text) -> Seq (DerivationId, Set Text)
       sort_derivations = Seq.sortOn (sort_key . fst)
 

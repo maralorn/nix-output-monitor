@@ -36,10 +36,9 @@ module NOM.State (
 
 import Relude
 
-import Data.Generics.Product (HasField (field))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import Optics ((%~))
+import Optics (gfield, (%~))
 import Streamly.Internal.Data.Time.Units (AbsTime)
 
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
@@ -215,8 +214,8 @@ getStorePathId :: StorePath -> NOMState StorePathId
 getStorePathId path = do
   let newId = do
         key <- gets (CMap.nextKey . (.storePathInfos))
-        modify (field @"storePathInfos" %~ CMap.insert key (emptyStorePathInfo path))
-        modify (field @"storePathIds" %~ Map.insert path key)
+        modify (gfield @"storePathInfos" %~ CMap.insert key (emptyStorePathInfo path))
+        modify (gfield @"storePathIds" %~ Map.insert path key)
         pure key
   gets (Map.lookup path . (.storePathIds)) >>= maybe newId pure
 
@@ -224,8 +223,8 @@ getDerivationId :: Derivation -> NOMState DerivationId
 getDerivationId drv = do
   let newId = do
         key <- gets (CMap.nextKey . (.derivationInfos))
-        modify (field @"derivationInfos" %~ CMap.insert key (emptyDerivationInfo drv))
-        modify (field @"derivationIds" %~ Map.insert drv key)
+        modify (gfield @"derivationInfos" %~ CMap.insert key (emptyDerivationInfo drv))
+        modify (gfield @"derivationIds" %~ Map.insert drv key)
         pure key
   gets (Map.lookup drv . (.derivationIds)) >>= maybe newId pure
 
@@ -263,19 +262,19 @@ getStorePathInfos storePathId =
 clearDerivationIdFromSummary :: BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 clearDerivationIdFromSummary oldStatus drvId = case oldStatus of
   Unknown -> id
-  Planned -> field @"plannedBuilds" %~ CSet.delete drvId
-  Building _ -> field @"runningBuilds" %~ CMap.delete drvId
-  Failed _ -> field @"failedBuilds" %~ CMap.delete drvId
-  Built _ -> field @"completedBuilds" %~ CMap.delete drvId
+  Planned -> gfield @"plannedBuilds" %~ CSet.delete drvId
+  Building _ -> gfield @"runningBuilds" %~ CMap.delete drvId
+  Failed _ -> gfield @"failedBuilds" %~ CMap.delete drvId
+  Built _ -> gfield @"completedBuilds" %~ CMap.delete drvId
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 updateSummaryForDerivation oldStatus newStatus drvId =
   clearDerivationIdFromSummary oldStatus drvId . case newStatus of
     Unknown -> id
-    Planned -> field @"plannedBuilds" %~ CSet.insert drvId
-    Building bi -> field @"runningBuilds" %~ CMap.insert drvId (void bi)
-    Failed bi -> field @"failedBuilds" %~ CMap.insert drvId bi
-    Built bi -> field @"completedBuilds" %~ CMap.insert drvId bi
+    Planned -> gfield @"plannedBuilds" %~ CSet.insert drvId
+    Building bi -> gfield @"runningBuilds" %~ CMap.insert drvId (void bi)
+    Failed bi -> gfield @"failedBuilds" %~ CMap.insert drvId bi
+    Built bi -> gfield @"completedBuilds" %~ CMap.insert drvId bi
 
 clearStorePathsFromSummary :: Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 clearStorePathsFromSummary deleted_states path_id =
@@ -283,11 +282,11 @@ clearStorePathsFromSummary deleted_states path_id =
  where
   remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
   remove_deleted = \case
-    DownloadPlanned -> field @"plannedDownloads" %~ CSet.delete path_id
-    Downloading _ -> field @"runningDownloads" %~ CMap.delete path_id
-    Uploading _ -> field @"runningUploads" %~ CMap.delete path_id
-    Downloaded _ -> field @"completedDownloads" %~ CMap.delete path_id
-    Uploaded _ -> field @"completedUploads" %~ CMap.delete path_id
+    DownloadPlanned -> gfield @"plannedDownloads" %~ CSet.delete path_id
+    Downloading _ -> gfield @"runningDownloads" %~ CMap.delete path_id
+    Uploading _ -> gfield @"runningUploads" %~ CMap.delete path_id
+    Downloaded _ -> gfield @"completedDownloads" %~ CMap.delete path_id
+    Uploaded _ -> gfield @"completedUploads" %~ CMap.delete path_id
 
 updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 updateSummaryForStorePath old_states new_states path_id =
@@ -295,10 +294,10 @@ updateSummaryForStorePath old_states new_states path_id =
  where
   insert_added :: StorePathState -> DependencySummary -> DependencySummary
   insert_added = \case
-    DownloadPlanned -> field @"plannedDownloads" %~ CSet.insert path_id
-    Downloading ho -> field @"runningDownloads" %~ CMap.insert path_id ho
-    Uploading ho -> field @"runningUploads" %~ CMap.insert path_id ho
-    Downloaded ho -> field @"completedDownloads" %~ CMap.insert path_id ho
-    Uploaded ho -> field @"completedUploads" %~ CMap.insert path_id ho
+    DownloadPlanned -> gfield @"plannedDownloads" %~ CSet.insert path_id
+    Downloading ho -> gfield @"runningDownloads" %~ CMap.insert path_id ho
+    Uploading ho -> gfield @"runningUploads" %~ CMap.insert path_id ho
+    Downloaded ho -> gfield @"completedDownloads" %~ CMap.insert path_id ho
+    Uploaded ho -> gfield @"completedUploads" %~ CMap.insert path_id ho
   deleted_states = Set.difference old_states new_states
   added_states = Set.difference new_states old_states

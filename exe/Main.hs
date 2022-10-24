@@ -7,13 +7,12 @@ import Relude
 import Control.Exception qualified as Exception
 import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.ByteString qualified as ByteString
-import Data.Generics.Product (typed)
 import Data.Hermes qualified as JSON
 import Data.Text.IO (hPutStrLn)
 import Data.Time (ZonedTime)
 import Data.Version (showVersion)
 import GHC.IO.Exception (ExitCode (ExitFailure))
-import Optics (view, (%~), (.~), _2, _3)
+import Optics (gfield, view, (%~), (.~), _2, _3)
 import Paths_nix_output_monitor (version)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size (Window)
@@ -31,7 +30,7 @@ import NOM.Parser (parser)
 import NOM.Parser.JSON.Hermes (parseJSON)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
-import NOM.State (NOMV1State (nixErrors), ProcessState (..), failedBuilds, fullSummary, initalStateFromBuildPlatform)
+import NOM.State (NOMV1State (..), ProcessState (..), failedBuilds, fullSummary, initalStateFromBuildPlatform)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState, updateStateNixJSONMessage, updateStateNixOldStyleMessage)
 import NOM.Update.Monad (UpdateMonad)
@@ -168,7 +167,7 @@ finalizer ::
   UpdateMonad m => Config -> StateT (CompoundState a) m ()
 finalizer config = do
   (n, !oldState, _) <- get
-  newState <- (typed .~ Finished) <$> execStateT (runWriterT detectLocalFinishedBuilds) oldState
+  newState <- (gfield @"processState" .~ Finished) <$> execStateT (runWriterT detectLocalFinishedBuilds) oldState
   put (n, newState, stateToText config newState)
 
 helpText :: Text
