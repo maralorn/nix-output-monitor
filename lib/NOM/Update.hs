@@ -97,17 +97,17 @@ minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
 {-# INLINE updateStateNixJSONMessage #-}
 updateStateNixJSONMessage :: forall m. UpdateMonad m => Either NOMError NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
-updateStateNixJSONMessage input inputState = do
+updateStateNixJSONMessage input inputState = {-# SCC "updateStateNixJSONMessage" #-} do
   now <- getNow
-  let process = case input of
+  let process = {-# SCC "matching_message" #-} case input of
         Left err -> do
           tell [Left err]
           noChange
         Right jsonMessage -> processJsonMessage now jsonMessage
-  ((hasChanged, msgs), !outputState) <- runStateT (runWriterT (setInputReceived >> process)) inputState
+  ((hasChanged, msgs), !outputState) <- {-# SCC "run_state" #-} runStateT (runWriterT (({-# SCC "input_received" #-} setInputReceived) >> {-# SCC "processing" #-} process)) inputState
   let retval = if hasChanged then Just outputState else Nothing
       errors = lefts msgs
-  pure ((errors, ByteString.unlines (rights msgs)), retval)
+  {-# SCC "emitting_new_state" #-} pure ((errors, ByteString.unlines (rights msgs)), retval)
 
 updateStateNixOldStyleMessage :: forall m. UpdateMonad m => (Maybe NixOldStyleMessage, ByteString) -> (Maybe AbsTime, NOMV1State) -> m (([NOMError], ByteString), (Maybe AbsTime, Maybe NOMV1State))
 updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
@@ -193,16 +193,16 @@ processJsonMessage now = \case
     let message' = encodeUtf8 message
     tell [Right message']
     case parseIndentedStoreObject message of
-      Just (Right download) -> withChange do
+      Just (Right download) -> {-# SCC "plan_download" #-} withChange do
         plannedDownloadId <- getStorePathId download
         planDownloads $ one plannedDownloadId
-      Just (Left build) -> withChange do
+      Just (Left build) -> {-# SCC "plan_build" #-} withChange do
         plannedDrvId <- lookupDerivation build
         planBuilds (one plannedDrvId)
       _ -> noChange
   Message MkMessageAction{message, level = Error}
     | stripped <- stripANSICodes message
-    , Text.isPrefixOf "error:" stripped -> withChange do
+    , Text.isPrefixOf "error:" stripped ->  {-# SCC "pass_through_error" #-} withChange do
         errors <- gets (.nixErrors)
         unless (stripped `elem` errors) do
           modify' (gfield @"nixErrors" %~ (<> [stripped]))
@@ -210,19 +210,19 @@ processJsonMessage now = \case
             void (processResult result)
           tell [Right (encodeUtf8 message)]
     | stripped <- stripANSICodes message
-    , Text.isPrefixOf "note:" stripped -> do
+    , Text.isPrefixOf "note:" stripped ->  {-# SCC "pass_through_note" #-} do
         tell [Right (encodeUtf8 message)]
         noChange
-  Result MkResultAction{result = BuildLogLine line, id = id'} -> do
+  Result MkResultAction{result = BuildLogLine line, id = id'} -> {-# SCC "pass_through_build_line" #-} do
     nomState <- get
     prefix <- activityPrefix (view _1 <$> IntMap.lookup id'.value nomState.activities)
     tell [Right (encodeUtf8 (prefix <> line))]
     noChange
-  Result MkResultAction{result = SetPhase phase, id = id'} -> withChange do
-    modify' (gfield @"activities" %~ IntMap.adjust (_2 ?~ phase) id'.value)
+  Result MkResultAction{result = SetPhase phase, id = id'} ->
+    {-# SCC "updating_phase" #-} withChange $ modify' (gfield @"activities" %~ IntMap.adjust (_2 ?~ phase) id'.value)
   Result MkResultAction{result = Progress progress, id = id'} ->
     {-# SCC "updating_progress" #-} withChange $ modify' (gfield @"activities" %~ IntMap.adjust (_3 ?~ progress) id'.value)
-  Start startAction@MkStartAction{id = id'} -> withChange do
+  Start startAction@MkStartAction{id = id'} -> {-# SCC "starting_action" #-} withChange do
     prefix <- activityPrefix $ Just startAction.activity
     when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
     modify' (gfield @"activities" %~ IntMap.insert id'.value (startAction.activity, Nothing, Nothing))
@@ -236,7 +236,7 @@ processJsonMessage now = \case
         pathId <- getStorePathId path
         uploading to pathId now
       _ -> pass -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
-  Stop MkStopAction{id = id'} -> do
+  Stop MkStopAction{id = id'} -> {-# SCC "stoping_action" #-} do
     activity <- gets (\s -> IntMap.lookup id'.value s.activities)
     case activity of
       Just (JSON.CopyPath path from Localhost, _, _) -> withChange do
