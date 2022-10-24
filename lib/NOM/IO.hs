@@ -70,7 +70,8 @@ writeStateToScreen :: forall state. Bool -> TVar Int -> TVar state -> TVar ByteS
 writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
   nowClock <- getZonedTime
   now <- getNow
-  terminalSize <- Terminal.Size.hSize output_handle <&> \case
+  terminalSize <-
+    Terminal.Size.hSize output_handle <&> \case
       -- We throw away non positive window sizes, which some terminals apparently report
       -- to avoid divisions by zero later on.
       val@(Just window) | window.width > 0, window.height > 0 -> val

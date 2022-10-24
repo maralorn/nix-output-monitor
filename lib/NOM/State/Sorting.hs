@@ -22,17 +22,19 @@ import NOM.State (
   DerivationId,
   DerivationInfo (..),
   DerivationSet,
-  StorePathInfo (..),
   NOMState,
   NOMV1State,
+  StorePathInfo (..),
   TransferInfo (..),
   getDerivationInfos,
-  updateSummaryForDerivation, getStorePathInfos, updateSummaryForStorePath,
+  getStorePathInfos,
+  updateSummaryForDerivation,
+  updateSummaryForStorePath,
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
-import Streamly.Internal.Data.Time.Units (AbsTime)
 import NOM.Util (foldMapEndo)
+import Streamly.Internal.Data.Time.Units (AbsTime)
 
 sortDepsOfSet :: DerivationSet -> NOMState ()
 sortDepsOfSet parents = do
@@ -88,9 +90,14 @@ summaryOnlyThisNode :: DerivationId -> NOMState DependencySummary
 summaryOnlyThisNode drvId = do
   MkDerivationInfo{outputs, buildStatus} <- getDerivationInfos drvId
   output_infos <- mapM (\x -> (x,) <$> getStorePathInfos x) (toList outputs)
-  pure $ foldMapEndo (\(output_id, output_info) ->
-     updateSummaryForStorePath mempty output_info.states output_id) output_infos . updateSummaryForDerivation Unknown buildStatus drvId 
-     $ mempty
+  pure
+    $ foldMapEndo
+      ( \(output_id, output_info) ->
+          updateSummaryForStorePath mempty output_info.states output_id
+      )
+      output_infos
+      . updateSummaryForDerivation Unknown buildStatus drvId
+    $ mempty
 
 sortOrder :: DependencySummary -> SortOrder
 sortOrder MkDependencySummary{..} = fromMaybe SUnknown (firstJust id sort_entries)
@@ -109,5 +116,5 @@ sortOrder MkDependencySummary{..} = fromMaybe SUnknown (firstJust id sort_entrie
 
 sortKey :: NOMV1State -> DerivationId -> SortKey
 sortKey nom_state drvId =
-  let (only_this_summary,summary@MkDependencySummary{..}) = evalState ((,) <$> summaryOnlyThisNode drvId <*> summaryIncludingRoot drvId) nom_state
+  let (only_this_summary, summary@MkDependencySummary{..}) = evalState ((,) <$> summaryOnlyThisNode drvId <*> summaryIncludingRoot drvId) nom_state
    in (sortOrder only_this_summary, sortOrder summary, Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds + CSet.size plannedDownloads)

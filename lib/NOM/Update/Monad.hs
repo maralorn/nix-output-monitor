@@ -22,9 +22,9 @@ import Nix.Derivation qualified as Nix
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
-import Streamly.Internal.Data.Time.Units (AbsTime)
 import Streamly.Internal.Data.Time.Clock (getTime)
-import Streamly.Internal.Data.Time.Clock.Type (Clock(Monotonic))
+import Streamly.Internal.Data.Time.Clock.Type (Clock (Monotonic))
+import Streamly.Internal.Data.Time.Units (AbsTime)
 
 type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 

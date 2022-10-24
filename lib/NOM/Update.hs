@@ -213,8 +213,8 @@ processJsonMessage now = \case
           tell [Right (encodeUtf8 message)]
     | stripped <- stripANSICodes message
     , Text.isPrefixOf "note:" stripped -> do
-      tell [Right (encodeUtf8 message)]
-      noChange
+        tell [Right (encodeUtf8 message)]
+        noChange
   Result MkResultAction{result = BuildLogLine line, id = id'} -> do
     nomState <- get
     prefix <- activityPrefix (view _1 <$> IntMap.lookup id'.value nomState.activities)

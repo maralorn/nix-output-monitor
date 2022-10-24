@@ -146,7 +146,7 @@ monitorHandle _ config input_handle = withParser @a \streamParser -> do
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.
   pure finalState
 
-type CompoundState istate = (istate, NOMV1State, Maybe (Window Int) -> (ZonedTime,AbsTime) -> Text)
+type CompoundState istate = (istate, NOMV1State, Maybe (Window Int) -> (ZonedTime, AbsTime) -> Text)
 
 compoundStateToText :: (a, b, c) -> c
 compoundStateToText = view _3

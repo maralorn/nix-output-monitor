@@ -299,7 +299,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
              in infos.inputFor <> CSet.fromFoldable infos.producer
           ~may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           ~show_this_node =
-             maxHeight > 0
+            maxHeight > 0
               && summary /= mempty
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
@@ -399,31 +399,35 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             | not $ null uploadingOutputs ->
                 ( False
                 , \now ->
-                       unwords $
-                    markups [bold, yellow] (up <> " " <> running <> " " <> drvName):
-                        ( print_hosts_up True (hosts uploadingOutputs)
-                            <> if_time_diff_relevant now (earliest_start uploadingOutputs) id
-                        )
+                    unwords $
+                      markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
+                        : ( print_hosts_up True (hosts uploadingOutputs)
+                              <> if_time_diff_relevant now (earliest_start uploadingOutputs) id
+                          )
                 )
           Unknown
             | plannedDownloads -> (True, const $ markup blue (down <> " " <> todo <> " " <> drvName))
             | not $ null downloadedOutputs ->
                 ( False
                 , const $
-                      unwords $
-                    markup green (down <> " " <> done <> " " <> drvName) : fmap (markup grey)
-                        ( print_hosts_down False (hosts downloadedOutputs)
-                            <> if_time_dur_relevant (build_sum downloadedOutputs) id
-                        )
+                    unwords $
+                      markup green (down <> " " <> done <> " " <> drvName)
+                        : fmap
+                          (markup grey)
+                          ( print_hosts_down False (hosts downloadedOutputs)
+                              <> if_time_dur_relevant (build_sum downloadedOutputs) id
+                          )
                 )
             | not $ null uploadedOutputs ->
                 ( False
                 , const $
-                      unwords $
-                    markup green (up <> " " <> done <> " " <> drvName): fmap (markup grey)
-                        ( print_hosts_up False (hosts uploadedOutputs)
-                            <> if_time_dur_relevant (build_sum uploadedOutputs) id
-                        )
+                    unwords $
+                      markup green (up <> " " <> done <> " " <> drvName)
+                        : fmap
+                          (markup grey)
+                          ( print_hosts_up False (hosts uploadedOutputs)
+                              <> if_time_dur_relevant (build_sum uploadedOutputs) id
+                          )
                 )
             | otherwise -> (False, const drvName)
           Planned -> (True, const $ markup blue (todo <> " " <> drvName))
@@ -443,15 +447,21 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                   Nothing -> []
                   Just phase -> ["in", phase]
              in ( False
-                , const .
-                      markups [red, bold] . unwords $ [warning,drvName] <> hostMarkup False buildInfo.host <> ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo
+                , const
+                    . markups [red, bold]
+                    . unwords
+                    $ [warning, drvName] <> hostMarkup False buildInfo.host <> ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo
                 )
           Built buildInfo ->
             ( False
             , const $
-                  markup green (done <> " " <> drvName) <> " " <> (markup grey . unwords $
-                    (hostMarkup False buildInfo.host
-                    <> if_time_diff_relevant buildInfo.end buildInfo.start id))
+                markup green (done <> " " <> drvName)
+                  <> " "
+                  <> ( markup grey . unwords $
+                        ( hostMarkup False buildInfo.host
+                            <> if_time_diff_relevant buildInfo.end buildInfo.start id
+                        )
+                     )
             )
 
 printFailType :: FailType -> Text
