@@ -98,12 +98,11 @@ minTimeBetweenPollingNixStore = 0.2 -- in seconds
 {-# INLINE updateStateNixJSONMessage #-}
 updateStateNixJSONMessage :: forall m. UpdateMonad m => Either NOMError NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
 updateStateNixJSONMessage input inputState = {-# SCC "updateStateNixJSONMessage" #-} do
-  now <- getNow
   let process = {-# SCC "matching_message" #-} case input of
         Left err -> do
           tell [Left err]
           noChange
-        Right jsonMessage -> processJsonMessage now jsonMessage
+        Right jsonMessage -> processJsonMessage jsonMessage
   ((hasChanged, msgs), !outputState) <- {-# SCC "run_state" #-} runStateT (runWriterT (({-# SCC "input_received" #-} setInputReceived) >> {-# SCC "processing" #-} process)) inputState
   let retval = if hasChanged then Just outputState else Nothing
       errors = lefts msgs
@@ -187,8 +186,8 @@ processResult result = do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
 
-processJsonMessage :: UpdateMonad m => AbsTime -> NixJSONMessage -> ProcessingT m Bool
-processJsonMessage now = \case
+processJsonMessage :: UpdateMonad m => NixJSONMessage -> ProcessingT m Bool
+processJsonMessage = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
     tell [Right message']
@@ -228,11 +227,14 @@ processJsonMessage now = \case
     modify' (gfield @"activities" %~ IntMap.insert id'.value (startAction.activity, Nothing, Nothing))
     case startAction.activity of
       JSON.Build drvName host -> do
+        now <- getNow
         building host drvName now (Just id')
       JSON.CopyPath path from Localhost -> do
+        now <- getNow
         pathId <- getStorePathId path
         downloading from pathId now
       JSON.CopyPath path Localhost to -> do
+        now <- getNow
         pathId <- getStorePathId path
         uploading to pathId now
       _ -> pass -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
@@ -240,9 +242,11 @@ processJsonMessage now = \case
     activity <- gets (\s -> IntMap.lookup id'.value s.activities)
     case activity of
       Just (JSON.CopyPath path from Localhost, _, _) -> withChange do
+        now <- getNow
         pathId <- getStorePathId path
         downloaded from pathId now
       Just (JSON.CopyPath path Localhost to, _, _) -> withChange do
+        now <- getNow
         pathId <- getStorePathId path
         uploaded to pathId now
       Just (JSON.Build drv host, _, _) -> withChange do
