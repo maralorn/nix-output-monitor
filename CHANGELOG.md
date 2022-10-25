@@ -1,5 +1,11 @@
 # Revision history for nix-output-monitor
 
+## 2.0.0.3 -- 2022-10-25
+
+* Fix crash on terminal misreporting it’s size
+* Fix crash, when nix-command experimental feature is not enabled.
+* Performance improvements
+
 ## 2.0.0.2 -- 2022-10-19
 
 * Fix crash on too small windows
