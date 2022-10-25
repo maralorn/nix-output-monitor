@@ -136,7 +136,7 @@ monitorHandle _ config input_handle = withParser @a \streamParser -> do
       Terminal.hHideCursor outputHandle
       hSetBuffering stdout (BlockBuffering (Just 1_000_000))
 
-      current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--impure", "--raw", "--expr", "builtins.currentSystem"])
+      current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--extra-experimental-features", "nix-command", "--impure", "--raw", "--expr", "builtins.currentSystem"])
       firstState <- initalStateFromBuildPlatform current_system
       let firstCompoundState = (firstAdditionalState @a, firstState, stateToText config firstState)
       interact config streamParser (compoundStateUpdater @a config) (_2 %~ maintainState) compoundStateToText (finalizer config) input_handle outputHandle firstCompoundState
