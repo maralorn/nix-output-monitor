@@ -196,8 +196,8 @@ interact ::
   Handle ->
   state ->
   IO state
-interact config parser updater maintenance printer finalize inputHandle output_handle initialState =
-  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize initialState $ readTextChunks inputHandle
+interact config parser updater maintenance printer finalize input_handle output_handle initialState =
+  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize initialState $ readTextChunks input_handle
 
 -- frame durations are passed to threadDelay and thus are given in microseconds
 
