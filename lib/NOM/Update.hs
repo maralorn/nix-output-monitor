@@ -46,13 +46,13 @@ import NOM.State (
   TransferInfo (..),
   clearDerivationIdFromSummary,
   clearStorePathsFromSummary,
-  drv2out,
+  derivationToAnyOutPath,
   getDerivationId,
   getDerivationInfos,
   getRunningBuildsByHost,
   getStorePathId,
   getStorePathInfos,
-  out2drv,
+  outPathToDerivation,
   updateSummaryForDerivation,
   updateSummaryForStorePath,
  )
@@ -139,15 +139,16 @@ updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
       errors = lefts msgs
   pure ((errors, input <> ByteString.unlines (rights msgs)), retval)
 
+derivationIsCompleted :: UpdateMonad m => DerivationId -> NOMStateT m Bool
+derivationIsCompleted drvId =
+  derivationToAnyOutPath drvId >>= \case
+    Nothing -> pure False -- Derivation has no "out" output.
+    Just path -> storePathExists path
+
 detectLocalFinishedBuilds :: ProcessingT m Bool
 detectLocalFinishedBuilds = do
   runningLocalBuilds <- CMap.toList <$> getRunningBuildsByHost Localhost -- .> traceShowId
-  let isCompleted :: UpdateMonad m => (DerivationId, b) -> NOMStateT m Bool
-      isCompleted (drvId, _) =
-        drv2out drvId >>= \case
-          Nothing -> pure False -- Derivation has no "out" output.
-          Just path -> storePathExists path
-  newCompletedOutputs <- filterM (\x -> isCompleted x) runningLocalBuilds
+  newCompletedOutputs <- filterM (\(x, _) -> derivationIsCompleted x) runningLocalBuilds
   let anyBuildsFinished = not (null newCompletedOutputs)
   when anyBuildsFinished (finishBuilds Localhost newCompletedOutputs)
   pure anyBuildsFinished
@@ -249,9 +250,10 @@ processJsonMessage = \case
         now <- getNow
         pathId <- getStorePathId path
         uploaded to pathId now
-      Just (JSON.Build drv host, _, _) -> withChange do
+      Just (JSON.Build drv host, _, _) -> do
         drvId <- lookupDerivation drv
-        finishBuildByDrvId host drvId
+        isCompleted <- derivationIsCompleted drvId
+        if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
       _ -> noChange
   _other -> do
     -- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
@@ -373,7 +375,7 @@ finishBuildByDrvId host drvId = do
 
 finishBuildByPathId :: Host -> StorePathId -> ProcessingT m ()
 finishBuildByPathId host pathId = do
-  drvIdMay <- out2drv pathId
+  drvIdMay <- outPathToDerivation pathId
   whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
 downloading :: Host -> StorePathId -> AbsTime -> NOMState ()

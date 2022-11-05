@@ -28,7 +28,7 @@ import NOM.State (
   NOMV1State (..),
   getStorePathId,
   initalStateFromBuildPlatform,
-  out2drv,
+  outPathToDerivation,
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
@@ -101,6 +101,6 @@ golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDe
         flip evalState endState $
           forMaybeM outputStorePaths \path -> do
             pathId <- getStorePathId path
-            out2drv pathId
+            outPathToDerivation pathId
   assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
   assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))

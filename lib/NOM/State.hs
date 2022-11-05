@@ -28,8 +28,8 @@ module NOM.State (
   lookupStorePathId,
   getStorePathId,
   getDerivationId,
-  out2drv,
-  drv2out,
+  outPathToDerivation,
+  derivationToAnyOutPath,
   updateSummaryForDerivation,
   inputStorePaths,
 ) where
@@ -235,13 +235,13 @@ inputStorePaths drv_info = do
     pure (store_path_infos.name.name, source)
   pure $ Map.fromList inputs
 
-drv2out :: DerivationId -> NOMState (Maybe StorePath)
-drv2out drv =
-  gets (CMap.lookup drv . (.derivationInfos) >=> Map.lookup "out" . (.outputs))
+derivationToAnyOutPath :: DerivationId -> NOMState (Maybe StorePath)
+derivationToAnyOutPath drv =
+  gets (CMap.lookup drv . (.derivationInfos) >=> listToMaybe . Map.elems . (.outputs))
     >>= mapM (\pathId -> lookupStorePathId pathId)
 
-out2drv :: StorePathId -> NOMState (Maybe DerivationId)
-out2drv path = gets (CMap.lookup path . (.storePathInfos) >=> (.producer))
+outPathToDerivation :: StorePathId -> NOMState (Maybe DerivationId)
+outPathToDerivation path = gets (CMap.lookup path . (.storePathInfos) >=> (.producer))
 
 -- Only do this with derivationIds that you got via lookupDerivation
 getDerivationInfos :: DerivationId -> NOMState DerivationInfo
