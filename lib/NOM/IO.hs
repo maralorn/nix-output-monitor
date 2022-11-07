@@ -38,7 +38,7 @@ type Window = Terminal.Size.Window Int
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle = loop
  where
-  -- We read up-to 4kb of input at once. We will rarely need more than that for one succesful parse (i.e. a line).
+  -- We read up-to 4kb of input at once. We will rarely need more than that for one successful parse (i.e. a line).
   -- I don‘t know much about computers, but 4k seems like something which would be cached efficiently.
   bufferSize :: Int
   bufferSize = 4096
