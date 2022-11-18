@@ -1,6 +1,7 @@
 {
   description = "nix-output-monitor";
   inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/haskell-updates";
     pre-commit-hooks = {
       url = "github:cachix/pre-commit-hooks.nix";
       inputs = {
@@ -80,19 +81,24 @@
             );
         };
         checks = {
-          pre-commit-check = pre-commit-hooks.lib.${system}.run {
+          pre-commit-check = pre-commit-hooks.lib.${system}.run rec {
             src = ./.;
             settings.ormolu.defaultExtensions = [
               "TypeApplications"
               "BangPatterns"
               "ImportQualifiedPost"
+              "BlockArguments"
+              "UnicodeSyntax"
             ];
             hooks = {
               hlint.enable = true;
               alejandra.enable = true;
               nix-linter.enable = true;
               statix.enable = true;
-              # fourmolu.enable = true; # disabled until fourmolo or ormolu can deal with RecordDotSyntax
+              fourmolu = {
+                enable = true;
+                entry = lib.mkForce "${haskellPackages.fourmolu}/bin/fourmolu --mode inplace ${lib.escapeShellArgs (lib.concatMap (ext: ["--ghc-opt" "-X${ext}"]) settings.ormolu.defaultExtensions)}";
+              };
               cabal-fmt.enable = true;
               shellcheck.enable = true;
             };

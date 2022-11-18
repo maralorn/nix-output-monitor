@@ -30,6 +30,7 @@ common common-config
   default-extensions:
     NoFieldSelectors
     NoImplicitPrelude
+    AllowAmbiguousTypes
     BlockArguments
     DataKinds
     DeriveAnyClass
@@ -43,6 +44,7 @@ common common-config
     Strict
     TypeFamilies
     TypeOperators
+    UnicodeSyntax
     ViewPatterns
 
   build-depends:
