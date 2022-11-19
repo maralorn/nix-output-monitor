@@ -41,7 +41,7 @@ common common-config
     OverloadedRecordDot
     OverloadedStrings
     RecordWildCards
-    Strict
+    StrictData
     TypeFamilies
     TypeOperators
     UnicodeSyntax

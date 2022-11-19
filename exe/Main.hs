@@ -135,6 +135,7 @@ instance NOMInput (Either NOMError NixJSONMessage) where
   inputStream = readTextChunks
   nomState = Optics.equality'
   firstState = id
+  {-# INLINE updateState #-}
   updateState input old_state = mkUpdateResult <$> updateStateNixJSONMessage input old_state
    where
     mkUpdateResult ((errors, output), new_state) =
@@ -151,6 +152,7 @@ instance NOMInput (Maybe NixOldStyleMessage, ByteString) where
   inputStream = readTextChunks
   nomState = _2
   firstState = (Nothing,)
+  {-# INLINE updateState #-}
   updateState input old_state = mkUpdateResult <$> updateStateNixOldStyleMessage input old_state
    where
     mkUpdateResult ((errors, output), (new_timestamp, new_state)) =
