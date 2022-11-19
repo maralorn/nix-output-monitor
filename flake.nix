@@ -109,7 +109,7 @@
           buildInputs = [
             pre-commit-hooks.defaultPackage.${system}
             haskellPackages.haskell-language-server
-            # haskellPackages.weeder
+            pkgs.haskell.packages.ghc92.weeder
             pkgs.haskellPackages.cabal-install
             pkgs.pv
           ];
