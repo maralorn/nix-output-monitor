@@ -125,7 +125,7 @@ data ProcessState a = MkProcessState
 class NOMInput a where
   type UpdaterState a
   firstState :: NOMV1State -> UpdaterState a
-  updateState :: (StrictType.Strict (UpdaterState a), UpdateMonad m) => a -> UpdaterState a -> m (UpdateResult a)
+  updateState :: (UpdateMonad m) => a -> UpdaterState a -> m (UpdateResult a)
   nomState :: Lens' (UpdaterState a) NOMV1State
   inputStream :: Handle -> Stream (Either NOMError ByteString)
   withParser :: (StreamParser a -> IO t) -> IO t
@@ -179,7 +179,8 @@ monitorHandle _ config input_handle = withParser @a \streamParser -> do
 
       current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--extra-experimental-features", "nix-command", "--impure", "--raw", "--expr", "builtins.currentSystem"])
       first_state <- initalStateFromBuildPlatform current_system
-      let first_process_state = MkProcessState (firstState @a first_state) (stateToText config first_state)
+      -- We enforce here, that the state type is completely strict so that we don‘t accumulate thunks while running the program.
+      let first_process_state = MkProcessState (StrictType.Strict $ firstState @a first_state) (stateToText config first_state)
       interact config streamParser (processStateUpdater @a config) (gfield @"updaterState" % nomState @a %~ maintainState) (.printFunction) (finalizer config) (inputStream @a input_handle) outputHandle first_process_state
       `Exception.finally` do
         Terminal.hShowCursor outputHandle
@@ -189,7 +190,7 @@ monitorHandle _ config input_handle = withParser @a \streamParser -> do
 {-# INLINE processStateUpdater #-}
 processStateUpdater ::
   forall a m.
-  (NOMInput a, UpdateMonad m, StrictType.Strict (UpdaterState a)) =>
+  (NOMInput a, UpdateMonad m) =>
   Config ->
   a ->
   StateT (ProcessState a) m ([NOMError], ByteString)
