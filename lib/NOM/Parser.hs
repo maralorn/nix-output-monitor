@@ -1,7 +1,5 @@
 module NOM.Parser (parser, oldStyleParser, planBuildLine, planDownloadLine, inTicks) where
 
-import Relude hiding (take, takeWhile)
-
 import Data.Attoparsec.ByteString (
   Parser,
   choice,
@@ -18,7 +16,6 @@ import Data.Attoparsec.ByteString.Char8 (
   isEndOfLine,
   takeTill,
  )
-
 import NOM.Builds (
   Derivation (..),
   FailType (ExitCode, HashMismatch),
@@ -28,6 +25,7 @@ import NOM.Builds (
   storePathByteStringParser,
  )
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
+import Relude hiding (take, takeWhile)
 
 parser :: Parser (Maybe NixOldStyleMessage)
 parser = Just <$> oldStyleParser <|> Nothing <$ noMatch

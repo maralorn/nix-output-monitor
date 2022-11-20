@@ -6,36 +6,32 @@ module NOM.Update.Monad (
   module NOM.Update.Monad.CacheBuildReports,
 ) where
 
-import Relude
-
 import Control.Exception (try)
 import Control.Monad.Writer.Strict (WriterT)
-import Data.Text.IO qualified as TextIO
-import System.Directory (doesPathExist)
-
 -- attoparsec
 import Data.Attoparsec.Text (eitherResult, parse)
-
+import Data.Text.IO qualified as TextIO
 -- nix-derivation
-import Nix.Derivation qualified as Nix
 
+import GHC.Clock qualified
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
-import Streamly.Internal.Data.Time.Clock (getTime)
-import Streamly.Internal.Data.Time.Clock.Type (Clock (Monotonic))
-import Streamly.Internal.Data.Time.Units (AbsTime)
+import Nix.Derivation qualified as Nix
+import Relude
+import System.Directory (doesPathExist)
 
 type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
 class Monad m => MonadNow m where
-  getNow :: m AbsTime
+  getNow :: m Double
 
 instance MonadNow IO where
-  getNow = getTime Monotonic
+  getNow = GHC.Clock.getMonotonicTime
 
 instance MonadNow m => MonadNow (StateT a m) where
   getNow = lift getNow
+
 instance (Monoid a, MonadNow m) => MonadNow (WriterT a m) where
   getNow = lift getNow
 
@@ -54,8 +50,10 @@ instance MonadReadDerivation IO where
 
 instance MonadReadDerivation m => MonadReadDerivation (StateT a m) where
   getDerivation = lift . getDerivation
+
 instance MonadReadDerivation m => MonadReadDerivation (ExceptT a m) where
   getDerivation = lift . getDerivation
+
 instance (Monoid a, MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
   getDerivation = lift . getDerivation
 
@@ -64,7 +62,9 @@ class Monad m => MonadCheckStorePath m where
 
 instance MonadCheckStorePath IO where
   storePathExists = doesPathExist . toString
+
 instance MonadCheckStorePath m => MonadCheckStorePath (StateT a m) where
   storePathExists = lift . storePathExists
+
 instance (Monoid a, MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
   storePathExists = lift . storePathExists

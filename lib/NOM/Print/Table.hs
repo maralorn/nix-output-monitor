@@ -21,15 +21,15 @@ module NOM.Print.Table (
   displayWidthBS,
 ) where
 
-import Relude hiding (truncate)
-
 import Control.Exception (assert)
-import Data.Text qualified as Text
-
 -- wcwidth
-import Data.Char.WCWidth (wcwidth)
 
 -- ansi-terminal
+
+import Data.ByteString.Char8 qualified as ByteString
+import Data.Char.WCWidth (wcwidth)
+import Data.Text qualified as Text
+import Relude hiding (truncate)
 import System.Console.ANSI (
   Color (Black, Blue, Green, Magenta, Red, Yellow),
   ColorIntensity (Dull, Vivid),
@@ -38,8 +38,6 @@ import System.Console.ANSI (
   SGR (Reset, SetColor, SetConsoleIntensity),
   setSGRCode,
  )
-
-import Data.ByteString.Char8 qualified as ByteString
 
 data Entry = Entry
   { codes :: [SGR]
@@ -90,8 +88,10 @@ cells width e = e{width}
 
 label :: Text -> Entry -> Entry
 label t e = e{lcontent = t}
+
 addCode :: SGR -> Entry -> Entry
 addCode code e = e{codes = code : e.codes}
+
 addColor :: Color -> Entry -> Entry
 addColor = addCode . SetColor Foreground Dull
 
@@ -133,10 +133,13 @@ nextWidth :: Text -> NonEmpty (NonEmpty Entry) -> (Int, [NonEmpty Entry])
 nextWidth sep rows = (width, chopWidthFromRows sep width rows)
  where
   width = getWidthForNextColumn rows
+
 getWidthForNextColumn :: NonEmpty (NonEmpty Entry) -> Int
 getWidthForNextColumn = getWidthForColumn . fmap head
+
 getWidthForColumn :: NonEmpty Entry -> Int
 getWidthForColumn = foldl' max 0 . fmap getRelevantWidthForEntry
+
 getRelevantWidthForEntry :: Entry -> Int
 getRelevantWidthForEntry entry
   | entry.width == 1 = entryWidth entry
@@ -147,6 +150,7 @@ entryWidth Entry{lcontent, rcontent} = displayWidth lcontent + displayWidth rcon
 
 chopWidthFromRows :: Text -> Int -> NonEmpty (NonEmpty Entry) -> [NonEmpty Entry]
 chopWidthFromRows sep width = mapMaybe (nonEmpty . chopWidthFromRow sep width) . toList
+
 chopWidthFromRow :: Text -> Int -> NonEmpty Entry -> [Entry]
 chopWidthFromRow sep targetWidth (entry@Entry{width} :| rest)
   | width > 1 = entry{width = width - 1, lcontent = "", rcontent = mtimesDefault (max 0 (entryWidth entry - targetWidth - displayWidth sep)) " "} : rest

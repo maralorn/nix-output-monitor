@@ -1,16 +1,14 @@
 module NOM.Parser.JSON.Hermes (parseJSON) where
 
-import Relude hiding (one)
-
 import Control.Exception (try)
+import Data.ByteString qualified as ByteString
 import Data.Hermes qualified as JSON
 import Data.Hermes.Decoder (listOfInt)
-import System.IO.Unsafe qualified as Unsafe
-
-import Data.ByteString qualified as ByteString
 import NOM.Builds (parseDerivation, parseHost, parseStorePath)
 import NOM.Error (NOMError (..))
 import NOM.NixMessage.JSON (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
+import Relude hiding (one)
+import System.IO.Unsafe qualified as Unsafe
 
 parseJSON :: JSON.HermesEnv -> ByteString -> Either NOMError NixJSONMessage
 parseJSON env input = first translate_hermes_error_to_nom_error json_parse_result
@@ -74,8 +72,10 @@ parseMessageAction object = do
 
 textFields :: JSON.Object -> JSON.Decoder [Text]
 textFields = JSON.atKey "fields" (JSON.list JSON.text)
+
 textOrNumFields :: JSON.Object -> JSON.Decoder [Either Text Int]
 textOrNumFields = JSON.atKey "fields" (JSON.list \val -> (Left <$> JSON.text val) <|> (Right <$> JSON.int val))
+
 intFields :: JSON.Object -> JSON.Decoder [Int]
 intFields = JSON.atKey "fields" listOfInt
 

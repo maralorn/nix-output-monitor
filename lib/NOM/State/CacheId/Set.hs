@@ -13,11 +13,9 @@ module NOM.State.CacheId.Set (
   member,
 ) where
 
-import Relude hiding (head)
-
 import Data.IntSet qualified as IntSet
-
 import NOM.State.CacheId (CacheId (MkCacheId))
+import Relude hiding (head)
 
 newtype CacheIdSet b = MkCacheIdSet {ints :: IntSet}
   deriving stock (Show, Eq, Ord, Read, Generic)

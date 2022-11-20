@@ -1,15 +1,14 @@
 module NOM.Print (stateToText, showCode, Config (..)) where
 
--- terminal-size
-
 import Data.Foldable qualified as Unsafe
 import Data.IntMap qualified as IntMap
 import Data.List qualified as List
 import Data.List.NonEmpty.Extra (appendr)
 import Data.Map.Strict qualified as Map
 import Data.MemoTrie (memo)
-import Data.Sequence qualified as Seq
+import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
+import Data.Strict qualified as Strict
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
 import Data.Tree (Forest, Tree (Node))
@@ -18,25 +17,23 @@ import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, NOMState, NOMV1State (..), ProgressState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos, inputStorePaths)
+import NOM.State (ActivityStatus (..), BuildFail (..), BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, InputDerivation (..), NOMState, NOMV1State (..), ProgressState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos, inputStorePaths)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
-import NOM.Util (diffTime, relTimeToSeconds)
 import Optics (itoList, view, _2)
 import Relude
-import Streamly.Internal.Data.Time.Units (AbsTime, diffAbsTime)
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.Terminal.Size (Window)
 import System.Console.Terminal.Size qualified as Window
 import Text.Printf (printf)
 
-showCode ∷ Text → [String]
+showCode :: Text -> [String]
 showCode = map (printf "%02X" . fromEnum) . toString
 
-textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average ∷ Text
+textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 textRep = fromString [toEnum 0xFE0E]
 vertical = "┃"
 lowerleft = "┗"
@@ -71,34 +68,34 @@ average = "∅" <> textRep
 -- ["2211","FE0E"]
 bigsum = "∑" <> textRep
 
-showCond ∷ Monoid m ⇒ Bool → m → m
+showCond :: Monoid m => Bool -> m -> m
 showCond = memptyIfFalse
 
-targetRatio, defaultTreeMax ∷ Int
+targetRatio, defaultTreeMax :: Int
 targetRatio = 3 -- We divide by this, don‘t set this to zero.
 defaultTreeMax = 20
 
 data Config = MkConfig
-  { silent ∷ Bool
-  , piping ∷ Bool
+  { silent :: Bool
+  , piping :: Bool
   }
 
-stateToText ∷ Config → NOMV1State → Maybe (Window Int) → (ZonedTime, AbsTime) → Text
+stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
 stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
  where
-  printWithSize ∷ Maybe Int → (ZonedTime, AbsTime) → Text
+  printWithSize :: Maybe Int -> (ZonedTime, Double) -> Text
   printWithSize maybeWindow = printWithTime
    where
-    printWithTime ∷ (ZonedTime, AbsTime) → Text
+    printWithTime :: (ZonedTime, Double) -> Text
     printWithTime
-      | progressState == JustStarted && config.piping = \nows@(_, now) → time nows <> showCond (diffTime now startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See -h and the README for details.)")
+      | progressState == JustStarted && config.piping = \nows@(_, now) -> time nows <> showCond (now - startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See -h and the README for details.)")
       | progressState == Finished && config.silent = const ""
-      | showBuildGraph = \nows@(_, now) → buildsDisplay now <> table (time nows)
+      | showBuildGraph = \nows@(_, now) -> buildsDisplay now <> table (time nows)
       | not anythingGoingOn = if config.silent then const "" else time
       | otherwise = table . time
     maxHeight = case maybeWindow of
-      Just limit → limit `div` targetRatio -- targetRatio is hardcoded to be bigger than zero.
-      Nothing → defaultTreeMax
+      Just limit -> limit `div` targetRatio -- targetRatio is hardcoded to be bigger than zero.
+      Nothing -> defaultTreeMax
     buildsDisplay now =
       prependLines
         (toText (setSGRCode [Reset]) <> upperleft <> horizontal)
@@ -108,8 +105,8 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         <> "\n"
   runTime now = timeDiff now startTime
   time
-    | progressState == Finished = \(nowClock, now) → finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
-    | otherwise = \(_, now) → clock <> " " <> runTime now
+    | progressState == Finished = \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
+    | otherwise = \(_, now) -> clock <> " " <> runTime now
   MkDependencySummary{..} = fullSummary
   runningBuilds' = (.host) <$> runningBuilds
   completedBuilds' = (.host) <$> completedBuilds
@@ -119,18 +116,18 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   showBuildGraph = not (Seq.null forestRoots)
   table time' =
     prependLines
-      ((if showBuildGraph then leftT else upperleft) <> stimes (3 ∷ Int) horizontal <> " ")
+      ((if showBuildGraph then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
       (vertical <> "    ")
       (lowerleft <> horizontal <> " " <> bigsum <> " ")
       $ printAlignedSep (innerTable `appendr` one (lastRow time'))
-  innerTable ∷ [NonEmpty Entry]
+  innerTable :: [NonEmpty Entry]
   innerTable = fromMaybe (one (text "")) (nonEmpty headers) : showCond showHosts printHosts
   headers =
     (cells 3 <$> optHeader showBuilds "Builds")
       <> (cells 3 <$> optHeader showDownloads "Downloads")
       <> (cells 2 <$> optHeader showUploads "Uploads")
       <> optHeader showHosts "Host"
-  optHeader cond = showCond cond . one . bold . header ∷ Text → [Entry]
+  optHeader cond = showCond cond . one . bold . header :: Text -> [Entry]
   partial_last_row =
     showCond
       showBuilds
@@ -172,11 +169,11 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
     | numFailedBuilds > 0 = markup red . ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>)
     | not (null nixErrors) = markup red . ((warning <> " Exited with " <> show (length nixErrors) <> " errors reported by nix") <>)
     | otherwise = markup green . ("Finished" <>)
-  printHosts ∷ [NonEmpty Entry]
+  printHosts :: [NonEmpty Entry]
   printHosts =
     mapMaybe (nonEmpty . labelForHost) hostNums
    where
-    labelForHost ∷ (Host, Int) → [Entry]
+    labelForHost :: (Host, Int) -> [Entry]
     labelForHost (host, index) =
       showCond
         showBuilds
@@ -203,28 +200,28 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       downloadsRunning' = action_count_for_host host runningDownloads
       numRunningBuildsOnHost = action_count_for_host host runningBuilds
       doneBuilds = action_count_for_host host completedBuilds
-    action_count_for_host ∷ HasField "host" a Host ⇒ Host → CMap.CacheIdMap b a → Int
-    action_count_for_host host = CMap.size . CMap.filter (\x → host == x.host)
+    action_count_for_host :: HasField "host" a Host => Host -> CMap.CacheIdMap b a -> Int
+    action_count_for_host host = CMap.size . CMap.filter (\x -> host == x.host)
 
-nonZeroShowBold ∷ Text → Int → Entry
+nonZeroShowBold :: Text -> Int -> Entry
 nonZeroShowBold label' num = if num > 0 then label label' $ text (markup bold (show num)) else dummy
 
-nonZeroBold ∷ Text → Int → Entry
+nonZeroBold :: Text -> Int -> Entry
 nonZeroBold label' num = label label' $ text (markup (if num > 0 then bold else id) (show num))
 
 data TreeLocation = Root | Twig | Leaf deriving stock (Eq)
 
-printBuilds ∷
-  NOMV1State →
-  [(Host, Int)] →
-  Int →
-  AbsTime →
+printBuilds ::
+  NOMV1State ->
+  [(Host, Int)] ->
+  Int ->
+  Double ->
   NonEmpty Text
 printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
  where
-  hostLabel ∷ Bool → Host → Text
+  hostLabel :: Bool -> Host -> Text
   hostLabel color host = (if color then markup magenta else id) $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
-  printBuildsWithTime ∷ AbsTime → NonEmpty Text
+  printBuildsWithTime :: Double -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   num_raw_roots = length forestRoots
   num_roots = length preparedPrintForest
@@ -234,48 +231,48 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
     | num_raw_roots <= 1 = graphTitle
     | num_raw_roots == num_roots = unwords [graphTitle, "with", show num_roots, "roots"]
     | otherwise = unwords [graphTitle, "showing", show num_roots, "of", show num_raw_roots, "roots"]
-  preparedPrintForest ∷ Forest (AbsTime → Text)
+  preparedPrintForest :: Forest (Double -> Text)
   preparedPrintForest = mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf) <$> buildForest
-  printTreeNode ∷ TreeLocation → DerivationInfo → AbsTime → Text
+  printTreeNode :: TreeLocation -> DerivationInfo -> Double -> Text
   printTreeNode location drvInfo =
     let ~summary = showSummary drvInfo.dependencySummary
         (planned, display_drv) = printDerivation drvInfo (get' (inputStorePaths drvInfo))
         displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
-     in \now → display_drv now <> displayed_summary
+     in \now -> display_drv now <> displayed_summary
 
-  buildForest ∷ Forest DerivationInfo
+  buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
 
-  goBuildForest ∷ Seq DerivationId → State DerivationSet (Forest DerivationInfo)
+  goBuildForest :: Seq DerivationId -> State DerivationSet (Forest DerivationInfo)
   goBuildForest = \case
-    (thisDrv Seq.:<| restDrvs) → do
-      seen_ids ← get
+    (thisDrv Seq.:<| restDrvs) -> do
+      seen_ids <- get
       let mkNode
             | not (CSet.member thisDrv seen_ids) && CSet.member thisDrv derivationsToShow = do
                 let drvInfo = get' (getDerivationInfos thisDrv)
                     childs = children thisDrv
                 modify (CSet.insert thisDrv)
-                subforest ← goBuildForest childs
+                subforest <- goBuildForest childs
                 pure (Node drvInfo subforest :)
             | otherwise = pure id
-      prepend_node ← mkNode
+      prepend_node <- mkNode
       prepend_node <$> goBuildForest restDrvs
-    _ → pure []
-  derivationsToShow ∷ DerivationSet
+    _ -> pure []
+  derivationsToShow :: DerivationSet
   derivationsToShow =
     let should_be_shown (index, (can_be_hidden, _, _)) = not can_be_hidden || index < maxHeight
         (_, sorted_set) = execState (goDerivationsToShow forestRoots) mempty
      in CSet.fromFoldable $
-          fmap (\(_, (_, _, drvId)) → drvId) $
+          fmap (\(_, (_, _, drvId)) -> drvId) $
             takeWhile should_be_shown $
               itoList $
                 Set.toAscList sorted_set
 
-  children ∷ DerivationId → Seq DerivationId
-  children drv_id = fmap fst $ (.inputDerivations) $ get' $ getDerivationInfos drv_id
+  children :: DerivationId -> Seq DerivationId
+  children drv_id = fmap (.derivation) $ (.inputDerivations) $ get' $ getDerivationInfos drv_id
 
-  goDerivationsToShow ∷
-    Seq DerivationId →
+  goDerivationsToShow ::
+    Seq DerivationId ->
     State
       ( DerivationSet -- seenIds
       , Set
@@ -286,12 +283,12 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
       )
       ()
   goDerivationsToShow = \case
-    (thisDrv Seq.:<| restDrvs) → do
-      (seen_ids, sorted_set) ← get
+    (thisDrv Seq.:<| restDrvs) -> do
+      (seen_ids, sorted_set) <- get
       let ~sort_key = sortKey nomState thisDrv
           summary@MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
           ~runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
-          ~nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path →
+          ~nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path ->
             let infos = get' (getStorePathInfos path)
              in infos.inputFor <> CSet.fromFoldable infos.producer
           ~may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
@@ -307,12 +304,12 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
           ~new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
       when show_this_node $ put (new_seen_ids, new_sorted_set) >> goDerivationsToShow (children thisDrv)
       goDerivationsToShow restDrvs
-    _ → pass
+    _ -> pass
 
-  get' ∷ NOMState b → b
+  get' :: NOMState b -> b
   get' procedure = evalState procedure nomState
 
-  showSummary ∷ DependencySummary → Text
+  showSummary :: DependencySummary -> Text
   showSummary MkDependencySummary{..} =
     unwords $
       join
@@ -336,37 +333,37 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             [markup blue $ show (CSet.size plannedDownloads) <> " " <> down <> " " <> todo]
         ]
 
-  hostMarkup ∷ Bool → Host → [Text]
+  hostMarkup :: Bool -> Host -> [Text]
   hostMarkup _ Localhost = mempty
   hostMarkup color host = ["on", hostLabel color host]
 
-  print_hosts ∷ Bool → Text → [Host] → [Text]
+  print_hosts :: Bool -> Text -> [Host] -> [Text]
   print_hosts color direction_label hosts
     | null hosts || length hostNums <= 2 = []
     | otherwise = direction_label : (hostLabel color <$> hosts)
   print_hosts_down color = print_hosts color "from"
   print_hosts_up color = print_hosts color "to"
 
-  printDerivation ∷ DerivationInfo → Map Text StorePathId → (Bool, AbsTime → Text)
+  printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, Double -> Text)
   printDerivation drvInfo _input_store_paths = do
-    let store_paths_in ∷ StorePathSet → Bool
+    let store_paths_in :: StorePathSet -> Bool
         store_paths_in some_set = not $ Map.null $ Map.filter (`CSet.member` some_set) drvInfo.outputs
-        store_paths_in_map ∷ StorePathMap (TransferInfo a) → [TransferInfo a]
+        store_paths_in_map :: StorePathMap (TransferInfo a) -> [TransferInfo a]
         store_paths_in_map info_map = toList $ Map.mapMaybe (`CMap.lookup` info_map) drvInfo.outputs
-        hosts ∷ [TransferInfo a] → [Host]
+        hosts :: [TransferInfo a] -> [Host]
         hosts = toList . Set.fromList . fmap (.host)
-        earliest_start ∷ [TransferInfo a] → AbsTime
+        earliest_start :: [TransferInfo a] -> Double
         earliest_start = Unsafe.minimum . fmap (.start)
-        build_sum ∷ [TransferInfo (Maybe AbsTime)] → NominalDiffTime
-        build_sum = relTimeToSeconds . sum . fmap (\transfer_info → maybe 0 (diffAbsTime transfer_info.start) transfer_info.end)
-        if_time_diff_relevant ∷ AbsTime → AbsTime → ([Text] → [Text]) → [Text]
-        if_time_diff_relevant to from = if_time_dur_relevant (relTimeToSeconds $ diffAbsTime to from)
-        if_time_dur_relevant ∷ NominalDiffTime → ([Text] → [Text]) → [Text]
+        build_sum :: [TransferInfo (Strict.Maybe Double)] -> NominalDiffTime
+        build_sum = sum . fmap (\transfer_info -> realToFrac $ Strict.maybe 0 (transfer_info.start -) transfer_info.end)
+        if_time_diff_relevant :: Double -> Double -> ([Text] -> [Text]) -> [Text]
+        if_time_diff_relevant to from = if_time_dur_relevant $ realToFrac (to - from)
+        if_time_dur_relevant :: NominalDiffTime -> ([Text] -> [Text]) -> [Text]
         if_time_dur_relevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration dur])
         phaseMay activityId' = do
-          activityId ← activityId'
-          (_, phase, _) ← IntMap.lookup activityId.value nomState.activities
-          phase
+          activityId <- Strict.toLazy activityId'
+          activity_status <- IntMap.lookup activityId.value nomState.activities
+          Strict.toLazy $ activity_status.phase
         drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
         downloadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningDownloads
         uploadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningUploads
@@ -384,18 +381,18 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
 
         case drvInfo.buildStatus of
           _
-            | not $ null downloadingOutputs →
+            | not $ null downloadingOutputs ->
                 ( False
-                , \now →
+                , \now ->
                     unwords $
                       markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
                         : ( print_hosts_down True (hosts downloadingOutputs)
                               <> if_time_diff_relevant now (earliest_start downloadingOutputs) id
                           )
                 )
-            | not $ null uploadingOutputs →
+            | not $ null uploadingOutputs ->
                 ( False
-                , \now →
+                , \now ->
                     unwords $
                       markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
                         : ( print_hosts_up True (hosts uploadingOutputs)
@@ -403,8 +400,8 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                           )
                 )
           Unknown
-            | plannedDownloads → (True, const $ markup blue (down <> " " <> todo <> " " <> drvName))
-            | not $ null downloadedOutputs →
+            | plannedDownloads -> (True, const $ markup blue (down <> " " <> todo <> " " <> drvName))
+            | not $ null downloadedOutputs ->
                 ( False
                 , const $
                     unwords $
@@ -415,7 +412,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                               <> if_time_dur_relevant (build_sum downloadedOutputs) id
                           )
                 )
-            | not $ null uploadedOutputs →
+            | not $ null uploadedOutputs ->
                 ( False
                 , const $
                     unwords $
@@ -426,30 +423,30 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                               <> if_time_dur_relevant (build_sum uploadedOutputs) id
                           )
                 )
-            | otherwise → (False, const drvName)
-          Planned → (True, const $ markup blue (todo <> " " <> drvName))
-          Building buildInfo →
+            | otherwise -> (False, const drvName)
+          Planned -> (True, const $ markup blue (todo <> " " <> drvName))
+          Building buildInfo ->
             let phaseList = case phaseMay buildInfo.activityId of
-                  Nothing → []
-                  Just phase → [markup bold ("(" <> phase <> ")")]
+                  Nothing -> []
+                  Just phase -> [markup bold ("(" <> phase <> ")")]
                 before_time =
                   [markups [yellow, bold] (running <> " " <> drvName)]
                     <> hostMarkup True buildInfo.host
                     <> phaseList
-                after_time = maybe [] (\x → ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-             in (False, \now → unwords $ before_time <> if_time_diff_relevant now buildInfo.start (<> after_time))
-          Failed buildInfo →
-            let (endTime, failType) = buildInfo.end
+                after_time = Strict.maybe [] (\x -> ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
+             in (False, \now -> unwords $ before_time <> if_time_diff_relevant now buildInfo.start (<> after_time))
+          Failed buildInfo ->
+            let MkBuildFail endTime failType = buildInfo.end
                 phaseInfo = case phaseMay buildInfo.activityId of
-                  Nothing → []
-                  Just phase → ["in", phase]
+                  Nothing -> []
+                  Just phase -> ["in", phase]
              in ( False
                 , const
                     . markups [red, bold]
                     . unwords
                     $ [warning, drvName] <> hostMarkup False buildInfo.host <> ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo
                 )
-          Built buildInfo →
+          Built buildInfo ->
             ( False
             , const $
                 markup green (done <> " " <> drvName)
@@ -461,16 +458,16 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                      )
             )
 
-printFailType ∷ FailType → Text
+printFailType :: FailType -> Text
 printFailType = \case
-  ExitCode i → "exit code " <> show i
-  HashMismatch → "hash mismatch"
+  ExitCode i -> "exit code " <> show i
+  HashMismatch -> "hash mismatch"
 
-timeDiff ∷ AbsTime → AbsTime → Text
+timeDiff :: Double -> Double -> Text
 timeDiff x =
-  printDuration . relTimeToSeconds . diffAbsTime x
+  printDuration . realToFrac . (x -)
 
-printDuration ∷ NominalDiffTime → Text
+printDuration :: NominalDiffTime -> Text
 printDuration diff
   | diff < 60 = p "%Ss"
   | diff < 60 * 60 = p "%Mm%Ss"
@@ -478,5 +475,5 @@ printDuration diff
  where
   p x = toText $ formatTime defaultTimeLocale x diff
 
-timeDiffSeconds ∷ Int → Text
+timeDiffSeconds :: Int -> Text
 timeDiffSeconds = printDuration . fromIntegral

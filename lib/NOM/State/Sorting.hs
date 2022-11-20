@@ -5,22 +5,19 @@ module NOM.State.Sorting (
   SortKey,
 ) where
 
-import Relude
-
 import Control.Monad.Extra (pureIf)
 import Data.List.Extra (firstJust)
 import Data.MemoTrie (memo)
-import Data.Sequence qualified as Seq
-import Optics (gfield, view, (%~), _1)
-import Safe.Foldable (minimumMay)
-
+import Data.Sequence.Strict qualified as Seq
 import NOM.State (
+  BuildFail (..),
   BuildInfo (..),
   BuildStatus (Unknown),
   DependencySummary (..),
   DerivationId,
   DerivationInfo (..),
   DerivationSet,
+  InputDerivation (..),
   NOMState,
   NOMV1State (..),
   StorePathInfo (..),
@@ -33,7 +30,9 @@ import NOM.State (
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.Util (foldMapEndo)
-import Streamly.Internal.Data.Time.Units (AbsTime)
+import Optics (gfield, (%~))
+import Relude
+import Safe.Foldable (minimumMay)
 
 sortDepsOfSet :: DerivationSet -> NOMState ()
 sortDepsOfSet parents = do
@@ -43,8 +42,8 @@ sortDepsOfSet parents = do
         drvInfo <- getDerivationInfos drvId
         let newDrvInfo = (gfield @"inputDerivations" %~ sort_derivations) drvInfo
         modify' (gfield @"derivationInfos" %~ CMap.insert drvId newDrvInfo)
-      sort_derivations :: Seq (DerivationId, Set Text) -> Seq (DerivationId, Set Text)
-      sort_derivations = Seq.sortOn (sort_key . fst)
+      sort_derivations :: Seq InputDerivation -> Seq InputDerivation
+      sort_derivations = Seq.sortOn (sort_key . (.derivation))
 
       sort_key :: DerivationId -> SortKey
       sort_key = memo (sortKey currentState)
@@ -62,21 +61,21 @@ type SortKey =
 
 data SortOrder
   = -- First the failed builds starting with the earliest failures
-    SFailed AbsTime
+    SFailed Double
   | -- Second the running builds starting with longest running
-    SBuilding AbsTime
+    SBuilding Double
   | -- The longer a download is running, the more it matters.
-    SDownloading AbsTime
+    SDownloading Double
   | -- The longer an upload is running, the more it matters.
-    SUploading AbsTime
+    SUploading Double
   | SWaiting
   | SDownloadWaiting
   | -- The longer a build is completed the less it matters
-    SDone (Down AbsTime)
+    SDone (Down Double)
   | -- The longer a download is completed the less it matters
-    SDownloaded (Down AbsTime)
+    SDownloaded (Down Double)
   | -- The longer an upload is completed the less it matters
-    SUploaded (Down AbsTime)
+    SUploaded (Down Double)
   | SUnknown
   deriving stock (Eq, Show, Ord)
 
@@ -102,7 +101,7 @@ sortOrder :: DependencySummary -> SortOrder
 sortOrder MkDependencySummary{..} = fromMaybe SUnknown (firstJust id sort_entries)
  where
   sort_entries =
-    [ SFailed <$> minimumMay (view _1 . (.end) <$> failedBuilds)
+    [ SFailed <$> minimumMay ((.at) . (.end) <$> failedBuilds)
     , SBuilding <$> minimumMay ((.start) <$> runningBuilds)
     , SDownloading <$> minimumMay ((.start) <$> runningDownloads)
     , SUploading <$> minimumMay ((.start) <$> runningUploads)

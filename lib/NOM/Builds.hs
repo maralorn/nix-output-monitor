@@ -1,11 +1,10 @@
 module NOM.Builds (parseHost, Derivation (..), StorePath (..), Host (..), FailType (..), parseStorePath, parseDerivation, storePathByteStringParser, derivationByteStringParser, parseIndentedStoreObject) where
 
-import Relude
-
 import Data.Attoparsec.ByteString qualified as Parser
 import Data.Attoparsec.ByteString.Char8 qualified as Parser.Char
 import Data.Attoparsec.Text qualified as TextParser
 import Data.Text qualified as Text
+import Relude
 
 data StorePath = StorePath
   { hash :: Text
@@ -85,7 +84,7 @@ instance ToText StorePath where
 instance ToString StorePath where
   toString = toString . toText
 
-data Host = Localhost | Host !Text
+data Host = Localhost | Host Text
   deriving stock (Ord, Eq, Show, Generic)
 
 instance ToText Host where

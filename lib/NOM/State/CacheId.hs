@@ -1,8 +1,7 @@
 module NOM.State.CacheId (CacheId (..)) where
 
-import Relude
-
 import Data.MemoTrie (HasTrie (..))
+import Relude
 
 newtype CacheId b = MkCacheId {unCacheId :: Int}
   deriving stock (Show, Eq, Ord, Read, Generic)

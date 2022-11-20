@@ -1,10 +1,8 @@
 module NOM.Print.Tree (showForest) where
 
-import Relude
-
 import Data.Tree (Forest, Tree (..))
-
 import NOM.Print.Table (blue, markup)
+import Relude
 
 showForest :: Forest Text -> [Text]
 showForest = reverse . go False

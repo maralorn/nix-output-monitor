@@ -1,8 +1,7 @@
 module NOM.Error (NOMError (..)) where
 
-import Relude
-
 import Control.Exception (IOException)
+import Relude
 
 data NOMError
   = InputError IOException

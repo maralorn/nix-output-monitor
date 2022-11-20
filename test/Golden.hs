@@ -1,22 +1,7 @@
 module Main (main) where
 
-import Relude
-
-import Data.Text qualified as Text
-import System.Environment qualified
-import System.Process (readProcessWithExitCode)
-import System.Random (randomIO)
-import Test.HUnit (
-  Counts (errors, failures),
-  Test,
-  Testable (test),
-  assertBool,
-  assertEqual,
-  runTestTT,
-  (~:),
- )
-
 import Control.Monad.Writer.Strict (WriterT (runWriterT))
+import Data.Text qualified as Text
 import NOM.Builds (parseStorePath)
 import NOM.IO (processTextStream)
 import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
@@ -39,6 +24,19 @@ import NOM.Update (
  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
+import Relude
+import System.Environment qualified
+import System.Process (readProcessWithExitCode)
+import System.Random (randomIO)
+import Test.HUnit (
+  Counts (errors, failures),
+  Test,
+  Testable (test),
+  assertBool,
+  assertEqual,
+  runTestTT,
+  (~:),
+ )
 
 tests :: [Bool -> Test]
 tests = [golden1]

@@ -1,8 +1,7 @@
 module NOM.IO.ParseStream.Simple (parseStreamSimple) where
 
-import Relude
-
 import Data.ByteString qualified as ByteString
+import Relude
 import Streamly.Prelude ((.:), (|$))
 import Streamly.Prelude qualified as Stream
 

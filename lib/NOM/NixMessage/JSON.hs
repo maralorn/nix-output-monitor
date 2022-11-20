@@ -5,6 +5,7 @@ import Relude
 
 newtype ActivityId = MkId {value :: Int}
   deriving newtype (Show, Eq, Ord)
+  deriving stock (Generic)
 
 newtype StopAction = MkStopAction {id :: ActivityId}
   deriving newtype (Eq)

@@ -1,10 +1,9 @@
 module NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec, parseOneText, stripANSICodes) where
 
-import Relude
-
 import Data.Attoparsec.ByteString (IResult (..), Parser, Result, parse)
 import Data.ByteString qualified as ByteString
 import Data.Word8 qualified as Word8
+import Relude
 import Streamly.Prelude ((.:))
 import Streamly.Prelude qualified as Stream
 
@@ -22,8 +21,10 @@ parseChunk initState (strippedInput, rawInput) = join $ state \(currentParser, c
 
 csi :: ByteString
 csi = "\27["
+
 breakOnANSIStartCode :: ByteString -> (ByteString, ByteString)
 breakOnANSIStartCode = ByteString.breakSubstring csi
+
 streamANSIChunks :: ByteString -> Stream.SerialT m (ByteString, ByteString)
 streamANSIChunks input =
   let (!filtered, !unfiltered) = breakOnANSIStartCode input

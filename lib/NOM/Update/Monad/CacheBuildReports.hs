@@ -6,23 +6,21 @@ module NOM.Update.Monad.CacheBuildReports (
   BuildReportMap,
 ) where
 
-import Relude
-
 import Control.Exception (IOException, catch)
 import Control.Monad.Writer.Strict (WriterT)
-import Data.Map.Strict qualified as Map
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory, removeFile)
-
 -- cassava
 import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
-
 -- data-default
 import Data.Default (def)
-
+import Data.Map.Strict qualified as Map
 -- filepath
-import System.FilePath ((</>))
 
 -- lock-file
+
+import NOM.Builds (Host (..))
+import Relude
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory, removeFile)
+import System.FilePath ((</>))
 import System.IO.LockFile (
   LockingException (CaughtIOException, UnableToAcquireLockFile),
   LockingParameters (retryToAcquireLock, sleepBetweenRetries),
@@ -30,8 +28,6 @@ import System.IO.LockFile (
   withLockExt,
   withLockFile,
  )
-
-import NOM.Builds (Host (..))
 
 -- Exposed functions
 
@@ -58,6 +54,7 @@ instance MonadCacheBuildReports IO where
 instance MonadCacheBuildReports m => MonadCacheBuildReports (StateT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
+
 instance (Monoid a, MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
@@ -75,7 +72,7 @@ tryUpdateBuildReports updateFunc = do
 
 updateBuildReportsUnlocked :: (BuildReportMap -> BuildReportMap) -> FilePath -> IO BuildReportMap
 updateBuildReportsUnlocked updateFunc dir = do
-  !reports <- updateFunc <$> loadBuildReports dir
+  reports <- updateFunc <$> loadBuildReports dir
   reports <$ saveBuildReports dir reports
 
 memptyOnLockFail :: Monoid b => LockingException -> IO b

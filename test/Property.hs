@@ -1,13 +1,11 @@
-import Relude
-import Relude.Unsafe qualified as Unsafe
-
 import Data.Attoparsec.ByteString (IResult (Done), parse)
 import Data.Set (singleton)
-import Test.HUnit
-
 import NOM.Builds
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
 import NOM.Parser
+import Relude
+import Relude.Unsafe qualified as Unsafe
+import Test.HUnit
 
 assertOldStyleParse :: ByteString -> IO (ByteString, NixOldStyleMessage)
 assertOldStyleParse input = do
