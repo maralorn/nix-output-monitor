@@ -1,4 +1,4 @@
-module NOM.Parser.JSON.Hermes (parseJSON) where
+module NOM.Parser.JSON (parseJSONLine) where
 
 import Control.Exception (try)
 import Data.ByteString qualified as ByteString
@@ -10,14 +10,14 @@ import NOM.NixMessage.JSON (Activity (..), ActivityId (..), ActivityProgress (..
 import Relude hiding (one)
 import System.IO.Unsafe qualified as Unsafe
 
-parseJSON :: JSON.HermesEnv -> ByteString -> Either NOMError NixJSONMessage
-parseJSON env input = first translate_hermes_error_to_nom_error json_parse_result
+parseJSONLine :: JSON.HermesEnv -> ByteString -> NixJSONMessage
+parseJSONLine env input = maybe (Plain input) on_json (ByteString.stripPrefix "@nix " input)
  where
-  raw_json = ByteString.drop 5 input -- Drop the prefix "@nix "
-  translate_hermes_error_to_nom_error :: JSON.HermesException -> NOMError
-  translate_hermes_error_to_nom_error json_error =
-    ParseNixJSONMessageError (show json_error) raw_json
-  json_parse_result = parseWithEnv env parseAction raw_json
+  on_json raw_json = either translate_hermes_error_to_nom_error id $ parseWithEnv env parseAction raw_json
+   where
+    translate_hermes_error_to_nom_error :: JSON.HermesException -> NixJSONMessage
+    translate_hermes_error_to_nom_error json_error =
+      ParseError $ ParseNixJSONMessageError (show json_error) raw_json
 
 parseWithEnv :: Exception e => JSON.HermesEnv -> (JSON.Value -> JSON.Decoder a) -> ByteString -> Either e a
 parseWithEnv env parser raw_json = Unsafe.unsafePerformIO . try $ JSON.withInputBuffer raw_json $ \input ->

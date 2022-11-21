@@ -3,28 +3,23 @@ module Main (main) where
 import Control.Exception qualified as Exception
 import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.ByteString qualified as ByteString
-import Data.Hermes qualified as JSON
-import Data.Strict qualified as Strict
 import Data.Text.IO (hPutStrLn)
 import Data.Time (ZonedTime)
 import Data.Version (showVersion)
 import GHC.IO.Exception (ExitCode (ExitFailure))
 import NOM.Error (NOMError)
-import NOM.IO (Stream, StreamParser, interact, readTextChunks)
-import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
-import NOM.IO.ParseStream.Simple (parseStreamSimple)
+import NOM.IO (interact)
+import NOM.IO.Input (NOMInput (..), UpdateResult (..))
+import NOM.IO.Input.JSON ()
+import NOM.IO.Input.OldStyle (OldStyleInput)
 import NOM.NixMessage.JSON (NixJSONMessage)
-import NOM.NixMessage.OldStyle (NixOldStyleMessage)
-import NOM.Parser (parser)
-import NOM.Parser.JSON.Hermes (parseJSON)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
 import NOM.State (NOMV1State (..), ProgressState (..), failedBuilds, fullSummary, initalStateFromBuildPlatform)
 import NOM.State.CacheId.Map qualified as CMap
-import NOM.Update (detectLocalFinishedBuilds, maintainState, updateStateNixJSONMessage, updateStateNixOldStyleMessage)
+import NOM.Update (detectLocalFinishedBuilds, maintainState)
 import NOM.Update.Monad (UpdateMonad)
-import Optics (Lens', gfield, (%), (%~), (.~), (^.))
-import Optics qualified
+import Optics (gfield, (%), (%~), (.~), (^.))
 import Paths_nix_output_monitor (version)
 import Relude
 import System.Console.ANSI qualified as Terminal
@@ -66,12 +61,12 @@ main = do
       exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" (("develop" : "-v" : "--log-format" : "internal-json" : nix_args) <> ["--command", "sh", "-c", "exit"]))
       exitWith =<< Process.runProcess (Process.proc "nix" ("develop" : nix_args))
     ([], _) -> do
-      finalState <- monitorHandle (Proxy @(Maybe NixOldStyleMessage, ByteString)) defaultConfig{piping = True} stdin
+      finalState <- monitorHandle (Proxy @OldStyleInput) defaultConfig{piping = True} stdin
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure
     (["--json"], _) -> do
-      finalState <- monitorHandle (Proxy @(Either NOMError NixJSONMessage)) defaultConfig{piping = True} stdin
+      finalState <- monitorHandle (Proxy @NixJSONMessage) defaultConfig{piping = True} stdin
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure
@@ -102,73 +97,17 @@ runMonitoredCommand config process_config = do
             process_config
   Exception.handle ((ExitFailure 1 <$) . printIOException) $
     Process.withProcessWait process_config_with_handles \process -> do
-      void $ monitorHandle (Proxy @(Either NOMError NixJSONMessage)) config (Process.getStderr process)
+      void $ monitorHandle (Proxy @NixJSONMessage) config (Process.getStderr process)
       exitCode <- Process.waitExitCode process
       output <- ByteString.hGetContents (Process.getStdout process)
       unless (ByteString.null output) $ ByteString.hPut stdout output
       pure exitCode
-
-data UpdateResult a = MkUpdateResult
-  { errors :: [NOMError]
-  , output :: ByteString
-  , newStateToPrint :: Maybe NOMV1State
-  , newState :: UpdaterState a
-  }
-  deriving stock (Generic)
 
 data ProcessState a = MkProcessState
   { updaterState :: UpdaterState a
   , printFunction :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
   }
   deriving stock (Generic)
-
-class NOMInput a where
-  type UpdaterState a
-  firstState :: NOMV1State -> UpdaterState a
-  updateState :: (UpdateMonad m) => a -> UpdaterState a -> m (UpdateResult a)
-  nomState :: Lens' (UpdaterState a) NOMV1State
-  inputStream :: Handle -> Stream (Either NOMError ByteString)
-  withParser :: (StreamParser a -> IO t) -> IO t
-
-instance NOMInput (Either NOMError NixJSONMessage) where
-  withParser body = JSON.withHermesEnv (body . parseStreamSimple . parseJSON)
-  type UpdaterState (Either NOMError NixJSONMessage) = NOMV1State
-  inputStream = readTextChunks
-  nomState = Optics.equality'
-  firstState = id
-  {-# INLINE updateState #-}
-  updateState input old_state = mkUpdateResult <$> updateStateNixJSONMessage input old_state
-   where
-    mkUpdateResult ((errors, output), new_state) =
-      MkUpdateResult
-        { errors
-        , output
-        , newStateToPrint = new_state
-        , newState = fromMaybe old_state new_state
-        }
-
-data OldStyleState = MkOldStyleState
-  { state :: NOMV1State
-  , lastRead :: Strict.Maybe Double
-  }
-  deriving stock (Generic)
-
-instance NOMInput (Maybe NixOldStyleMessage, ByteString) where
-  withParser body = body (parseStreamAttoparsec parser)
-  type UpdaterState (Maybe NixOldStyleMessage, ByteString) = OldStyleState
-  inputStream = readTextChunks
-  nomState = gfield @"state"
-  firstState state' = MkOldStyleState{state = state', lastRead = Strict.Nothing}
-  {-# INLINE updateState #-}
-  updateState input old_state = mkUpdateResult <$> updateStateNixOldStyleMessage input (Strict.toLazy old_state.lastRead, old_state.state)
-   where
-    mkUpdateResult ((errors, output), (new_timestamp, new_state)) =
-      MkUpdateResult
-        { errors
-        , output
-        , newStateToPrint = new_state
-        , newState = MkOldStyleState (fromMaybe (old_state.state) new_state) (Strict.toStrict new_timestamp)
-        }
 
 monitorHandle :: forall a. (StrictType.Strict (UpdaterState a), NOMInput a) => Proxy a -> Config -> Handle -> IO NOMV1State
 monitorHandle _ config input_handle = withParser @a \streamParser -> do

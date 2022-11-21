@@ -1,6 +1,7 @@
 module NOM.NixMessage.JSON (NixJSONMessage (..), StartAction (..), StopAction (..), MessageAction (..), ResultAction (..), ActivityResult (..), Activity (..), ActivityId (..), Verbosity (..), ActivityProgress (..), ActivityType (..)) where
 
 import NOM.Builds (Derivation (..), Host (..), StorePath (..))
+import NOM.Error (NOMError)
 import Relude
 
 newtype ActivityId = MkId {value :: Int}
@@ -11,50 +12,58 @@ newtype StopAction = MkStopAction {id :: ActivityId}
   deriving newtype (Eq)
   deriving stock (Show)
 
-data Verbosity = Error | Warn | Notice | Info | Talkative | Chatty | Debug | Vomit
+data Verbosity where
+  Error :: Verbosity
+  Warn :: Verbosity
+  Notice :: Verbosity
+  Info :: Verbosity
+  Talkative :: Verbosity
+  Chatty :: Verbosity
+  Debug :: Verbosity
+  Vomit :: Verbosity
   deriving stock (Show, Eq, Ord)
 
-data ActivityType
-  = UnknownType
-  | CopyPathType
-  | FileTransferType
-  | RealiseType
-  | CopyPathsType
-  | BuildsType
-  | BuildType
-  | OptimiseStoreType
-  | VerifyPathsType
-  | SubstituteType
-  | QueryPathInfoType
-  | PostBuildHookType
-  | BuildWaitingType
+data ActivityType where
+  UnknownType :: ActivityType
+  CopyPathType :: ActivityType
+  FileTransferType :: ActivityType
+  RealiseType :: ActivityType
+  CopyPathsType :: ActivityType
+  BuildsType :: ActivityType
+  BuildType :: ActivityType
+  OptimiseStoreType :: ActivityType
+  VerifyPathsType :: ActivityType
+  SubstituteType :: ActivityType
+  QueryPathInfoType :: ActivityType
+  PostBuildHookType :: ActivityType
+  BuildWaitingType :: ActivityType
   deriving stock (Show, Eq)
 
-data Activity
-  = Unknown
-  | CopyPath StorePath Host Host
-  | FileTransfer Text
-  | Realise
-  | CopyPaths
-  | Builds
-  | Build Derivation Host -- Int Int (let’s ignore what we don‘t use)
-  | OptimiseStore
-  | VerifyPaths
-  | Substitute StorePath Host
-  | QueryPathInfo StorePath Host
-  | PostBuildHook Derivation
-  | BuildWaiting
+data Activity where
+  Unknown :: Activity
+  CopyPath :: StorePath -> Host -> Host -> Activity
+  FileTransfer :: Text -> Activity
+  Realise :: Activity
+  CopyPaths :: Activity
+  Builds :: Activity
+  Build :: Derivation -> Host -> Activity
+  OptimiseStore :: Activity
+  VerifyPaths :: Activity
+  Substitute :: StorePath -> Host -> Activity
+  QueryPathInfo :: StorePath -> Host -> Activity
+  PostBuildHook :: Derivation -> Activity
+  BuildWaiting :: Activity
   deriving stock (Show, Eq, Ord, Generic)
 
-data ActivityResult
-  = FileLinked Int Int
-  | BuildLogLine Text
-  | UntrustedPath StorePath
-  | CorruptedPath StorePath
-  | SetPhase Text
-  | Progress ActivityProgress
-  | SetExpected ActivityType Int
-  | PostBuildLogLine Text
+data ActivityResult where
+  FileLinked :: Int -> Int -> ActivityResult
+  BuildLogLine :: Text -> ActivityResult
+  UntrustedPath :: StorePath -> ActivityResult
+  CorruptedPath :: StorePath -> ActivityResult
+  SetPhase :: Text -> ActivityResult
+  Progress :: ActivityProgress -> ActivityResult
+  SetExpected :: ActivityType -> Int -> ActivityResult
+  PostBuildLogLine :: Text -> ActivityResult
   deriving stock (Show, Eq)
 
 data ActivityProgress = MkActivityProgress
@@ -89,5 +98,11 @@ data MessageAction = MkMessageAction
   }
   deriving stock (Show, Eq)
 
-data NixJSONMessage = Stop StopAction | Start StartAction | Result ResultAction | Message MessageAction
+data NixJSONMessage where
+  Stop :: StopAction -> NixJSONMessage
+  Start :: StartAction -> NixJSONMessage
+  Result :: ResultAction -> NixJSONMessage
+  Message :: MessageAction -> NixJSONMessage
+  Plain :: ByteString -> NixJSONMessage
+  ParseError :: NOMError -> NixJSONMessage
   deriving stock (Show, Eq)

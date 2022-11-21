@@ -4,7 +4,6 @@ import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.Text qualified as Text
 import NOM.Builds (parseStorePath)
 import NOM.IO (processTextStream)
-import NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec)
 import NOM.Parser (parser)
 import NOM.Print (Config (..))
 import NOM.State (
@@ -17,6 +16,7 @@ import NOM.State (
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
+import NOM.StreamParser (parseStreamAttoparsec)
 import NOM.Update (
   detectLocalFinishedBuilds,
   maintainState,

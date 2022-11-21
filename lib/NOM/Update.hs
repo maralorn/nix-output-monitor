@@ -7,14 +7,11 @@ import Data.IntMap qualified as IntMap
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
--- optics
-
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime)
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseIndentedStoreObject, parseStorePath)
 import NOM.Error (NOMError)
-import NOM.IO.ParseStream.Attoparsec (parseOneText, stripANSICodes)
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 import NOM.NixMessage.JSON qualified as JSON
 import NOM.NixMessage.OldStyle (NixOldStyleMessage)
@@ -56,6 +53,7 @@ import NOM.State qualified as State
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (sortDepsOfSet, sortKey)
+import NOM.StreamParser (parseOneText, stripANSICodes)
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (..),
@@ -96,19 +94,22 @@ minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
 {-# INLINE updateStateNixJSONMessage #-}
-updateStateNixJSONMessage :: forall m. UpdateMonad m => Either NOMError NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
+updateStateNixJSONMessage :: forall m. UpdateMonad m => NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
 updateStateNixJSONMessage input inputState =
   {-# SCC "updateStateNixJSONMessage" #-}
   do
-    let process =
-          {-# SCC "matching_message" #-}
-          case input of
-            Left err -> do
-              tell [Left err]
-              noChange
-            Right jsonMessage -> processJsonMessage jsonMessage
-    ((hasChanged, msgs), outputState) <- {-# SCC "run_state" #-} runStateT (runWriterT (({-# SCC "input_received" #-} setInputReceived) >> {-# SCC "processing" #-} process)) inputState
-    let retval = if hasChanged then Just outputState else Nothing
+    ((hasChanged, msgs), outputState) <-
+      {-# SCC "run_state" #-}
+      runStateT
+        ( runWriterT
+            ( sequence
+                [ {-# SCC "input_received" #-} setInputReceived
+                , {-# SCC "processing" #-} processJsonMessage input
+                ]
+            )
+        )
+        inputState
+    let retval = if or hasChanged then Just outputState else Nothing
         errors = lefts msgs
     {-# SCC "emitting_new_state" #-} pure ((errors, ByteString.unlines (rights msgs)), retval)
 
@@ -132,7 +133,7 @@ updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
                 , -- Update the state if any changes where parsed.
                   processing
                 , -- Check if any local builds have finished, because nix-build would not tell us.
-                  -- If we haven‘t done so in the last 200ms.
+                  -- If we haven‘t done so in the last minTimeBetweenPollingNixStore seconds.
                   check
                 ]
           )
@@ -178,12 +179,10 @@ processResult result = do
     OldStyleMessage.Build drvName host -> withChange do
       building host drvName now Nothing
     OldStyleMessage.PlanBuilds plannedBuilds _lastBuild -> withChange do
-      plannedDrvIds <- forM (toList plannedBuilds) \drv ->
-        lookupDerivation drv
+      plannedDrvIds <- forM (toList plannedBuilds) (\x -> lookupDerivation x)
       planBuilds (fromList plannedDrvIds)
     OldStyleMessage.PlanDownloads _download _unpacked plannedDownloads -> withChange do
-      plannedDownloadIds <- forM (toList plannedDownloads) \path ->
-        getStorePathId path
+      plannedDownloadIds <- forM (toList plannedDownloads) (\x -> getStorePathId x)
       planDownloads (fromList plannedDownloadIds)
     OldStyleMessage.Checking drvName -> withChange do
       building Localhost drvName now Nothing
@@ -216,8 +215,7 @@ processJsonMessage = \case
           errors <- gets (.nixErrors)
           unless (stripped `elem` errors) do
             modify' (gfield @"nixErrors" %~ (<> (stripped Seq.<| mempty)))
-            whenJust (parseOneText Parser.oldStyleParser message) \result ->
-              void (processResult result)
+            whenJust (parseOneText Parser.oldStyleParser message) (\x -> void $ processResult x)
             tell [Right (encodeUtf8 message)]
     | stripped <- stripANSICodes message
     , Text.isPrefixOf "note:" stripped ->
@@ -273,9 +271,12 @@ processJsonMessage = \case
           isCompleted <- derivationIsCompleted drvId
           if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
         _ -> noChange
-  _other -> do
-    -- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
-    noChange
+  Plain msg -> tell [Right msg] >> noChange
+  ParseError err -> tell [Left err] >> noChange
+  Result _other_result -> noChange
+  Message _other_message -> noChange
+
+-- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
 
 appendDifferingPlatform :: NOMV1State -> DerivationInfo -> Text -> Text
 appendDifferingPlatform nomState drvInfo = case (nomState.buildPlatform, drvInfo.platform) of
@@ -283,13 +284,12 @@ appendDifferingPlatform nomState drvInfo = case (nomState.buildPlatform, drvInfo
   _ -> id
 
 activityPrefix :: Maybe Activity -> ProcessingT m Text
-activityPrefix activities = do
-  case activities of
-    Just (JSON.Build derivation _) -> do
-      drvInfo <- lookupDerivationInfos derivation
-      nomState <- get
-      pure $ toText (setSGRCode [Reset]) <> markup blue (appendDifferingPlatform nomState drvInfo (getReportName drvInfo) <> "> ")
-    _ -> pure ""
+activityPrefix activities = case activities of
+  Just (JSON.Build derivation _) -> do
+    drvInfo <- lookupDerivationInfos derivation
+    nomState <- get
+    pure $ toText (setSGRCode [Reset]) <> markup blue (appendDifferingPlatform nomState drvInfo (getReportName drvInfo) <> "> ")
+  _ -> pure ""
 
 movingAverage :: Double
 movingAverage = 0.5
@@ -351,7 +351,7 @@ lookupDerivationInfos drvName = do
 insertDerivation :: Nix.Derivation FilePath Text -> DerivationId -> ProcessingT m ()
 insertDerivation derivation drvId = do
   outputs' <-
-    derivation.outputs & Map.traverseMaybeWithKey \_ path -> do
+    derivation.outputs & Map.traverseMaybeWithKey \_ path ->
       parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
         pathId <- getStorePathId pathName
         modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
@@ -397,8 +397,7 @@ finishBuildByPathId host pathId = do
   whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
 downloading :: Host -> StorePathId -> Double -> NOMState ()
-downloading host pathId start = do
-  insertStorePathState pathId (State.Downloading MkTransferInfo{host, start, end = ()}) Nothing
+downloading host pathId start = insertStorePathState pathId (State.Downloading MkTransferInfo{host, start, end = ()}) Nothing
 
 getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
@@ -407,10 +406,9 @@ getBuildInfoIfRunning drvId =
     MaybeT (pure ((() <$) <$> preview (gfield @"buildStatus" % gconstructor @"Building") drvInfos))
 
 downloaded :: Host -> StorePathId -> Double -> NOMState ()
-downloaded host pathId end = do
-  insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
-    State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Strict.Just end)
-    other -> other
+downloaded host pathId end = insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
+  State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Strict.Just end)
+  other -> other
 
 uploading :: Host -> StorePathId -> Double -> NOMState ()
 uploading host pathId start =

@@ -93,12 +93,13 @@ library
     NOM.Builds
     NOM.Error
     NOM.IO
-    NOM.IO.ParseStream.Attoparsec
-    NOM.IO.ParseStream.Simple
+    NOM.IO.Input
+    NOM.IO.Input.JSON
+    NOM.IO.Input.OldStyle
     NOM.NixMessage.JSON
     NOM.NixMessage.OldStyle
     NOM.Parser
-    NOM.Parser.JSON.Hermes
+    NOM.Parser.JSON
     NOM.Print
     NOM.Print.Table
     NOM.Print.Tree
@@ -108,6 +109,7 @@ library
     NOM.State.CacheId.Set
     NOM.State.Sorting
     NOM.State.Tree
+    NOM.StreamParser
     NOM.Update
     NOM.Update.Monad
     NOM.Update.Monad.CacheBuildReports

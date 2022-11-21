@@ -1,21 +1,20 @@
-module NOM.IO (interact, processTextStream, readTextChunks, StreamParser, Stream) where
+module NOM.IO (interact, processTextStream, StreamParser, Stream) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, modifyTVar, swapTVar)
-import Control.Exception (IOException, try)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
 import Data.Time (ZonedTime, getZonedTime)
-import NOM.Error (NOMError (InputError))
+import NOM.Error (NOMError)
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad, getNow)
 import Relude
 import Streamly.Data.Fold qualified as Fold
-import Streamly.Prelude ((.:), (|&), (|&.))
+import Streamly.Prelude ((|&), (|&.))
 import Streamly.Prelude qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
@@ -35,22 +34,6 @@ type OutputFunc state = state -> Maybe Window -> (ZonedTime, Double) -> Output
 type Finalizer state = forall m. UpdateMonad m => StateT state m ()
 
 type Window = Terminal.Size.Window Int
-
-readTextChunks :: Handle -> Stream (Either NOMError ByteString)
-readTextChunks handle = loop
- where
-  -- We read up-to 4kb of input at once. We will rarely need more than that for one successful parse (i.e. a line).
-  -- I don‘t know much about computers, but 4k seems like something which would be cached efficiently.
-  bufferSize :: Int
-  bufferSize = 4096
-  tryRead :: Stream (Either IOException ByteString)
-  tryRead = liftIO $ try $ ByteString.hGetSome handle bufferSize
-  loop :: Stream (Either NOMError ByteString)
-  loop =
-    tryRead >>= \case
-      Left err -> Left (InputError err) .: loop -- Forward Exceptions, when we encounter them
-      Right "" -> mempty -- EOF
-      Right input -> Right input .: loop
 
 runUpdate ::
   forall update state.

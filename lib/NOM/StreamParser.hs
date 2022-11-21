@@ -1,4 +1,4 @@
-module NOM.IO.ParseStream.Attoparsec (parseStreamAttoparsec, parseOneText, stripANSICodes) where
+module NOM.StreamParser (parseStreamAttoparsec, parseOneText, stripANSICodes) where
 
 import Data.Attoparsec.ByteString (IResult (..), Parser, Result, parse)
 import Data.ByteString qualified as ByteString
