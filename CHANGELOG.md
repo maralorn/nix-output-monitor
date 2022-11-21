@@ -1,5 +1,11 @@
 # Revision history for nix-output-monitor
 
+## 2.0.0.4 -- 2022-11-21
+
+* nom will now not show json parsing errors when something was not a json message from nix. #69
+* `nom develop` and `nom shell` will now work when the user specifies a `--command` #69
+* nom will now pass through lines without newline ending, when in old style piping mode. This way it can e.g. show sudo prompts. #68
+
 ## 2.0.0.3 -- 2022-10-25
 
 * Fix crash on terminal misreporting it’s size
