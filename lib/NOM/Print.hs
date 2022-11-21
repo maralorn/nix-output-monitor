@@ -235,7 +235,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   preparedPrintForest = mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf) <$> buildForest
   printTreeNode :: TreeLocation -> DerivationInfo -> Double -> Text
   printTreeNode location drvInfo =
-    let ~summary = showSummary drvInfo.dependencySummary
+    let summary = showSummary drvInfo.dependencySummary
         (planned, display_drv) = printDerivation drvInfo (get' (inputStorePaths drvInfo))
         displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
      in \now -> display_drv now <> displayed_summary
@@ -285,14 +285,14 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   goDerivationsToShow = \case
     (thisDrv Seq.:<| restDrvs) -> do
       (seen_ids, sorted_set) <- get
-      let ~sort_key = sortKey nomState thisDrv
+      let sort_key = sortKey nomState thisDrv
           summary@MkDependencySummary{..} = get' (summaryIncludingRoot thisDrv)
-          ~runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
-          ~nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path ->
+          runningTransfers = CMap.keysSet runningDownloads <> CMap.keysSet runningUploads
+          nodesOfRunningTransfers = flip foldMap (CSet.toList runningTransfers) \path ->
             let infos = get' (getStorePathInfos path)
              in infos.inputFor <> CSet.fromFoldable infos.producer
-          ~may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
-          ~show_this_node =
+          may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
+          show_this_node =
             maxHeight > 0
               && summary /= mempty
               && not (CSet.member thisDrv seen_ids)
@@ -300,8 +300,8 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                     || Set.size sorted_set < maxHeight
                     || sort_key < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
                  )
-          ~new_seen_ids = CSet.insert thisDrv seen_ids
-          ~new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
+          new_seen_ids = CSet.insert thisDrv seen_ids
+          new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
       when show_this_node $ put (new_seen_ids, new_sorted_set) >> goDerivationsToShow (children thisDrv)
       goDerivationsToShow restDrvs
     _ -> pass

@@ -67,8 +67,8 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
     -- thread to update the state.
     modifyTVar nom_state_var maintenance
     -- we bind those lazily to not calculate them during STM
-    ~nom_state <- readTVar nom_state_var
-    ~nix_output_raw <- swapTVar nix_output_buffer_var mempty
+    nom_state <- readTVar nom_state_var
+    nix_output_raw <- swapTVar nix_output_buffer_var mempty
     pure (nom_state, nix_output_raw)
   -- ====
 
