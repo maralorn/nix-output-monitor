@@ -135,6 +135,8 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
                 )
                   <> Builder.byteString line
             )
+            -- Corner case: If nom is not outputing anything but we are printing output from nix, then we want to append a newline
+            <> memptyIfFalse (nom_output_length == 0 && nix_output_length > 0) Builder.byteString "\n"
 
   -- Actually write to the buffer. We do this all in one step and with a strict
   -- ByteString so that everything is precalculated and the actual put is
