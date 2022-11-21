@@ -39,6 +39,12 @@ defaultConfig =
     , silent = False
     }
 
+replaceCommandWithExit :: [String] -> [String]
+replaceCommandWithExit = (<> ["--command", "sh", "-c", "exit"]) . takeWhile (\x -> x /= "--command" && x /= "-c")
+
+withJSON :: [String] -> [String]
+withJSON x = "-v" : "--log-format" : "internal-json" : x
+
 main :: IO Void
 main = do
   args <- Environment.getArgs
@@ -47,26 +53,24 @@ main = do
     (["--version"], _) -> do
       hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
       exitWith =<< Process.runProcess (Process.proc "nix" ["--version"])
-    (nix_args, "nom-build") -> do
-      exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix-build" ("-v" : "--log-format" : "internal-json" : nix_args))
+    (nix_args, "nom-build") -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix-build" (withJSON nix_args))
     (nix_args, "nom-shell") -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix-shell" (("-v" : "--log-format" : "internal-json" : nix_args) <> ["--run", "exit"]))
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix-shell" (withJSON nix_args <> ["--run", "exit"]))
       exitWith =<< Process.runProcess (Process.proc "nix-shell" nix_args)
-    ("build" : nix_args, _) -> do
-      exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix" ("build" : "-v" : "--log-format" : "internal-json" : nix_args))
+    ("build" : nix_args, _) -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix" ("build" : withJSON nix_args))
     ("shell" : nix_args, _) -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" (("shell" : "-v" : "--log-format" : "internal-json" : nix_args) <> ["--command", "sh", "-c", "exit"]))
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("shell" : withJSON (replaceCommandWithExit nix_args)))
       exitWith =<< Process.runProcess (Process.proc "nix" ("shell" : nix_args))
     ("develop" : nix_args, _) -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" (("develop" : "-v" : "--log-format" : "internal-json" : nix_args) <> ["--command", "sh", "-c", "exit"]))
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("develop" : withJSON (replaceCommandWithExit nix_args)))
       exitWith =<< Process.runProcess (Process.proc "nix" ("develop" : nix_args))
     ([], _) -> do
-      finalState <- monitorHandle (Proxy @OldStyleInput) defaultConfig{piping = True} stdin
+      finalState <- monitorHandle @OldStyleInput defaultConfig{piping = True} stdin
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure
     (["--json"], _) -> do
-      finalState <- monitorHandle (Proxy @NixJSONMessage) defaultConfig{piping = True} stdin
+      finalState <- monitorHandle @NixJSONMessage defaultConfig{piping = True} stdin
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure
@@ -97,7 +101,7 @@ runMonitoredCommand config process_config = do
             process_config
   Exception.handle ((ExitFailure 1 <$) . printIOException) $
     Process.withProcessWait process_config_with_handles \process -> do
-      void $ monitorHandle (Proxy @NixJSONMessage) config (Process.getStderr process)
+      void $ monitorHandle @NixJSONMessage config (Process.getStderr process)
       exitCode <- Process.waitExitCode process
       output <- ByteString.hGetContents (Process.getStdout process)
       unless (ByteString.null output) $ ByteString.hPut stdout output
@@ -109,8 +113,8 @@ data ProcessState a = MkProcessState
   }
   deriving stock (Generic)
 
-monitorHandle :: forall a. (StrictType.Strict (UpdaterState a), NOMInput a) => Proxy a -> Config -> Handle -> IO NOMV1State
-monitorHandle _ config input_handle = withParser @a \streamParser -> do
+monitorHandle :: forall a. (StrictType.Strict (UpdaterState a), NOMInput a) => Config -> Handle -> IO NOMV1State
+monitorHandle config input_handle = withParser @a \streamParser -> do
   finalState <-
     do
       Terminal.hHideCursor outputHandle
