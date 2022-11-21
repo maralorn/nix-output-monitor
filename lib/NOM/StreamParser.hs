@@ -14,7 +14,7 @@ parseChunk initState (strippedInput, rawInput) = join $ state \(currentParser, c
   case currentParser strippedInput of
     Done "" result -> (pure (result, consumed <> rawInput), initState)
     Done rest result ->
-      let (!consumedNow, !rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
+      let (consumedNow, rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
        in ((result, consumed <> consumedNow) .: parseChunk initState (rest, rawLeft), initState)
     Fail{} -> (Stream.nil, second (const (consumed <> rawInput)) initState)
     Partial cont -> (Stream.nil, (cont, consumed <> rawInput))
@@ -27,10 +27,10 @@ breakOnANSIStartCode = ByteString.breakSubstring csi
 
 streamANSIChunks :: ByteString -> Stream.SerialT m (ByteString, ByteString)
 streamANSIChunks input =
-  let (!filtered, !unfiltered) = breakOnANSIStartCode input
-      (!codeParts, !rest) = ByteString.break Word8.isLetter unfiltered
-      (!code, !restOfStream) = case ByteString.uncons rest of
-        Just (!headOfRest, !tailOfRest) -> (ByteString.snoc codeParts headOfRest, streamANSIChunks tailOfRest)
+  let (filtered, unfiltered) = breakOnANSIStartCode input
+      (codeParts, rest) = ByteString.break Word8.isLetter unfiltered
+      (code, restOfStream) = case ByteString.uncons rest of
+        Just (headOfRest, tailOfRest) -> (ByteString.snoc codeParts headOfRest, streamANSIChunks tailOfRest)
         Nothing -> (codeParts, Stream.nil)
    in (filtered, filtered <> code) .: restOfStream
 
