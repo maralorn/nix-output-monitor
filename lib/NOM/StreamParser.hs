@@ -7,17 +7,19 @@ import Relude
 import Streamly.Prelude ((.:))
 import Streamly.Prelude qualified as Stream
 
-type ContParser update = (ByteString -> Result update, ByteString)
+type ContParser update = ByteString -> Result update
 
-parseChunk :: forall update m. Monad m => ContParser update -> (ByteString, ByteString) -> Stream.SerialT (StateT (ContParser update) m) (update, ByteString)
-parseChunk initState (strippedInput, rawInput) = join $ state \(currentParser, consumed) ->
-  case currentParser strippedInput of
-    Done "" result -> (pure (result, consumed <> rawInput), initState)
-    Done rest result ->
-      let (consumedNow, rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
-       in ((result, consumed <> consumedNow) .: parseChunk initState (rest, rawLeft), initState)
-    Fail{} -> (Stream.nil, second (const (consumed <> rawInput)) initState)
-    Partial cont -> (Stream.nil, (cont, consumed <> rawInput))
+parseChunk :: forall update m. Monad m => ContParser update -> (ByteString, ByteString) -> Stream.SerialT (StateT (ContParser update) m) (Maybe update, ByteString)
+parseChunk fresh_parse_func = go
+ where
+  go (strippedInput, rawInput) = join $ state \currentParser ->
+    case currentParser strippedInput of
+      Done "" result -> (pure (Just result, rawInput), fresh_parse_func)
+      Done rest result ->
+        let (consumedNow, rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
+         in ((Just result, consumedNow) .: go (rest, rawLeft), fresh_parse_func)
+      Fail{} -> (pure (Nothing, rawInput), fresh_parse_func)
+      Partial cont -> (pure (Nothing, rawInput), cont)
 
 csi :: ByteString
 csi = "\27["
@@ -34,15 +36,14 @@ streamANSIChunks input =
         Nothing -> (codeParts, Stream.nil)
    in (filtered, filtered <> code) .: restOfStream
 
-parseStreamAttoparsec :: Monad m => Parser update -> Stream.SerialT m ByteString -> Stream.SerialT m (update, ByteString)
+parseStreamAttoparsec :: Monad m => Parser update -> Stream.SerialT m ByteString -> Stream.SerialT m (Maybe update, ByteString)
 parseStreamAttoparsec parser =
-  let parserInitState = (parse parser, mempty)
-   in Stream.map snd . Stream.runStateT (pure parserInitState) . Stream.concatMap (parseChunk parserInitState) . Stream.liftInner . Stream.concatMap streamANSIChunks
+  Stream.map snd . Stream.runStateT (pure fresh_parse_func) . Stream.concatMap (parseChunk fresh_parse_func) . Stream.liftInner . Stream.concatMap streamANSIChunks
+ where
+  fresh_parse_func = parse parser
 
 parseOneText :: Parser update -> Text -> Maybe update
-parseOneText parser input = do
-  (result, _) <- runIdentity $ Stream.head (parseStreamAttoparsec parser (pure (encodeUtf8 input)))
-  pure result
+parseOneText parser input = fst =<< runIdentity (Stream.head (parseStreamAttoparsec parser (pure (encodeUtf8 input))))
 
 stripANSICodes :: Text -> Text
 stripANSICodes = decodeUtf8 . ByteString.concat . runIdentity . Stream.toList . fmap fst . streamANSIChunks . encodeUtf8

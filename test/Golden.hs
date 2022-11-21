@@ -69,7 +69,7 @@ testBuild name asserts withNix =
         readFiles = (,) . decodeUtf8 <$> readFileBS ("test/" <> name <> ".stdout") <*> readFileBS ("test/" <> name <> ".stderr")
     (output, errors) <- if withNix then callNix else readFiles
     firstState <- initalStateFromBuildPlatform (Just "x86_64-linux")
-    endState <- processTextStream (MkConfig False False) (parseStreamAttoparsec parser) (preserveStateSnd . updateStateNixOldStyleMessage) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right errors)
+    endState <- processTextStream (MkConfig False False) (fmap (first join) . parseStreamAttoparsec parser) (preserveStateSnd . updateStateNixOldStyleMessage) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right errors)
     asserts output (snd endState)
 
 finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()

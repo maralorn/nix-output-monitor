@@ -18,10 +18,8 @@ import Streamly.Prelude ((.:))
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle = loop
  where
-  -- We read up-to 4kb of input at once. We will rarely need more than that for one successful parse (i.e. a line).
-  -- I don‘t know much about computers, but 4k seems like something which would be cached efficiently.
   bufferSize :: Int
-  bufferSize = 4096
+  bufferSize = 4096 * 16
   tryRead :: Stream (Either Exception.IOException ByteString)
   tryRead = liftIO $ Exception.try $ ByteString.hGetSome handle bufferSize
   loop :: Stream (Either NOMError ByteString)
@@ -43,7 +41,7 @@ data OldStyleInput = MkOldStyleInput
   }
 
 instance NOMInput OldStyleInput where
-  withParser body = body (fmap (uncurry MkOldStyleInput) <$> parseStreamAttoparsec parser)
+  withParser body = body (fmap (uncurry MkOldStyleInput . first join) <$> parseStreamAttoparsec parser)
   type UpdaterState OldStyleInput = OldStyleState
   inputStream = readTextChunks
   nomState = gfield @"state"
