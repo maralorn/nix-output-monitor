@@ -4,6 +4,7 @@ module Data.Sequence.Strict (
   (<|),
   Data.Sequence.Strict.fromList,
   Seq.null,
+  Seq.length,
   Seq ((Seq.:<|)),
 ) where
 
