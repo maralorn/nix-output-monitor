@@ -97,7 +97,7 @@ printErrors errors =
     ""
     (vertical <> " ")
     (vertical <> " ")
-    (horizontal <> markup (bold . red) " Errors: " :| (lines =<< toList errors))
+    (horizontal <> markup (bold . red) " Errors: " :| (lines =<< reverse (toList errors)))
 
 stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
 stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
