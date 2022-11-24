@@ -214,8 +214,8 @@ processJsonMessage = \case
         {-# SCC "pass_through_error" #-}
         withChange do
           errors <- gets (.nixErrors)
-          unless (stripped `elem` errors) do
-            modify' (gfield @"nixErrors" %~ (<> (stripped Seq.<| mempty)))
+          unless (stripped `elem` fmap stripANSICodes errors) do
+            modify' (gfield @"nixErrors" %~ (<> (message Seq.<| mempty)))
             whenJust (parseOneText Parser.oldStyleParser message) (\x -> void $ processResult x)
             tell [Right (encodeUtf8 message)]
   Message MkMessageAction{message} | Text.isPrefixOf "evaluating file" message -> withChange do

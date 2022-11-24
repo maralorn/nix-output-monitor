@@ -114,9 +114,9 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       | otherwise = time
     sections =
       fmap snd . filter fst $
-        [ (not (Seq.null forestRoots), buildsDisplay . snd)
-        , (not (IntMap.null interestingActivities) || Strict.isJust currentMessage, printInterestingActivities (Strict.toLazy currentMessage) interestingActivities)
-        , (not (Seq.null nixErrors), const (printErrors nixErrors))
+        [ (not (IntMap.null interestingActivities) || Strict.isJust currentMessage, printInterestingActivities (Strict.toLazy currentMessage) interestingActivities)
+        , (not (Seq.null nixErrors), const errorDisplay)
+        , (not (Seq.null forestRoots), buildsDisplay . snd)
         ]
     maxHeight = case maybeWindow of
       Just limit -> limit `div` targetRatio -- targetRatio is hardcoded to be bigger than zero.
@@ -126,7 +126,8 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         horizontal
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState hostNums maxHeight now)
+        (printBuilds buildState hostNums (maxHeight - length (lines errorDisplay)) now)
+  errorDisplay = printErrors nixErrors
   runTime now = timeDiff now startTime
   time
     | progressState == Finished = \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
