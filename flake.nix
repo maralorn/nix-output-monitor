@@ -88,7 +88,6 @@
               "BangPatterns"
               "ImportQualifiedPost"
               "BlockArguments"
-              "UnicodeSyntax"
             ];
             hooks = {
               hlint.enable = true;

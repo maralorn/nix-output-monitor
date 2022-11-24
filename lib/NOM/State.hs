@@ -21,6 +21,7 @@ module NOM.State (
   NOMState,
   NOMV1State (..),
   ActivityStatus (..),
+  InterestingActivity (..),
   InputDerivation (..),
   getDerivationInfos,
   initalStateFromBuildPlatform,
@@ -147,6 +148,12 @@ data ActivityStatus = MkActivityStatus
   }
   deriving stock (Show, Eq, Ord, Generic)
 
+data InterestingActivity = MkInterestingUnknownActivity
+  { text :: Text
+  , start :: Double
+  }
+  deriving stock (Show, Eq, Ord, Generic)
+
 data NOMV1State = MkNOMV1State
   { derivationInfos :: DerivationMap DerivationInfo
   , storePathInfos :: StorePathMap StorePathInfo
@@ -161,6 +168,8 @@ data NOMV1State = MkNOMV1State
   , activities :: IntMap ActivityStatus
   , nixErrors :: Seq Text
   , buildPlatform :: Strict.Maybe Text
+  , interestingActivities :: IntMap InterestingActivity
+  , currentMessage :: Strict.Maybe Text
   }
   deriving stock (Show, Eq, Ord, Generic)
 
@@ -216,6 +225,8 @@ initalStateFromBuildPlatform platform = do
       mempty
       mempty
       (Strict.toStrict platform)
+      mempty
+      mempty
 
 instance Semigroup DependencySummary where
   (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7 lm8 lm9) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7 rm8 rm9) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7) (lm8 <> rm8) (lm9 <> rm9)

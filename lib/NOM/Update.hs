@@ -29,6 +29,7 @@ import NOM.State (
   DerivationMap,
   DerivationSet,
   InputDerivation (..),
+  InterestingActivity (..),
   NOMState,
   NOMStateT,
   NOMV1State (..),
@@ -217,12 +218,8 @@ processJsonMessage = \case
             modify' (gfield @"nixErrors" %~ (<> (stripped Seq.<| mempty)))
             whenJust (parseOneText Parser.oldStyleParser message) (\x -> void $ processResult x)
             tell [Right (encodeUtf8 message)]
-    | stripped <- stripANSICodes message
-    , Text.isPrefixOf "note:" stripped ->
-        {-# SCC "pass_through_note" #-}
-        do
-          tell [Right (encodeUtf8 message)]
-          noChange
+  Message MkMessageAction{message} | Text.isPrefixOf "evaluating file" message -> withChange do
+    modify' (gfield @"currentMessage" .~ Strict.Just message)
   Result MkResultAction{result = BuildLogLine line, id = id'} ->
     {-# SCC "pass_through_build_line" #-}
     do
@@ -236,28 +233,36 @@ processJsonMessage = \case
     {-# SCC "updating_progress" #-} withChange $ modify' (gfield @"activities" %~ IntMap.adjust (gfield @"progress" .~ Strict.Just progress) id'.value)
   Start startAction@MkStartAction{id = id'} ->
     {-# SCC "starting_action" #-}
-    withChange do
+    do
       prefix <- activityPrefix $ Just startAction.activity
       when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
-      modify' (gfield @"activities" %~ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing))
-      case startAction.activity of
-        JSON.Build drvName host -> do
+      changed <- case startAction.activity of
+        JSON.Build drvName host -> withChange do
           now <- getNow
           building host drvName now (Just id')
-        JSON.CopyPath path from Localhost -> do
+        JSON.CopyPath path from Localhost -> withChange do
           now <- getNow
           pathId <- getStorePathId path
           downloading from pathId now
-        JSON.CopyPath path Localhost to -> do
+        JSON.CopyPath path Localhost to -> withChange do
           now <- getNow
           pathId <- getStorePathId path
           uploading to pathId now
-        _ -> pass -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
+        JSON.Unknown -> withChange do
+          now <- getNow
+          modify' (gfield @"interestingActivities" %~ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now))
+        _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
+      when changed $ modify' (gfield @"activities" %~ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing))
+      showingMessage <- gets (Strict.isJust . (.currentMessage))
+      when showingMessage $ modify' (gfield @"currentMessage" .~ Strict.Nothing)
+      pure (changed || showingMessage)
   Stop MkStopAction{id = id'} ->
     {-# SCC "stoping_action" #-}
     do
       activity <- gets (\s -> IntMap.lookup id'.value s.activities)
       case activity of
+        Just (MkActivityStatus{activity = JSON.Unknown}) -> withChange do
+          modify' (gfield @"interestingActivities" %~ IntMap.delete id'.value)
         Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
           now <- getNow
           pathId <- getStorePathId path

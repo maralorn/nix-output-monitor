@@ -17,7 +17,7 @@ import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (ActivityStatus (..), BuildFail (..), BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, InputDerivation (..), NOMState, NOMV1State (..), ProgressState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos, inputStorePaths)
+import NOM.State (ActivityStatus (..), BuildFail (..), BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, InputDerivation (..), InterestingActivity (..), NOMState, NOMV1State (..), ProgressState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos, inputStorePaths)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
@@ -80,6 +80,25 @@ data Config = MkConfig
   , piping :: Bool
   }
 
+printSections :: NonEmpty Text -> Text
+printSections = (upperleft <>) . Text.intercalate (toText (setSGRCode [Reset]) <> "\n" <> leftT) . toList
+
+printInterestingActivities :: Maybe Text -> IntMap InterestingActivity -> (ZonedTime, Double) -> Text
+printInterestingActivities message activities (_, now) =
+  prependLines
+    ""
+    (vertical <> " ")
+    (vertical <> " ")
+    (stimes (5 :: Int) horizontal :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
+
+printErrors :: Seq Text -> Text
+printErrors errors =
+  prependLines
+    ""
+    (vertical <> " ")
+    (vertical <> " ")
+    (horizontal <> markup (bold . red) " Errors: " :| (lines =<< toList errors))
+
 stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
 stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
  where
@@ -90,19 +109,24 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
     printWithTime
       | progressState == JustStarted && config.piping = \nows@(_, now) -> time nows <> showCond (now - startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See -h and the README for details.)")
       | progressState == Finished && config.silent = const ""
-      | showBuildGraph = \nows@(_, now) -> buildsDisplay now <> table (time nows)
-      | not anythingGoingOn = if config.silent then const "" else time
-      | otherwise = table . time
+      | Just sections' <- nonEmpty sections, fullSummary /= mempty = \now -> printSections . fmap ($ now) $ sections' <> one (table . time)
+      | config.silent = const ""
+      | otherwise = time
+    sections =
+      fmap snd . filter fst $
+        [ (not (Seq.null forestRoots), buildsDisplay . snd)
+        , (not (IntMap.null interestingActivities) || Strict.isJust currentMessage, printInterestingActivities (Strict.toLazy currentMessage) interestingActivities)
+        , (not (Seq.null nixErrors), const (printErrors nixErrors))
+        ]
     maxHeight = case maybeWindow of
       Just limit -> limit `div` targetRatio -- targetRatio is hardcoded to be bigger than zero.
       Nothing -> defaultTreeMax
     buildsDisplay now =
       prependLines
-        (toText (setSGRCode [Reset]) <> upperleft <> horizontal)
+        horizontal
         (vertical <> " ")
         (vertical <> " ")
         (printBuilds buildState hostNums maxHeight now)
-        <> "\n"
   runTime now = timeDiff now startTime
   time
     | progressState == Finished = \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
@@ -112,11 +136,9 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   completedBuilds' = (.host) <$> completedBuilds
   failedBuilds' = (.host) <$> failedBuilds
   numFailedBuilds = CMap.size failedBuilds
-  anythingGoingOn = fullSummary /= mempty
-  showBuildGraph = not (Seq.null forestRoots)
   table time' =
     prependLines
-      ((if showBuildGraph then leftT else upperleft) <> stimes (3 :: Int) horizontal <> " ")
+      (stimes (3 :: Int) horizontal <> " ")
       (vertical <> "    ")
       (lowerleft <> horizontal <> " " <> bigsum <> " ")
       $ printAlignedSep (innerTable `appendr` one (lastRow time'))
@@ -210,6 +232,12 @@ nonZeroBold :: Text -> Int -> Entry
 nonZeroBold label' num = label label' $ text (markup (if num > 0 then bold else id) (show num))
 
 data TreeLocation = Root | Twig | Leaf deriving stock (Eq)
+
+ifTimeDiffRelevant :: Double -> Double -> ([Text] -> [Text]) -> [Text]
+ifTimeDiffRelevant to from = ifTimeDurRelevant $ realToFrac (to - from)
+
+ifTimeDurRelevant :: NominalDiffTime -> ([Text] -> [Text]) -> [Text]
+ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration dur])
 
 printBuilds ::
   NOMV1State ->
@@ -356,10 +384,6 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
         earliest_start = Unsafe.minimum . fmap (.start)
         build_sum :: [TransferInfo (Strict.Maybe Double)] -> NominalDiffTime
         build_sum = sum . fmap (\transfer_info -> realToFrac $ Strict.maybe 0 (transfer_info.start -) transfer_info.end)
-        if_time_diff_relevant :: Double -> Double -> ([Text] -> [Text]) -> [Text]
-        if_time_diff_relevant to from = if_time_dur_relevant $ realToFrac (to - from)
-        if_time_dur_relevant :: NominalDiffTime -> ([Text] -> [Text]) -> [Text]
-        if_time_dur_relevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration dur])
         phaseMay activityId' = do
           activityId <- Strict.toLazy activityId'
           activity_status <- IntMap.lookup activityId.value nomState.activities
@@ -387,7 +411,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                     unwords $
                       markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
                         : ( print_hosts_down True (hosts downloadingOutputs)
-                              <> if_time_diff_relevant now (earliest_start downloadingOutputs) id
+                              <> ifTimeDiffRelevant now (earliest_start downloadingOutputs) id
                           )
                 )
             | not $ null uploadingOutputs ->
@@ -396,7 +420,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                     unwords $
                       markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
                         : ( print_hosts_up True (hosts uploadingOutputs)
-                              <> if_time_diff_relevant now (earliest_start uploadingOutputs) id
+                              <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
                           )
                 )
           Unknown
@@ -409,7 +433,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                         : fmap
                           (markup grey)
                           ( print_hosts_down False (hosts downloadedOutputs)
-                              <> if_time_dur_relevant (build_sum downloadedOutputs) id
+                              <> ifTimeDurRelevant (build_sum downloadedOutputs) id
                           )
                 )
             | not $ null uploadedOutputs ->
@@ -420,7 +444,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                         : fmap
                           (markup grey)
                           ( print_hosts_up False (hosts uploadedOutputs)
-                              <> if_time_dur_relevant (build_sum uploadedOutputs) id
+                              <> ifTimeDurRelevant (build_sum uploadedOutputs) id
                           )
                 )
             | otherwise -> (False, const drvName)
@@ -434,7 +458,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                     <> hostMarkup True buildInfo.host
                     <> phaseList
                 after_time = Strict.maybe [] (\x -> ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-             in (False, \now -> unwords $ before_time <> if_time_diff_relevant now buildInfo.start (<> after_time))
+             in (False, \now -> unwords $ before_time <> ifTimeDiffRelevant now buildInfo.start (<> after_time))
           Failed buildInfo ->
             let MkBuildFail endTime failType = buildInfo.end
                 phaseInfo = case phaseMay buildInfo.activityId of
@@ -453,7 +477,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                   <> " "
                   <> ( markup grey . unwords $
                         ( hostMarkup False buildInfo.host
-                            <> if_time_diff_relevant buildInfo.end buildInfo.start id
+                            <> ifTimeDiffRelevant buildInfo.end buildInfo.start id
                         )
                      )
             )
