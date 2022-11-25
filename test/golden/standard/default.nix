@@ -1,11 +1,8 @@
-{
-  seed,
-  system ? builtins.currentSystem,
-}: let
+{seed}: let
   mkBuild = name: deps:
-    derivation {
-      inherit name deps seed system;
-      builder = ./golden1-builder.sh;
+    import ./.. {
+      inherit name deps seed;
+      script = "echo output for $out; echo foo > $out";
     };
 in rec {
   build1 = mkBuild "build1" [];

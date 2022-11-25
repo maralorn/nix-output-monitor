@@ -1,10 +1,15 @@
 module Main (main) where
 
 import Control.Monad.Writer.Strict (WriterT (runWriterT))
+import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
 import NOM.Builds (parseStorePath)
+import NOM.Error (NOMError)
 import NOM.IO (processTextStream)
-import NOM.Parser (parser)
+import NOM.IO.Input (NOMInput (..), UpdateResult (..))
+import NOM.IO.Input.JSON ()
+import NOM.IO.Input.OldStyle (OldStyleInput)
+import NOM.NixMessage.JSON (NixJSONMessage)
 import NOM.Print (Config (..))
 import NOM.State (
   DependencySummary (..),
@@ -16,17 +21,17 @@ import NOM.State (
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
-import NOM.StreamParser (parseStreamAttoparsec)
 import NOM.Update (
   detectLocalFinishedBuilds,
   maintainState,
-  updateStateNixOldStyleMessage,
  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
+import Optics ((%~), (.~), (^.))
 import Relude
+import Streamly.Prelude qualified as Stream
 import System.Environment qualified
-import System.Process (readProcessWithExitCode)
+import System.Process.Typed qualified as Process
 import System.Random (randomIO)
 import Test.HUnit (
   Counts (errors, failures),
@@ -38,67 +43,105 @@ import Test.HUnit (
   (~:),
  )
 
-tests :: [Bool -> Test]
-tests = [golden1]
+tests :: [TestConfig -> Test]
+tests = [goldenStandard, goldenFail]
 
-label :: (Semigroup a, IsString a) => Bool -> a -> a
-label withNix name = name <> if withNix then " with nix" else " with log from file"
+label :: (Semigroup a, IsString a) => TestConfig -> a -> a
+label config name = "golden test " <> name <> " for " <> (if config.oldStyle then "old-style messages" else "json messages") <> if config.withNix then " with nix" else " with log from file"
+
+allBools :: [Bool]
+allBools = [True, False]
 
 main :: IO ()
 main = do
-  withNix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
+  with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
+  when with_nix $
+    Process.runProcess_ $
+      Process.setStderr Process.nullStream $
+        Process.setStdout Process.nullStream $
+          Process.proc
+            "nix-store"
+            ["-r", "/nix/store/y7ji7mwys7g60j2w8bl93cmfbvd3xi3r-busybox-static-x86_64-unknown-linux-musl-1.35.0/bin/"]
   counts <- runTestTT $
     test $ do
       test' <- tests
-      if withNix
+      if with_nix
         then do
-          test' <$> [True, False]
-        else pure (test' False)
+          test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
+        else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
-testBuild :: String -> (Text -> NOMV1State -> IO ()) -> Bool -> Test
-testBuild name asserts withNix =
-  label withNix name ~: do
-    let callNix = do
-          seed <- randomIO @Int
-          readProcessWithExitCode
-            "nix-build"
-            ["test/" <> name <> ".nix", "--no-out-link", "--argstr", "seed", show seed]
-            ""
-            <&> (\(_, a, b) -> (toText a, encodeUtf8 b))
-        readFiles = (,) . decodeUtf8 <$> readFileBS ("test/" <> name <> ".stdout") <*> readFileBS ("test/" <> name <> ".stderr")
-    (output, errors) <- if withNix then callNix else readFiles
-    firstState <- initalStateFromBuildPlatform (Just "x86_64-linux")
-    endState <- processTextStream (MkConfig False False) (fmap (first join) . parseStreamAttoparsec parser) (preserveStateSnd . updateStateNixOldStyleMessage) (second maintainState) Nothing finalizer (Nothing, firstState) (pure $ Right errors)
-    asserts output (snd endState)
+data TestConfig = MkTestConfig
+  { withNix :: Bool
+  , oldStyle :: Bool
+  }
 
-finalizer :: UpdateMonad m => StateT (a, NOMV1State) m ()
+testBuild :: String -> TestConfig -> (Text -> NOMV1State -> IO ()) -> Test
+testBuild name config asserts =
+  label config name ~: do
+    let
+      suffix = if config.oldStyle then "" else ".json"
+      callNix = do
+        seed <- randomIO @Int
+        let
+          command =
+            if config.oldStyle
+              then
+                Process.proc
+                  "nix-build"
+                  ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+              else
+                Process.proc
+                  "nix"
+                  ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
+        Process.readProcess command
+          <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
+      readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
+    (output, errors) <- if config.withNix then callNix else readFiles
+    end_state <- if config.oldStyle then testProcess @OldStyleInput (pure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
+    asserts output end_state
+
+testProcess :: forall input. NOMInput input => Stream.SerialT IO ByteString -> IO NOMV1State
+testProcess input = withParser @input \streamParser -> do
+  first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
+  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (nomState @input %~ maintainState) Nothing (finalizer @input) first_state (Right <$> input)
+  pure (end_state ^. nomState @input)
+
+stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT (UpdaterState input) m ([NOMError], ByteString)
+stateUpdater input = do
+  old_state <- get
+  new_state <- (.newState) <$> updateState @input input old_state
+  put new_state
+  pure (mempty, mempty)
+
+finalizer :: forall input m. (NOMInput input, UpdateMonad m) => StateT (UpdaterState input) m ()
 finalizer = do
-  (a, oldState) <- get
-  newState <- execStateT (runWriterT detectLocalFinishedBuilds) oldState
-  put (a, newState)
+  old_state <- get
+  new_state <- execStateT (runWriterT detectLocalFinishedBuilds) (old_state ^. nomState @input)
+  put (nomState @input .~ new_state $ old_state)
 
-preserveStateSnd :: Monad m => ((istate, state) -> m (errors, (istate, Maybe state))) -> StateT (istate, state) m errors
-preserveStateSnd update = do
-  (i, s) <- get
-  (errors, (newI, newS)) <- lift $ update (i, s)
-  put (newI, fromMaybe s newS)
-  pure errors
-
-golden1 :: Bool -> Test
-golden1 = testBuild "golden1" $ \output endState@MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do
+goldenStandard :: TestConfig -> Test
+goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do
   let noOfBuilds :: Int
       noOfBuilds = 4
   assertBool "Everything built" (CSet.null plannedBuilds)
   assertBool "No running builds" (CMap.null runningBuilds)
   assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)
-  let outputStorePaths = mapMaybe parseStorePath (Text.lines output)
-  assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
-  let outputDerivations :: [DerivationId]
-      outputDerivations =
-        flip evalState endState $
-          forMaybeM outputStorePaths \path -> do
-            pathId <- getStorePathId path
-            outPathToDerivation pathId
-  assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
-  assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
+  when config.oldStyle $ do
+    let outputStorePaths = mapMaybe parseStorePath (Text.lines nix_output)
+    assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
+    let outputDerivations :: [DerivationId]
+        outputDerivations =
+          flip evalState endState $
+            forMaybeM outputStorePaths \path -> do
+              pathId <- getStorePathId path
+              outPathToDerivation pathId
+    assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
+    assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
+
+goldenFail :: TestConfig -> Test
+goldenFail config = testBuild "fail" config \_ MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do
+  assertEqual "One waiting build" 1 (CSet.size plannedBuilds)
+  assertEqual "One failed build" 1 (CMap.size failedBuilds)
+  assertEqual "One unfinished build" 1 (CMap.size runningBuilds)
+  assertEqual "No completed builds" 0 (CMap.size completedBuilds)

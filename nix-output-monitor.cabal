@@ -1,4 +1,4 @@
-cabal-version:      2.2
+cabal-version:      3.0
 name:               nix-output-monitor
 version:            2.0.0.4
 
@@ -19,8 +19,14 @@ build-type:         Simple
 extra-source-files:
   CHANGELOG.md
   completions/completion.zsh
-  test/golden1.stderr
-  test/golden1.stdout
+  test/golden/fail/stderr
+  test/golden/fail/stderr.json
+  test/golden/fail/stdout
+  test/golden/fail/stdout.json
+  test/golden/standard/stderr
+  test/golden/standard/stderr.json
+  test/golden/standard/stdout
+  test/golden/standard/stdout.json
 
 category:
   console
@@ -139,7 +145,7 @@ common tests
   build-depends:
     , HUnit
     , nix-output-monitor
-    , process
+    , typed-process
 
 test-suite unit-tests
   import:         tests
