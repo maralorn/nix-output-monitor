@@ -26,17 +26,16 @@
         ghc-version = "92";
         inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
         haskellPackages = haskell.packages."ghc${ghc-version}";
-        hlib = haskell.lib.compose;
+        hlib = (_: haskell.lib.compose) system;
         inherit (hlib) doJailbreak dontCheck;
-        golden-test = import ./test/golden1.nix {
-          seed = "1";
-          inherit system;
-        };
+        golden-test = import ./test/golden/all.nix;
         cleanSelf = lib.sourceFilesBySuffices self [
           ".hs"
           ".cabal"
-          ".stderr"
-          ".stdout"
+          "stderr"
+          "stdout"
+          "stderr.json"
+          "stdout.json"
           ".zsh"
           "LICENSE"
           "CHANGELOG.md"

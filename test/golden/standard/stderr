@@ -1,0 +1,13 @@
+these 4 derivations will be built:
+  /nix/store/xv3g9i3081rqx4wilyi304c17axrajnq-build1.drv
+  /nix/store/787q931q04dbgjzrqys28j5vyszz86ls-build2.drv
+  /nix/store/3p8ih1xqwcs9kjcw2gni9lv0hsmn2vwl-build3.drv
+  /nix/store/724mhypf8g8ahffn4c9x32j53yigj486-build4.drv
+building '/nix/store/xv3g9i3081rqx4wilyi304c17axrajnq-build1.drv'...
+output for /nix/store/22d93x5fqmrwfxp18fyb4labbs1q2slw-build1
+building '/nix/store/787q931q04dbgjzrqys28j5vyszz86ls-build2.drv'...
+output for /nix/store/xvw4mzwrpg0n2pcw5i30cjanc74ysp2z-build2
+building '/nix/store/3p8ih1xqwcs9kjcw2gni9lv0hsmn2vwl-build3.drv'...
+output for /nix/store/226w8ydbdhjnah61b418434ygw2m0ald-build3
+building '/nix/store/724mhypf8g8ahffn4c9x32j53yigj486-build4.drv'...
+output for /nix/store/dgln3wcjj1yd89wp61qn0037yyblf5l8-build4
