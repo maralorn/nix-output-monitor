@@ -54,7 +54,7 @@ import NOM.State qualified as State
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (sortDepsOfSet, sortKey)
-import NOM.StreamParser (parseOneText, stripANSICodes)
+import NOM.StreamParser (stripANSICodes)
 import NOM.Update.Monad (
   BuildReportMap,
   MonadCacheBuildReports (..),
@@ -63,7 +63,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (foldMapEndo)
+import NOM.Util (foldMapEndo, parseOneText)
 import Nix.Derivation qualified as Nix
 import Optics (gconstructor, gfield, has, preview, (%), (%~), (.~))
 import Relude
@@ -216,7 +216,9 @@ processJsonMessage = \case
           errors <- gets (.nixErrors)
           unless (stripped `elem` fmap stripANSICodes errors) do
             modify' (gfield @"nixErrors" %~ (<> (message Seq.<| mempty)))
-            whenJust (parseOneText Parser.oldStyleParser message) (\x -> void $ processResult x)
+            whenJust
+              (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
+              (\old_style_parse_result -> void $ processResult old_style_parse_result)
             tell [Right (encodeUtf8 message)]
   Message MkMessageAction{message} | Text.isPrefixOf "evaluating file" message -> withChange do
     modify' (gfield @"currentMessage" .~ Strict.Just message)

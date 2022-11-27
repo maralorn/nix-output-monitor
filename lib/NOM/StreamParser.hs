@@ -1,4 +1,4 @@
-module NOM.StreamParser (parseStreamAttoparsec, parseOneText, stripANSICodes) where
+module NOM.StreamParser (parseStreamAttoparsec, stripANSICodes) where
 
 import Data.Attoparsec.ByteString (IResult (..), Parser, Result, parse)
 import Data.ByteString qualified as ByteString
@@ -41,9 +41,6 @@ parseStreamAttoparsec parser =
   Stream.map snd . Stream.runStateT (pure fresh_parse_func) . Stream.concatMap (parseChunk fresh_parse_func) . Stream.liftInner . Stream.concatMap streamANSIChunks
  where
   fresh_parse_func = parse parser
-
-parseOneText :: Parser update -> Text -> Maybe update
-parseOneText parser input = fst =<< runIdentity (Stream.head (parseStreamAttoparsec parser (pure (encodeUtf8 input))))
 
 stripANSICodes :: Text -> Text
 stripANSICodes = decodeUtf8 . ByteString.concat . runIdentity . Stream.toList . fmap fst . streamANSIChunks . encodeUtf8

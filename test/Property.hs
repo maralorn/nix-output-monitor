@@ -1,17 +1,15 @@
-import Data.Attoparsec.ByteString (IResult (Done), parse)
 import Data.Set (singleton)
 import NOM.Builds
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
 import NOM.Parser
+import NOM.Util (parseOne)
 import Relude
 import Relude.Unsafe qualified as Unsafe
 import Test.HUnit
 
 assertOldStyleParse :: ByteString -> IO (ByteString, NixOldStyleMessage)
 assertOldStyleParse input = do
-  let res = case parse parser input of
-        Done x a -> Just (x, a)
-        _ -> Nothing
+  let res = parseOne parser input
   assertBool "parsing succeeds" (isJust res)
   let (t, res') = Unsafe.fromJust res
   assertBool "parsing succeeds with an actual match" (isJust res')
