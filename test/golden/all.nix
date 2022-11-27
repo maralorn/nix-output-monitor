@@ -1,4 +1,4 @@
 let
   packages = seed: (import ./standard {inherit seed;});
 in
-  packages "old-style" // packages "json"
+  builtins.attrValues (packages "old-style") ++ builtins.attrValues (packages "json")

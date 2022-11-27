@@ -28,7 +28,7 @@
         haskellPackages = haskell.packages."ghc${ghc-version}";
         hlib = (_: haskell.lib.compose) system;
         inherit (hlib) doJailbreak dontCheck;
-        golden-test = import ./test/golden/all.nix;
+        golden-tests = import ./test/golden/all.nix;
         cleanSelf = lib.sourceFilesBySuffices self [
           ".hs"
           ".cabal"
@@ -51,7 +51,7 @@
                 (hlib.overrideCabal
                   {
                     preCheck = ''
-                      # ${lib.concatStringsSep ", " (lib.attrValues golden-test ++ map (x: x.drvPath) (lib.attrValues golden-test))}
+                      # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
                       export TESTS_FROM_FILE=true;
                     '';
                     buildTools = [pkgs.installShellFiles];
