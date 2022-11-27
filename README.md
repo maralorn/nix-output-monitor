@@ -21,6 +21,12 @@ By now, nom is quite fully featured with support for nix v1 commands (e.g. `nix-
 
 Issues and pull requests welcome under https://github.com/maralorn/nix-output-monitor.
 
+**Call for screenshots:** I would be very glad to receive screenshot of your nom use. I never know how it looks on your machine and seeing how you use nom might help me in making the UX better.
+
+## Support
+
+If your question is not answered in this README you can ask it in [#nix-output-monitor:maralorn.de](https://matrix.to/#/#nix-output-monitor:maralorn.de) on matrix or open an issue here on github.
+
 ## Installing
 
 * nixpkgs: nom is in nixpkgs. Just install `pkgs.nix-output-monitor` in the usual way. You might want to install it from nixos-unstable to get the newest version.
