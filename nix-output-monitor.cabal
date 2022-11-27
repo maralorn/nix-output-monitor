@@ -1,6 +1,6 @@
-cabal-version:      3.0
+cabal-version:      2.2
 name:               nix-output-monitor
-version:            2.0.0.4
+version:            2.0.0.5
 
 -- The first two numbers get bumped, when the user interfaces changes in a breaking way. The first number, when the change feels large.
 -- The third number gets bumped, when new features get added.
