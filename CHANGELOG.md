@@ -1,5 +1,10 @@
 # Revision history for nix-output-monitor
 
+## 2.0.0.5 -- 2022-11-28
+
+* Fix a bug, where nom failed to parse build errors in json mode.
+* Improve test suite, including regressions for this bug.
+
 ## 2.0.0.4 -- 2022-11-21
 
 * nom will now not show json parsing errors when something was not a json message from nix. #69
