@@ -1,7 +1,7 @@
 {
   description = "nix-output-monitor";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/haskell-updates";
     pre-commit-hooks = {
       url = "github:cachix/pre-commit-hooks.nix";
       inputs = {
@@ -91,11 +91,11 @@
             hooks = {
               hlint.enable = true;
               alejandra.enable = true;
-              nix-linter.enable = true;
+              #nix-linter.enable = true;
               statix.enable = true;
               fourmolu = {
                 enable = true;
-                entry = lib.mkForce "${pkgs.haskell.packages.ghc92.fourmolu_0_9_0_0}/bin/fourmolu --mode inplace ${lib.escapeShellArgs (lib.concatMap (ext: ["--ghc-opt" "-X${ext}"]) settings.ormolu.defaultExtensions)}";
+                entry = lib.mkForce "${pkgs.haskellPackages.fourmolu}/bin/fourmolu --mode inplace ${lib.escapeShellArgs (lib.concatMap (ext: ["--ghc-opt" "-X${ext}"]) settings.ormolu.defaultExtensions)}";
               };
               cabal-fmt.enable = true;
               shellcheck.enable = true;
