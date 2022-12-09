@@ -159,8 +159,8 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         horizontal
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState hostNums (maxHeight - length (lines errorDisplay)) now)
-    errorDisplay = printErrors nixErrors (maxHeight `div` 2)
+        (printBuilds buildState hostNums maxHeight now)
+    errorDisplay = printErrors nixErrors maxHeight
   evalMessage = case evaluationState.lastFileName of
     Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
     Strict.Nothing -> Nothing
