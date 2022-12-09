@@ -217,7 +217,7 @@ processJsonMessage = \case
         {-# SCC "pass_through_error" #-}
         withChange do
           errors <- gets (.nixErrors)
-          unless (stripped `elem` fmap stripANSICodes errors) do
+          unless (any (Text.isInfixOf (Text.drop 7 stripped) . stripANSICodes) errors) do
             modify' (gfield @"nixErrors" %~ (<> (message Seq.<| mempty)))
             whenJust
               (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
