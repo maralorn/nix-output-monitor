@@ -243,6 +243,9 @@ processJsonMessage = \case
     do
       prefix <- activityPrefix $ Just startAction.activity
       when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
+      let set_interesting = withChange do
+            now <- getNow
+            modify' (gfield @"interestingActivities" %~ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now))
       changed <- case startAction.activity of
         JSON.Build drvName host -> withChange do
           now <- getNow
@@ -255,9 +258,8 @@ processJsonMessage = \case
           now <- getNow
           pathId <- getStorePathId path
           uploading to pathId now
-        JSON.Unknown -> withChange do
-          now <- getNow
-          modify' (gfield @"interestingActivities" %~ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now))
+        JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
+        JSON.QueryPathInfo{} -> set_interesting
         _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
       when changed $ modify' (gfield @"activities" %~ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing))
       pure changed
@@ -265,9 +267,9 @@ processJsonMessage = \case
     {-# SCC "stoping_action" #-}
     do
       activity <- gets (\s -> IntMap.lookup id'.value s.activities)
+      interesting_activity <- gets (\s -> IntMap.lookup id'.value s.interestingActivities)
+      modify' (gfield @"interestingActivities" %~ IntMap.delete id'.value)
       case activity of
-        Just (MkActivityStatus{activity = JSON.Unknown}) -> withChange do
-          modify' (gfield @"interestingActivities" %~ IntMap.delete id'.value)
         Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
           now <- getNow
           pathId <- getStorePathId path
@@ -280,7 +282,7 @@ processJsonMessage = \case
           drvId <- lookupDerivation drv
           isCompleted <- derivationIsCompleted drvId
           if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
-        _ -> noChange
+        _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange
   ParseError err -> tell [Left err] >> noChange
   Result _other_result -> noChange
