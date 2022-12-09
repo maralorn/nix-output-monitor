@@ -112,7 +112,7 @@ printInterestingActivities message activities (_, now) =
     ""
     (vertical <> " ")
     (vertical <> " ")
-    (stimes (5 :: Int) horizontal :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
+    (horizontal <> markup bold " Build Planning:" :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
 
 printErrors :: Seq Text -> Int -> Text
 printErrors errors maxHeight =
@@ -126,7 +126,7 @@ printErrors errors maxHeight =
     reverse
       . filter (not . Text.isInfixOf "dependencies of derivation")
       $ toList errors
-  compact_errors = sum (length . lines <$> interesting_errors) >= maxHeight
+  compact_errors = sum (length . lines <$> interesting_errors) > maxHeight
   filtered_errors = (if compact_errors then map compactError else id) interesting_errors
 
 compactError :: Text -> Text
