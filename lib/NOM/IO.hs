@@ -50,7 +50,7 @@ runUpdate bufferVar stateVar updater input = do
     writeTVar stateVar newState
   pure output
 
-writeStateToScreen :: forall state. Bool -> TVar Int -> TVar state -> TVar ByteString -> (state -> state) -> OutputFunc state -> Handle -> IO ()
+writeStateToScreen :: forall state. Bool -> TVar Int -> TVar state -> TVar ByteString -> (Double -> state -> state) -> OutputFunc state -> Handle -> IO ()
 writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
   nowClock <- getZonedTime
   now <- getNow
@@ -65,7 +65,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
     -- ==== Time Critical Segment - calculating to much in atomically can lead
     -- to recalculations.  In this section we are racing with the input parsing
     -- thread to update the state.
-    modifyTVar nom_state_var maintenance
+    modifyTVar nom_state_var (maintenance now)
     -- we bind those lazily to not calculate them during STM
     nom_state <- readTVar nom_state_var
     nix_output_raw <- swapTVar nix_output_buffer_var mempty
@@ -175,7 +175,7 @@ interact ::
   Config ->
   StreamParser update ->
   UpdateFunc update state ->
-  (state -> state) ->
+  (Double -> state -> state) ->
   OutputFunc state ->
   Finalizer state ->
   Stream (Either NOMError ByteString) ->
@@ -202,7 +202,7 @@ processTextStream ::
   Config ->
   StreamParser update ->
   UpdateFunc update state ->
-  (state -> state) ->
+  (Double -> state -> state) ->
   Maybe (OutputFunc state, Handle) ->
   Finalizer state ->
   state ->

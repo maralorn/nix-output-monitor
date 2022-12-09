@@ -28,6 +28,7 @@ import NOM.State (
   DerivationInfo (..),
   DerivationMap,
   DerivationSet,
+  EvalInfo (..),
   InputDerivation (..),
   InterestingActivity (..),
   NOMState,
@@ -83,13 +84,15 @@ setInputReceived = do
   when change (put s{progressState = InputReceived})
   pure change
 
-maintainState :: NOMV1State -> NOMV1State
-maintainState = execState $ do
-  currentState@MkNOMV1State{touchedIds} <- get
-  unless (CSet.null touchedIds) $ do
-    sortDepsOfSet touchedIds
+maintainState :: Double -> NOMV1State -> NOMV1State
+maintainState now = execState $ do
+  currentState <- get
+  unless (CSet.null currentState.touchedIds) $ do
+    sortDepsOfSet currentState.touchedIds
     modify (gfield @"forestRoots" %~ Seq.sortOn (sortKey currentState))
     modify (gfield @"touchedIds" .~ mempty)
+  when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5) do
+    modify (gfield @"evaluationState" %~ \old_state -> old_state{lastFileName = Strict.Nothing})
 
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
@@ -220,8 +223,10 @@ processJsonMessage = \case
               (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
               (\old_style_parse_result -> void $ processResult old_style_parse_result)
             tell [Right (encodeUtf8 message)]
-  Message MkMessageAction{message} | Text.isPrefixOf "evaluating file" message -> withChange do
-    modify' (gfield @"currentMessage" .~ Strict.Just message)
+  Message MkMessageAction{message} | Just suffix <- Text.stripPrefix "evaluating file '" message -> withChange do
+    let file_name = Text.dropEnd 1 suffix
+    now <- getNow
+    modify' (gfield @"evaluationState" %~ \old -> old{count = old.count + 1, lastFileName = Strict.Just file_name, at = now})
   Result MkResultAction{result = BuildLogLine line, id = id'} ->
     {-# SCC "pass_through_build_line" #-}
     do
@@ -255,9 +260,7 @@ processJsonMessage = \case
           modify' (gfield @"interestingActivities" %~ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now))
         _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
       when changed $ modify' (gfield @"activities" %~ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing))
-      showingMessage <- gets (Strict.isJust . (.currentMessage))
-      when showingMessage $ modify' (gfield @"currentMessage" .~ Strict.Nothing)
-      pure (changed || showingMessage)
+      pure changed
   Stop MkStopAction{id = id'} ->
     {-# SCC "stoping_action" #-}
     do

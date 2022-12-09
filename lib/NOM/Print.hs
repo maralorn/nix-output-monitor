@@ -17,7 +17,30 @@ import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..))
 import NOM.Print.Table (Entry, blue, bold, cells, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
-import NOM.State (ActivityStatus (..), BuildFail (..), BuildInfo (..), BuildStatus (..), DependencySummary (..), DerivationId, DerivationInfo (..), DerivationSet, InputDerivation (..), InterestingActivity (..), NOMState, NOMV1State (..), ProgressState (..), StorePathId, StorePathInfo (..), StorePathMap, StorePathSet, TransferInfo (..), getDerivationInfos, getStorePathInfos, inputStorePaths)
+import NOM.State (
+  ActivityStatus (..),
+  BuildFail (..),
+  BuildInfo (..),
+  BuildStatus (..),
+  DependencySummary (..),
+  DerivationId,
+  DerivationInfo (..),
+  DerivationSet,
+  EvalInfo (..),
+  InputDerivation (..),
+  InterestingActivity (..),
+  NOMState,
+  NOMV1State (..),
+  ProgressState (..),
+  StorePathId,
+  StorePathInfo (..),
+  StorePathMap,
+  StorePathSet,
+  TransferInfo (..),
+  getDerivationInfos,
+  getStorePathInfos,
+  inputStorePaths,
+ )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
@@ -91,13 +114,23 @@ printInterestingActivities message activities (_, now) =
     (vertical <> " ")
     (stimes (5 :: Int) horizontal :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
 
-printErrors :: Seq Text -> Text
-printErrors errors =
+printErrors :: Seq Text -> Int -> Text
+printErrors errors maxHeight =
   prependLines
     ""
     (vertical <> " ")
     (vertical <> " ")
-    (horizontal <> markup (bold . red) (" " <> show (Seq.length errors) <> " Errors: ") :| (lines =<< reverse (toList errors)))
+    (horizontal <> markup (bold . red) (" " <> show (length interesting_errors) <> " Errors: ") :| (lines =<< filtered_errors))
+ where
+  interesting_errors =
+    reverse
+      . filter (not . Text.isInfixOf "dependencies of derivation")
+      $ toList errors
+  compact_errors = sum (length . lines <$> interesting_errors) >= maxHeight
+  filtered_errors = (if compact_errors then map compactError else id) interesting_errors
+
+compactError :: Text -> Text
+compactError = fst . Text.breakOn "\n       last 10 log lines:"
 
 stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
 stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
@@ -114,7 +147,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       | otherwise = time
     sections =
       fmap snd . filter fst $
-        [ (not (IntMap.null interestingActivities) || Strict.isJust currentMessage, printInterestingActivities (Strict.toLazy currentMessage) interestingActivities)
+        [ (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
         , (not (Seq.null nixErrors), const errorDisplay)
         , (not (Seq.null forestRoots), buildsDisplay . snd)
         ]
@@ -127,7 +160,10 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         (vertical <> " ")
         (vertical <> " ")
         (printBuilds buildState hostNums (maxHeight - length (lines errorDisplay)) now)
-  errorDisplay = printErrors nixErrors
+    errorDisplay = printErrors nixErrors (maxHeight `div` 2)
+  evalMessage = case evaluationState.lastFileName of
+    Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
+    Strict.Nothing -> Nothing
   runTime now = timeDiff now startTime
   time
     | progressState == Finished = \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)

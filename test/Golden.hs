@@ -104,7 +104,7 @@ testBuild name config asserts =
 testProcess :: forall input. NOMInput input => Stream.SerialT IO ByteString -> IO NOMV1State
 testProcess input = withParser @input \streamParser -> do
   first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
-  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (nomState @input %~ maintainState) Nothing (finalizer @input) first_state (Right <$> input)
+  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)
   pure (end_state ^. nomState @input)
 
 stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT (UpdaterState input) m ([NOMError], ByteString)
