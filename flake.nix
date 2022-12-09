@@ -1,7 +1,7 @@
 {
   description = "nix-output-monitor";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/7e53f5f41cdc9923fd8a62a877cc3165de02b19d";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     pre-commit-hooks = {
       url = "github:cachix/pre-commit-hooks.nix";
       inputs = {
