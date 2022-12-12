@@ -91,7 +91,7 @@ maintainState now = execState $ do
     sortDepsOfSet currentState.touchedIds
     modify (gfield @"forestRoots" %~ Seq.sortOn (sortKey currentState))
     modify (gfield @"touchedIds" .~ mempty)
-  when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5) do
+  when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
     modify (gfield @"evaluationState" %~ \old_state -> old_state{lastFileName = Strict.Nothing})
 
 minTimeBetweenPollingNixStore :: NominalDiffTime
