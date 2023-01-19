@@ -21,7 +21,7 @@
     pre-commit-hooks,
     ...
   }:
-    flake-utils.lib.eachSystem ["x86_64-linux"] (
+    flake-utils.lib.eachDefaultSystem (
       system: let
         ghc-version = "92";
         inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
