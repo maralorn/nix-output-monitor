@@ -1,17 +1,13 @@
 {
   description = "nix-output-monitor";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "nixpkgs/nixos-unstable";
     pre-commit-hooks = {
       url = "github:cachix/pre-commit-hooks.nix";
       inputs = {
         flake-utils.follows = "flake-utils";
         nixpkgs.follows = "nixpkgs";
       };
-    };
-    flake-compat = {
-      url = "github:edolstra/flake-compat";
-      flake = false;
     };
   };
   outputs = {
