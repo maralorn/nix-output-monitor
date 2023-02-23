@@ -35,17 +35,26 @@
           ".zsh"
           "LICENSE"
           "CHANGELOG.md"
+          "default.nix"
         ];
       in rec {
         packages = {
           default =
             (lib.pipe {}
               [
-                (haskellPackages.callCabal2nix "nix-output-monitor" cleanSelf)
+                (haskellPackages.callPackage self)
                 haskellPackages.buildFromCabalSdist
                 hlib.justStaticExecutables
                 (hlib.overrideCabal
                   {
+                    src = cleanSelf;
+                    preConfigure = ''
+                      echo "Checking that default.nix is up-to-date."
+                      ${haskellPackages.cabal2nix}/bin/cabal2nix . > fresh-default.nix
+                      cp ${cleanSelf}/default.nix .
+                      ${pkgs.alejandra}/bin/alejandra -q fresh-default.nix default.nix
+                      ${pkgs.diffutils}/bin/diff -w default.nix fresh-default.nix
+                    '';
                     preCheck = ''
                       # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
                       export TESTS_FROM_FILE=true;
