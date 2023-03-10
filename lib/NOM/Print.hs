@@ -535,11 +535,15 @@ minute = 60
 hour :: NominalDiffTime
 hour = 60 * minute
 
+day :: NominalDiffTime
+day = 24 * hour
+
 printDuration :: NominalDiffTime -> Text
 printDuration diff
   | diff < minute = p "%Ss"
   | diff < hour = p "%Mm%Ss"
-  | otherwise = p "%Hh%Mm%Ss"
+  | diff < day = p "%Hh%Mm%Ss"
+  | otherwise = p "%dd%Hh%Mm%Ss"
  where
   p x = toText $ formatTime defaultTimeLocale x diff
 
