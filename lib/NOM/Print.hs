@@ -529,10 +529,16 @@ timeDiff :: Double -> Double -> Text
 timeDiff x =
   printDuration . realToFrac . (x -)
 
+minute :: NominalDiffTime
+minute = 60
+
+hour :: NominalDiffTime
+hour = 60 * minute
+
 printDuration :: NominalDiffTime -> Text
 printDuration diff
-  | diff < 60 = p "%Ss"
-  | diff < 60 * 60 = p "%Mm%Ss"
+  | diff < minute = p "%Ss"
+  | diff < hour = p "%Mm%Ss"
   | otherwise = p "%Hh%Mm%Ss"
  where
   p x = toText $ formatTime defaultTimeLocale x diff
