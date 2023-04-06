@@ -34,7 +34,7 @@ parseStreamSimple :: Stream.MonadAsync m => (ByteString -> update) -> Stream.Ser
 parseStreamSimple parser = Stream.fromAhead . Stream.map parser . Stream.fromSerial
 
 instance NOMInput NixJSONMessage where
-  withParser body = JSON.withHermesEnv (body . parseStreamSimple . parseJSONLine)
+  withParser body = JSON.withHermesEnv_ (body . parseStreamSimple . parseJSONLine)
   type UpdaterState NixJSONMessage = NOMV1State
   inputStream = readLines
   nomState = Optics.equality'

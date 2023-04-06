@@ -61,7 +61,7 @@ common common-config
     , ansi-terminal
     , async
     , attoparsec
-    , base            >=4.10 && <5.0
+    , base            >=4.10    && <5.0
     , bytestring
     , cassava
     , containers
@@ -69,7 +69,7 @@ common common-config
     , directory
     , extra
     , filepath
-    , hermes-json
+    , hermes-json     >=0.5.0.0
     , lock-file
     , MemoTrie
     , mtl

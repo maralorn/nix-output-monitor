@@ -1,6 +1,5 @@
 module NOM.Parser.JSON (parseJSONLine) where
 
-import Control.Exception (try)
 import Data.ByteString qualified as ByteString
 import Data.Hermes qualified as JSON
 import Data.Hermes.Decoder (listOfInt)
@@ -8,22 +7,17 @@ import NOM.Builds (parseDerivation, parseHost, parseStorePath)
 import NOM.Error (NOMError (..))
 import NOM.NixMessage.JSON (Activity (..), ActivityId (..), ActivityProgress (..), ActivityResult (..), ActivityType (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 import Relude hiding (one)
-import System.IO.Unsafe qualified as Unsafe
 
 parseJSONLine :: JSON.HermesEnv -> ByteString -> NixJSONMessage
 parseJSONLine env input = maybe (Plain input) on_json (ByteString.stripPrefix "@nix " input)
  where
-  on_json raw_json = either translate_hermes_error_to_nom_error id $ parseWithEnv env parseAction raw_json
+  on_json raw_json = either translate_hermes_error_to_nom_error id $ JSON.parseByteString env parseAction raw_json
    where
     translate_hermes_error_to_nom_error :: JSON.HermesException -> NixJSONMessage
     translate_hermes_error_to_nom_error json_error =
       ParseError $ ParseNixJSONMessageError (show json_error) raw_json
 
-parseWithEnv :: Exception e => JSON.HermesEnv -> (JSON.Value -> JSON.Decoder a) -> ByteString -> Either e a
-parseWithEnv env parser raw_json = Unsafe.unsafePerformIO . try $ JSON.withInputBuffer raw_json $ \input ->
-  flip runReaderT env . JSON.runDecoder $ JSON.withDocumentValue parser input
-
-parseVerbosity :: JSON.Value -> JSON.Decoder Verbosity
+parseVerbosity :: JSON.Decoder Verbosity
 parseVerbosity = JSON.withInt \case
   0 -> pure Error
   1 -> pure Warn
@@ -52,7 +46,7 @@ parseActivityType = \case
   111 -> pure BuildWaitingType
   other -> fail ("invalid activity result type: " <> show other)
 
-parseAction :: JSON.Value -> JSON.Decoder NixJSONMessage
+parseAction :: JSON.Decoder NixJSONMessage
 parseAction = JSON.withObject $ \object -> do
   action <- JSON.atKey "action" JSON.text object
   ( \case
@@ -74,7 +68,7 @@ textFields :: JSON.Object -> JSON.Decoder [Text]
 textFields = JSON.atKey "fields" (JSON.list JSON.text)
 
 textOrNumFields :: JSON.Object -> JSON.Decoder [Either Text Int]
-textOrNumFields = JSON.atKey "fields" (JSON.list \val -> (Left <$> JSON.text val) <|> (Right <$> JSON.int val))
+textOrNumFields = JSON.atKey "fields" $ JSON.list (Left <$> JSON.text <|> Right <$> JSON.int)
 
 intFields :: JSON.Object -> JSON.Decoder [Int]
 intFields = JSON.atKey "fields" listOfInt
