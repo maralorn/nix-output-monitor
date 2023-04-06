@@ -17,7 +17,6 @@ author:             maralorn <mail@maralorn.de>
 maintainer:         maralorn <mail@maralorn.de>
 build-type:         Simple
 extra-source-files:
-  CHANGELOG.md
   completions/completion.zsh
   test/golden/fail/stderr
   test/golden/fail/stderr.json
@@ -28,6 +27,7 @@ extra-source-files:
   test/golden/standard/stdout
   test/golden/standard/stdout.json
 
+extra-doc-files:    CHANGELOG.md
 category:
   console
   nix
