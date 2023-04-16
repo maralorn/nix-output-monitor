@@ -3,7 +3,7 @@ module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, mai
 import Control.Monad.Writer (MonadWriter (tell))
 import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.ByteString.Char8 qualified as ByteString
-import Data.IntMap qualified as IntMap
+import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set

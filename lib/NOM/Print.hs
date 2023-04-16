@@ -1,7 +1,7 @@
 module NOM.Print (stateToText, showCode, Config (..)) where
 
 import Data.Foldable qualified as Unsafe
-import Data.IntMap qualified as IntMap
+import Data.IntMap.Strict qualified as IntMap
 import Data.List qualified as List
 import Data.List.NonEmpty.Extra (appendr)
 import Data.Map.Strict qualified as Map
