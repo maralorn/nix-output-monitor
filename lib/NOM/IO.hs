@@ -214,10 +214,10 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   let keepProcessing :: IO ()
       keepProcessing =
         inputStream
-          |& Stream.tap (writeErrorsToBuffer bufferVar)
-          |& Stream.mapMaybe rightToMaybe
-          |& parser
-          |&. Stream.mapM_ (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar' bufferVar . flip (<>))
+          & Stream.tap (writeErrorsToBuffer bufferVar)
+          & Stream.mapMaybe rightToMaybe
+          & parser
+          & Stream.mapM_ (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar' bufferVar . flip (<>))
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay & maybe keepProcessing \(printer, output_handle) -> do
