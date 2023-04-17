@@ -79,6 +79,7 @@ common common-config
     , safe
     , stm
     , streamly
+    , streamly-core
     , strict
     , strict-types
     , terminal-size

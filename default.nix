@@ -24,6 +24,7 @@
   safe,
   stm,
   streamly,
+  streamly-core,
   strict,
   strict-types,
   terminal-size,
@@ -61,6 +62,7 @@ mkDerivation {
     safe
     stm
     streamly
+    streamly-core
     strict
     strict-types
     terminal-size
@@ -91,6 +93,7 @@ mkDerivation {
     safe
     stm
     streamly
+    streamly-core
     strict
     strict-types
     terminal-size
@@ -124,6 +127,7 @@ mkDerivation {
     safe
     stm
     streamly
+    streamly-core
     strict
     strict-types
     terminal-size

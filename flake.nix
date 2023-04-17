@@ -72,7 +72,7 @@
               if ghc-version == "94"
               then
                 (final: prev: {
-                  streamly = doJailbreak final.streamly_0_8_3;
+                  streamly = doJailbreak final.streamly_0_9_0;
                   optics = dontCheck prev.optics;
                   hermes-json = dontCheck (doJailbreak prev.hermes-json);
                 })
