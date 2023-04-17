@@ -101,9 +101,6 @@ four listdec = do
     [field1, field2, field3, field4] -> pure (field1, field2, field3, field4)
     _ -> fail "expected one field"
 
-unwrap :: MonadFail m => Maybe a -> m a
-unwrap = maybe (fail "empty value") pure
-
 parseResultAction :: JSON.Object -> JSON.Decoder ResultAction
 parseResultAction object = do
   idField <- MkId <$> JSON.atKey "id" JSON.int object
@@ -113,8 +110,8 @@ parseResultAction object = do
   result <- case type' of
     100 -> uncurry FileLinked <$> two num
     101 -> BuildLogLine <$> one txt
-    102 -> UntrustedPath <$> (one txt >>= unwrap . parseStorePath)
-    103 -> CorruptedPath <$> (one txt >>= unwrap . parseStorePath)
+    102 -> UntrustedPath <$> (one txt >>= parseStorePath)
+    103 -> CorruptedPath <$> (one txt >>= parseStorePath)
     104 -> SetPhase <$> one txt
     105 -> (\(done, expected, running, failed) -> Progress (MkActivityProgress{..})) <$> four num
     106 -> do
@@ -139,7 +136,7 @@ parseStartAction object = do
     UnknownType -> pure Unknown
     CopyPathType ->
       three txt >>= \(path, from, to) -> do
-        path' <- unwrap (parseStorePath path)
+        path' <- parseStorePath path
         pure $ CopyPath path' (parseHost from) (parseHost to)
     FileTransferType -> FileTransfer <$> one txt
     RealiseType -> pure Realise
@@ -147,20 +144,20 @@ parseStartAction object = do
     BuildsType -> pure Builds
     BuildType ->
       four (textOrNumFields object) >>= \(path, host, _, _) -> do
-        path' <- unwrap (either Just (const Nothing) path)
-        path'' <- unwrap (parseDerivation path')
-        host' <- unwrap (either Just (const Nothing) host)
+        path' <- either pure (const $ fail "Got Int expected Text") path
+        path'' <- parseDerivation path'
+        host' <- either pure (const $ fail "Got Int expected Text") host
         pure $ Build path'' (parseHost host')
     OptimiseStoreType -> pure OptimiseStore
     VerifyPathsType -> pure VerifyPaths
     SubstituteType ->
       two txt >>= \(path, host) -> do
-        path' <- unwrap (parseStorePath path)
+        path' <- parseStorePath path
         pure $ Substitute path' (parseHost host)
     QueryPathInfoType ->
       two txt >>= \(path, host) -> do
-        path' <- unwrap (parseStorePath path)
+        path' <- parseStorePath path
         pure $ QueryPathInfo path' (parseHost host)
-    PostBuildHookType -> PostBuildHook <$> (one txt >>= unwrap . parseDerivation)
+    PostBuildHookType -> PostBuildHook <$> (one txt >>= parseDerivation)
     BuildWaitingType -> pure BuildWaiting
   pure MkStartAction{id = MkId idField, text, activity, level}
