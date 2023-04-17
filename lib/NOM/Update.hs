@@ -34,6 +34,7 @@ import NOM.State (
   NOMState,
   NOMStateT,
   NOMV1State (..),
+  OutputName (Out),
   ProgressState (..),
   RunningBuildInfo,
   StorePathId,
@@ -48,6 +49,7 @@ import NOM.State (
   getStorePathId,
   getStorePathInfos,
   outPathToDerivation,
+  parseOutputName,
   updateSummaryForDerivation,
   updateSummaryForStorePath,
  )
@@ -362,8 +364,13 @@ lookupDerivationInfos drvName = do
 
 insertDerivation :: Nix.Derivation FilePath Text -> DerivationId -> ProcessingT m ()
 insertDerivation derivation drvId = do
-  outputs' <-
-    derivation.outputs & Map.traverseMaybeWithKey \_ path ->
+  -- We need to be really careful in this function. The Nix.Derivation keeps the
+  -- read-in derivation file in memory. When using Texts from it we must make
+  -- sure we destroy sharing with the original file, so that it can be garbage
+  -- collected.
+
+  outputs <-
+    derivation.outputs & Map.mapKeys (parseOutputName . Text.copy) & Map.traverseMaybeWithKey \_ path ->
       parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
         pathId <- getStorePathId pathName
         modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
@@ -377,16 +384,30 @@ insertDerivation derivation drvId = do
           pure pathId
       pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
-    derivation.inputDrvs & Map.toList & mapMaybeM \(drvPath, outs) -> do
+    derivation.inputDrvs & Map.toList & mapMaybeM \(drvPath, outputs_of_input) -> do
       depIdMay <-
         parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
           modify (gfield @"derivationInfos" %~ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId)
           modify (gfield @"forestRoots" %~ Seq.filter (/= depId))
           pure depId
-      pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = outs}) <$> depIdMay
+      pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = Set.map (parseOutputName . Text.copy) outputs_of_input}) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
-  modify (gfield @"derivationInfos" %~ CMap.adjust (\i -> i{outputs = outputs', inputSources, inputDerivations, cached = True, platform = Strict.Just derivation.platform, pname = Strict.toStrict (Map.lookup "pname" derivation.env)}) drvId)
+  modify
+    ( gfield @"derivationInfos"
+        %~ CMap.adjust
+          ( \derivation_info ->
+              derivation_info
+                { outputs
+                , inputSources
+                , inputDerivations
+                , cached = True
+                , platform = Strict.Just (Text.copy derivation.platform)
+                , pname = Strict.toStrict (Text.copy <$> Map.lookup "pname" derivation.env)
+                }
+          )
+          drvId
+    )
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
   when noParents $ modify (gfield @"forestRoots" %~ (drvId Seq.<|))
 
@@ -478,7 +499,7 @@ updateParents force_direct update_func clear_func direct_parents = do
     Nothing -> pure collected_parents
     Just (current_parent, rest_to_scan) -> do
       drv_infos <- getDerivationInfos current_parent
-      transfer_states <- fold <$> forM (Map.lookup "out" drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
+      transfer_states <- fold <$> forM (Map.lookup Out drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
       let all_transfers_completed = all (\x -> has (gconstructor @"Downloaded") x || has (gconstructor @"Uploaded") x) transfer_states
           is_irrelevant = all_transfers_completed && has (gconstructor @"Unknown") drv_infos.buildStatus || has (gconstructor @"Built") drv_infos.buildStatus
           proceed = collect_parents no_irrelevant

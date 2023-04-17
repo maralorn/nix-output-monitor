@@ -40,11 +40,14 @@ module NOM.State (
   derivationToAnyOutPath,
   updateSummaryForDerivation,
   inputStorePaths,
+  parseOutputName,
+  OutputName (..),
 ) where
 
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
+import Data.Text qualified as Text
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityProgress)
 import NOM.State.CacheId (CacheId)
@@ -79,15 +82,43 @@ data StorePathState
   | Uploaded CompletedTransferInfo
   deriving stock (Show, Eq, Ord, Generic)
 
+data OutputName
+  = Out
+  | Doc
+  | Dev
+  | Bin
+  | Info
+  | Lib
+  | Man
+  | Dist
+  | Other Text
+  deriving stock (Show, Eq, Ord, Generic)
+
+outputNames :: Map Text OutputName
+outputNames =
+  Map.fromList . fmap (\x -> (Text.toLower (show x), x)) $
+    [ Out
+    , Doc
+    , Dev
+    , Bin
+    , Info
+    , Lib
+    , Man
+    , Dist
+    ]
+
+parseOutputName :: Text -> OutputName
+parseOutputName name = fromMaybe (Other name) $ Map.lookup name outputNames
+
 data InputDerivation = MkInputDerivation
   { derivation :: DerivationId
-  , outputs :: Set Text
+  , outputs :: Set OutputName
   }
   deriving stock (Show, Eq, Ord, Generic)
 
 data DerivationInfo = MkDerivationInfo
   { name :: Derivation
-  , outputs :: Map Text StorePathId
+  , outputs :: Map OutputName StorePathId
   , inputDerivations :: Seq InputDerivation
   , inputSources :: StorePathSet
   , buildStatus :: BuildStatus
