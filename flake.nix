@@ -19,7 +19,7 @@
   }:
     flake-utils.lib.eachDefaultSystem (
       system: let
-        ghc-version = "92";
+        ghc-version = "94";
         inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
         haskellPackages = haskell.packages."ghc${ghc-version}";
         hlib = (_: haskell.lib.compose) system;
@@ -72,14 +72,9 @@
               if ghc-version == "94"
               then
                 (final: prev: {
-                  tasty-hedgehog = null;
-                  doctest = null;
-                  newtype-generics = doJailbreak prev.newtype-generics;
                   streamly = doJailbreak final.streamly_0_8_3;
                   optics = dontCheck prev.optics;
                   hermes-json = dontCheck (doJailbreak prev.hermes-json);
-                  relude = dontCheck (doJailbreak final.relude_1_1_0_0);
-                  unicode-data = dontCheck prev.unicode-data;
                 })
               else _: _: {}
             );
