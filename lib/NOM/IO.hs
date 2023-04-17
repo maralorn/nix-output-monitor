@@ -14,7 +14,6 @@ import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red
 import NOM.Update.Monad (UpdateMonad, getNow)
 import Relude
 import Streamly.Data.Fold qualified as Fold
-import Streamly.Prelude ((|&), (|&.))
 import Streamly.Prelude qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
