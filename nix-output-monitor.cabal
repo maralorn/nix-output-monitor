@@ -78,7 +78,6 @@ common common-config
     , relude
     , safe
     , stm
-    , streamly
     , streamly-core
     , strict
     , strict-types

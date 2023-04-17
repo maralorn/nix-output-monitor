@@ -13,21 +13,20 @@ import NOM.StreamParser (parseStreamAttoparsec)
 import NOM.Update (updateStateNixOldStyleMessage)
 import Optics (gfield)
 import Relude
-import Streamly.Prelude ((.:))
+import Streamly.Data.Stream qualified as Stream
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
-readTextChunks handle = loop
+readTextChunks handle =
+  Stream.repeatM (Exception.try (ByteString.hGetSome handle bufferSize))
+    & fmap \case
+      Left err -> Just (Left (InputError err)) -- Forward Exceptions, when we encounter them
+      Right "" -> Nothing -- EOF
+      Right input -> Just (Right input)
+    & Stream.takeWhile isJust
+    & Stream.catMaybes
  where
   bufferSize :: Int
   bufferSize = 4096 * 16
-  tryRead :: Stream (Either Exception.IOException ByteString)
-  tryRead = liftIO $ Exception.try $ ByteString.hGetSome handle bufferSize
-  loop :: Stream (Either NOMError ByteString)
-  loop =
-    tryRead >>= \case
-      Left err -> Left (InputError err) .: loop -- Forward Exceptions, when we encounter them
-      Right "" -> mempty -- EOF
-      Right input -> Right input .: loop
 
 data OldStyleState = MkOldStyleState
   { state :: NOMV1State

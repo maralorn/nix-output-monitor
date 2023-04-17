@@ -14,13 +14,13 @@ import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red
 import NOM.Update.Monad (UpdateMonad, getNow)
 import Relude
 import Streamly.Data.Fold qualified as Fold
-import Streamly.Prelude qualified as Stream
+import Streamly.Data.Stream qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
 import System.IO qualified
 
-type Stream = Stream.SerialT IO
+type Stream = Stream.Stream IO
 
 type StreamParser update = Stream ByteString -> Stream update
 
@@ -216,7 +216,8 @@ processTextStream config parser updater maintenance printerMay finalize initialS
           & Stream.tap (writeErrorsToBuffer bufferVar)
           & Stream.mapMaybe rightToMaybe
           & parser
-          & Stream.mapM_ (runUpdate bufferVar stateVar updater >=> atomically . modifyTVar' bufferVar . flip (<>))
+          & Stream.mapM (runUpdate bufferVar stateVar updater)
+          & Stream.fold (Fold.drainMapM (atomically . modifyTVar' bufferVar . flip (<>)))
       waitForInput :: IO ()
       waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
   printerMay & maybe keepProcessing \(printer, output_handle) -> do
@@ -233,7 +234,7 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   (if isNothing printerMay then (>>= execStateT finalize) else id) $ readTVarIO stateVar
 
 writeErrorsToBuffer :: TVar ByteString -> Fold.Fold IO (Either NOMError ByteString) ()
-writeErrorsToBuffer bufferVar = Fold.drainBy saveInput
+writeErrorsToBuffer bufferVar = Fold.drainMapM saveInput
  where
   saveInput :: Either NOMError ByteString -> IO ()
   saveInput = \case

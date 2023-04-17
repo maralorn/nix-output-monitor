@@ -23,7 +23,6 @@
   relude,
   safe,
   stm,
-  streamly,
   streamly-core,
   strict,
   strict-types,
@@ -61,7 +60,6 @@ mkDerivation {
     relude
     safe
     stm
-    streamly
     streamly-core
     strict
     strict-types
@@ -92,7 +90,6 @@ mkDerivation {
     relude
     safe
     stm
-    streamly
     streamly-core
     strict
     strict-types
@@ -126,7 +123,6 @@ mkDerivation {
     relude
     safe
     stm
-    streamly
     streamly-core
     strict
     strict-types

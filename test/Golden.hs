@@ -29,7 +29,7 @@ import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
 import Optics ((%~), (.~), (^.))
 import Relude
-import Streamly.Prelude qualified as Stream
+import Streamly.Data.Stream qualified as Stream
 import System.Environment qualified
 import System.Process.Typed qualified as Process
 import System.Random (randomIO)
@@ -98,10 +98,10 @@ testBuild name config asserts =
           <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
       readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
     (output, errors) <- if config.withNix then callNix else readFiles
-    end_state <- if config.oldStyle then testProcess @OldStyleInput (pure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
+    end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
     asserts output end_state
 
-testProcess :: forall input. NOMInput input => Stream.SerialT IO ByteString -> IO NOMV1State
+testProcess :: forall input. NOMInput input => Stream.Stream IO ByteString -> IO NOMV1State
 testProcess input = withParser @input \streamParser -> do
   first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
   end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)

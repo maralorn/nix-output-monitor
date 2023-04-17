@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module NOM.IO.Input.JSON (parseStreamSimple) where
+module NOM.IO.Input.JSON () where
 
 import Control.Exception qualified as Exception
 import Data.ByteString qualified as ByteString
@@ -14,27 +14,21 @@ import NOM.State (NOMV1State)
 import NOM.Update (updateStateNixJSONMessage)
 import Optics qualified
 import Relude
-import Streamly.Prelude ((.:))
-import Streamly.Prelude qualified as Stream
+import Streamly.Data.Stream qualified as Stream
 import System.IO.Error qualified as IOError
 
 readLines :: Handle -> Stream (Either NOMError ByteString)
-readLines handle = loop
- where
-  tryRead :: Stream (Either Exception.IOException ByteString)
-  tryRead = liftIO $ Exception.try $ ByteString.hGetLine handle
-  loop :: Stream (Either NOMError ByteString)
-  loop =
-    tryRead >>= \case
-      Left err | IOError.isEOFError err -> mempty
-      Left err -> Left (InputError err) .: loop -- Forward Exceptions, when we encounter them
-      Right input -> Right input .: loop
-
-parseStreamSimple :: Stream.MonadAsync m => (ByteString -> update) -> Stream.SerialT m ByteString -> Stream.SerialT m update
-parseStreamSimple parser = Stream.fromAhead . Stream.map parser . Stream.fromSerial
+readLines handle =
+  Stream.repeatM (Exception.try (ByteString.hGetLine handle))
+    & fmap \case
+      Left err | IOError.isEOFError err -> Nothing
+      Left err -> Just (Left (InputError err)) -- Forward Exceptions, when we encounter them
+      Right input -> Just (Right input)
+    & Stream.takeWhile isJust
+    & Stream.catMaybes
 
 instance NOMInput NixJSONMessage where
-  withParser body = JSON.withHermesEnv_ (body . parseStreamSimple . parseJSONLine)
+  withParser body = JSON.withHermesEnv_ (body . fmap . parseJSONLine)
   type UpdaterState NixJSONMessage = NOMV1State
   inputStream = readLines
   nomState = Optics.equality'
