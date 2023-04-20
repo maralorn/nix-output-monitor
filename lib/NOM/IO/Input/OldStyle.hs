@@ -5,7 +5,7 @@ import Data.ByteString qualified as ByteString
 import Data.Strict qualified as Strict
 import NOM.Error (NOMError (..))
 import NOM.IO (Stream)
-import NOM.IO.Input (NOMInput (..), UpdateResult (..))
+import NOM.IO.Input (NOMInput (..), UpdateResult (..), statelessUnfoldM)
 import NOM.NixMessage.OldStyle (NixOldStyleMessage)
 import NOM.Parser (parser)
 import NOM.State (NOMV1State)
@@ -13,17 +13,14 @@ import NOM.StreamParser (parseStreamAttoparsec)
 import NOM.Update (updateStateNixOldStyleMessage)
 import Optics (gfield)
 import Relude
-import Streamly.Data.Stream qualified as Stream
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle =
-  Stream.repeatM (Exception.try (ByteString.hGetSome handle bufferSize))
-    & fmap \case
+  statelessUnfoldM $
+    Exception.try (ByteString.hGetSome handle bufferSize) <&> \case
       Left err -> Just (Left (InputError err)) -- Forward Exceptions, when we encounter them
       Right "" -> Nothing -- EOF
       Right input -> Just (Right input)
-    & Stream.takeWhile isJust
-    & Stream.catMaybes
  where
   bufferSize :: Int
   bufferSize = 4096 * 16

@@ -5,20 +5,39 @@ import Data.ByteString qualified as ByteString
 import Data.Word8 qualified as Word8
 import Relude
 import Streamly.Data.Stream qualified as Stream
+import Streamly.Data.Unfold qualified as Unfold
 
 type ContParser update = ByteString -> Result update
 
-parseChunk :: forall update m. Monad m => ContParser update -> (ByteString, ByteString) -> Stream.Stream (StateT (ContParser update) m) (Maybe update, ByteString)
-parseChunk fresh_parse_func = go
+parseChunk ::
+  Monad m =>
+  ContParser update ->
+  Unfold.Unfold (StateT (ContParser update) m) (ByteString, ByteString) (Maybe update, ByteString)
+parseChunk fresh_parse_function = unfoldNext generate
  where
-  go (strippedInput, rawInput) = Stream.concatEffect $ state \currentParser ->
-    case currentParser strippedInput of
-      Done "" result -> (Stream.fromPure (Just result, rawInput), fresh_parse_func)
-      Done rest result ->
-        let (consumedNow, rawLeft) = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
-         in (Stream.cons (Just result, consumedNow) (go (rest, rawLeft)), fresh_parse_func)
-      Fail{} -> (Stream.fromPure (Nothing, rawInput), fresh_parse_func)
-      Partial cont -> (Stream.fromPure (Nothing, rawInput), cont)
+  generate input = state (transition_function input)
+  transition_function (strippedInput, rawInput) current_parse_function =
+    (
+      ( (parsed_update, raw_parsed)
+      , yet_to_parse
+      )
+    , next_parse_function
+    )
+   where
+    parse_result = current_parse_function strippedInput
+    parsed_update = case parse_result of
+      Done _ result -> Just result
+      _ -> Nothing
+    split_raw_by_rest rest = ByteString.splitAt (ByteString.length strippedInput - ByteString.length rest) rawInput
+    (raw_parsed, yet_to_parse) = case parse_result of
+      Done rest _
+        | not (ByteString.null rest)
+        , (consumedNow, rawLeft) <- split_raw_by_rest rest ->
+            (consumedNow, Just (rest, rawLeft))
+      _ -> (rawInput, Nothing)
+    next_parse_function = case parse_result of
+      Partial cont -> cont
+      _ -> fresh_parse_function
 
 csi :: ByteString
 csi = "\27["
@@ -26,20 +45,48 @@ csi = "\27["
 breakOnANSIStartCode :: ByteString -> (ByteString, ByteString)
 breakOnANSIStartCode = ByteString.breakSubstring csi
 
-streamANSIChunks :: Applicative m => ByteString -> Stream.Stream m (ByteString, ByteString)
-streamANSIChunks input =
-  let (filtered, unfiltered) = breakOnANSIStartCode input
-      (codeParts, rest) = ByteString.break Word8.isLetter unfiltered
-      (code, restOfStream) = case ByteString.uncons rest of
-        Just (headOfRest, tailOfRest) -> (ByteString.snoc codeParts headOfRest, streamANSIChunks tailOfRest)
-        Nothing -> (codeParts, Stream.nil)
-   in Stream.cons (filtered, filtered <> code) restOfStream
+streamANSIChunks :: Monad m => Unfold.Unfold m ByteString (ByteString, ByteString)
+streamANSIChunks = unfoldNext generate
+ where
+  generate :: Monad m => ByteString -> m ((ByteString, ByteString), Maybe ByteString)
+  generate input = pure ((filtered, filtered <> code), restOfStream)
+   where
+    (filtered, unfiltered) = breakOnANSIStartCode input
+    (codeParts, rest) = ByteString.break Word8.isLetter unfiltered
+    (code, restOfStream) = case ByteString.uncons rest of
+      Just (headOfRest, tailOfRest) -> (ByteString.snoc codeParts headOfRest, Just tailOfRest)
+      Nothing -> (codeParts, Nothing)
 
-parseStreamAttoparsec :: Monad m => Parser update -> Stream.Stream m ByteString -> Stream.Stream m (Maybe update, ByteString)
+{- | unfoldNext is like a normal unfold, but takes an (a, Maybe s) instead of Maybe (a, s)
+this means that the generator function will definitely generate the next
+stream item, but the stream can finish after that item.
+-}
+unfoldNext :: Monad m => (s -> m (a, Maybe s)) -> Unfold.Unfold m s a
+unfoldNext =
+  Unfold.lmap Just
+    . Unfold.unfoldrM
+    . mapM
+
+parseStreamAttoparsec ::
+  Monad m =>
+  Parser update ->
+  Stream.Stream m ByteString ->
+  Stream.Stream m (Maybe update, ByteString)
 parseStreamAttoparsec parser =
-  fmap snd . Stream.runStateT (pure fresh_parse_func) . Stream.concatMap (parseChunk fresh_parse_func) . Stream.liftInner . Stream.concatMap streamANSIChunks
+  fmap snd
+    . Stream.runStateT (pure fresh_parse_func)
+    . Stream.unfoldMany (Unfold.many (parseChunk fresh_parse_func) streamANSIChunks)
+    . Stream.liftInner
  where
   fresh_parse_func = parse parser
 
 stripANSICodes :: Text -> Text
-stripANSICodes = decodeUtf8 . ByteString.concat . runIdentity . Stream.toList . fmap fst . streamANSIChunks . encodeUtf8
+stripANSICodes =
+  decodeUtf8
+    . ByteString.concat
+    . toList @(Stream.Stream Identity)
+    . Stream.unfold
+      ( fmap fst
+          . Unfold.lmap encodeUtf8
+          $ streamANSIChunks
+      )
