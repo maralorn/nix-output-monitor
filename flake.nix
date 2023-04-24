@@ -19,7 +19,7 @@
   }:
     flake-utils.lib.eachDefaultSystem (
       system: let
-        ghc-version = "94";
+        ghc-version = "92";
         inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
         haskellPackages = haskell.packages."ghc${ghc-version}";
         hlib = (_: haskell.lib.compose) system;
