@@ -84,10 +84,10 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
       -- to reflow by the terminal and therefor messing with our line count.
       -- We try to predict the number of introduced linebreaks here. The number
       -- might be slightly to high in corner cases but that will only trigger
-      -- sligthly more redraws which is totally acceptable.
+      -- slightly more redraws which is totally acceptable.
       reflow_line_count_correction =
         terminalSize <&> \size ->
-          -- This division is fine, because we don‘t accept non positiv window sizes.
+          -- This division is fine, because we don‘t accept non positive window sizes.
           getSum $ foldMap (\line -> Sum (displayWidthBS line `div` size.width)) nix_output
 
   (last_printed_line_count, lines_to_pad) <- atomically do
@@ -134,7 +134,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
                 )
                   <> Builder.byteString line
             )
-            -- Corner case: If nom is not outputing anything but we are printing output from nix, then we want to append a newline
+            -- Corner case: If nom is not outputting anything but we are printing output from nix, then we want to append a newline
             <> memptyIfFalse (nom_output_length == 0 && nix_output_length > 0) Builder.byteString "\n"
 
   -- Actually write to the buffer. We do this all in one step and with a strict
