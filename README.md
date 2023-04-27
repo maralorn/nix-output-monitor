@@ -13,7 +13,7 @@ While your build runs nom will draw something like this at the bottom of your bu
 
 ## Status
 
-This was an experimental fun project, which proofed to be useful to quite a lot of people.
+This was an experimental fun project, which proved to be useful to quite a lot of people.
 The purpose of it is to write something fun and useful in Haskell.
 You are free and very welcome to contribute feedback, issues or PRs. I do not commit to maintain this project over a long time period, but it doesn’t look, like I am stopping anytime soon.
 
@@ -45,7 +45,7 @@ The `nom` binary (starting from version 2.0) behaves as a `nix` drop in, with mu
 `nom shell <args>`: Behaves like `nix shell <args>`.  
 `nom develop <args>`: Behaves like `nix develop <args>`.  
 
-The later two commands work by calling `nix shell` or `nix develop` twice, the first time with overriden `--run exit` and monitoring the output, the second time passing output through to the user. This will incur a performance cost by doubling eval time.
+The latter two commands work by calling `nix shell` or `nix develop` twice, the first time with overridden `--run exit` and monitoring the output, the second time passing output through to the user. This will incur a performance cost by doubling eval time.
 
 Furthermore when called via the corresponding provided symlinks, nom is also a drop-in for the following commands:  
 `nom-build <args>`: Behaves like `nix-build <args>`.  
@@ -89,7 +89,7 @@ unbuffer nix-build |& nom
 
 ### Legend
 
-Nom tries to convey informations via symbols and colors
+Nom tries to convey information via symbols and colors
 
 * `⏵`, yellow: running builds
 * `✔`, green: completed builds
@@ -131,7 +131,7 @@ Right now nom uses four sources of information:
 
 1. The parsed nix-build output (json or human-readable)
 2. it checks if build results exist in the nix-store (only in human-readable mode)
-3. it querys `.drv` files for information about the `out` output path.
+3. it queries `.drv` files for information about the `out` output path.
 4. It caches build times in `$XDG_CACHE_HOME/nix-output-monitor/build-reports.csv`.
 
 ## Limitations
