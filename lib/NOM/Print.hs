@@ -115,13 +115,13 @@ data Config = MkConfig
 printSections :: NonEmpty Text -> Text
 printSections = (upperleft <>) . Text.intercalate (toText (setSGRCode [Reset]) <> "\n" <> leftT) . toList
 
-printInterestingActivities :: Maybe Text -> IntMap InterestingActivity -> (ZonedTime, Double) -> Text
-printInterestingActivities message activities (_, now) =
-  prependLines
-    ""
-    (vertical <> " ")
-    (vertical <> " ")
-    (horizontal <> markup bold " Build Planning:" :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
+-- printInterestingActivities :: Maybe Text -> IntMap InterestingActivity -> (ZonedTime, Double) -> Text
+-- printInterestingActivities message activities (_, now) =
+--   prependLines
+--     ""
+--     (vertical <> " ")
+--     (vertical <> " ")
+--     (horizontal <> markup bold " Build Planning:" :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
 
 printErrors :: Seq Text -> Int -> Text
 printErrors errors maxHeight =
@@ -158,8 +158,9 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
     sections =
       fmap snd
         . filter fst
-        $ [ (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
-          , (not (Seq.null nixErrors), const errorDisplay)
+        $ [
+            -- (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
+            (not (Seq.null nixErrors), const errorDisplay)
           , (not (Seq.null forestRoots), buildsDisplay . snd)
           ]
     maxHeight = case maybeWindow of
@@ -172,9 +173,9 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         (vertical <> " ")
         (printBuilds buildState hostNums maxHeight now)
     errorDisplay = printErrors nixErrors maxHeight
-  evalMessage = case evaluationState.lastFileName of
-    Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
-    Strict.Nothing -> Nothing
+  -- evalMessage = case evaluationState.lastFileName of
+  --   Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
+  --   Strict.Nothing -> Nothing
   runTime now = timeDiff now startTime
   time
     | progressState == Finished = \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
