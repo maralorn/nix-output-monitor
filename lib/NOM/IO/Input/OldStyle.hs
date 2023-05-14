@@ -27,7 +27,11 @@ readTextChunks handle =
 
 data OldStyleState = MkOldStyleState
   { state :: NOMV1State
-  , lastRead :: Strict.Maybe Double
+  , -- Because old style human nix logs don’t include information for when a
+    -- build finishes we monitor the existence of the output paths.
+    --  This variable saves when we last polled the disc for
+    -- output paths of currently running builds.
+    lastRead :: Strict.Maybe Double
   }
   deriving stock (Generic)
 
