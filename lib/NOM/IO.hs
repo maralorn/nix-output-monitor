@@ -2,10 +2,11 @@ module NOM.IO (interact, processTextStream, StreamParser, Stream) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
-import Control.Concurrent.STM (check, modifyTVar, swapTVar)
+import Control.Concurrent.STM (check, modifyTVar)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as ByteString
+import Data.ByteString.Lazy.Char8 qualified as LazyByteString
 import Data.Text qualified as Text
 import Data.Time (ZonedTime, getZonedTime)
 import NOM.Error (NOMError)
@@ -36,20 +37,29 @@ type Window = Terminal.Size.Window Int
 
 runUpdate ::
   forall update state.
-  TVar ByteString ->
+  TMVar Builder.Builder ->
   TVar state ->
   UpdateFunc update state ->
   update ->
   IO ByteString
-runUpdate bufferVar stateVar updater input = do
+runUpdate builder_var stateVar updater input = do
   oldState <- readTVarIO stateVar
   ((!errors, !output), !newState) <- runStateT (updater input) oldState
   atomically $ do
-    forM_ errors (\error' -> modifyTVar bufferVar (appendError error'))
+    forM_ errors (writeErrorToBuilder builder_var)
     writeTVar stateVar newState
   pure output
 
-writeStateToScreen :: forall state. Bool -> TVar Int -> TVar state -> TVar ByteString -> (Double -> state -> state) -> OutputFunc state -> Handle -> IO ()
+writeStateToScreen ::
+  forall state.
+  Bool ->
+  TVar Int ->
+  TVar state ->
+  TMVar Builder.Builder ->
+  (Double -> state -> state) ->
+  OutputFunc state ->
+  Handle ->
+  IO ()
 writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var maintenance printer output_handle = do
   nowClock <- getZonedTime
   now <- getNow
@@ -67,11 +77,11 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var mai
     modifyTVar nom_state_var (maintenance now)
     -- we bind those lazily to not calculate them during STM
     nom_state <- readTVar nom_state_var
-    nix_output_raw <- swapTVar nix_output_buffer_var mempty
+    nix_output_raw <- tryTakeTMVar nix_output_buffer_var
     pure (nom_state, nix_output_raw)
   -- ====
 
-  let nix_output = ByteString.lines nix_output_raw
+  let nix_output = fmap toStrict . LazyByteString.lines $ Builder.toLazyByteString (fromMaybe mempty nix_output_raw)
       nix_output_length = length nix_output
 
       nom_output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer nom_state terminalSize (nowClock, now))
@@ -209,21 +219,30 @@ processTextStream ::
   IO state
 processTextStream config parser updater maintenance printerMay finalize initialState inputStream = do
   stateVar <- newTVarIO initialState
-  bufferVar <- newTVarIO mempty
+  builder_var <- newEmptyTMVarIO
   let keepProcessing :: IO ()
       keepProcessing =
         inputStream
-          & Stream.tap (writeErrorsToBuffer bufferVar)
+          & Stream.tap (errorsToBuilderFold builder_var)
           & Stream.mapMaybe rightToMaybe
           & parser
-          & Stream.mapM (runUpdate bufferVar stateVar updater)
-          & Stream.fold (Fold.drainMapM (atomically . modifyTVar' bufferVar . flip (<>)))
+          & Stream.mapM (runUpdate builder_var stateVar updater)
+          & Stream.fold (Fold.drainMapM append_to_builder)
+      append_to_builder :: ByteString -> IO ()
+      append_to_builder input = atomically do
+        builder_maybe <- tryTakeTMVar builder_var
+        putTMVar builder_var $
+          ( case builder_maybe of
+              Just builder -> (builder <>)
+              Nothing -> id
+          )
+            (Builder.byteString input)
       waitForInput :: IO ()
-      waitForInput = atomically $ check . not . ByteString.null =<< readTVar bufferVar
+      waitForInput = atomically $ check . not =<< isEmptyTMVar builder_var
   printerMay & maybe keepProcessing \(printer, output_handle) -> do
     linesVar <- newTVarIO 0
     let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen (not config.silent) linesVar stateVar bufferVar maintenance printer output_handle
+        writeToScreen = writeStateToScreen (not config.silent) linesVar stateVar builder_var maintenance printer output_handle
         keepPrinting :: IO ()
         keepPrinting = forever do
           race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
@@ -233,19 +252,26 @@ processTextStream config parser updater maintenance printerMay finalize initialS
     writeToScreen
   (if isNothing printerMay then (>>= execStateT finalize) else id) $ readTVarIO stateVar
 
-writeErrorsToBuffer :: TVar ByteString -> Fold.Fold IO (Either NOMError ByteString) ()
-writeErrorsToBuffer bufferVar = Fold.drainMapM saveInput
+errorsToBuilderFold :: TMVar Builder.Builder -> Fold.Fold IO (Either NOMError ByteString) ()
+errorsToBuilderFold builder_var = Fold.drainMapM saveInput
  where
   saveInput :: Either NOMError ByteString -> IO ()
   saveInput = \case
-    Left error' -> atomically $ modifyTVar bufferVar (appendError error')
+    Left nom_error -> atomically $ writeErrorToBuilder builder_var nom_error
     _ -> pass
 
-appendError :: NOMError -> ByteString -> ByteString
-appendError err prev = (if ByteString.null prev || ByteString.isSuffixOf "\n" prev then "" else "\n") <> nomError <> show err <> "\n"
+writeErrorToBuilder :: TMVar Builder.Builder -> NOMError -> STM ()
+writeErrorToBuilder builder_var nom_error = do
+  current_output_builder <- tryTakeTMVar builder_var
+  putTMVar builder_var (appendError nom_error current_output_builder)
 
-nomError :: ByteString
-nomError = encodeUtf8 (markup (red . bold) "nix-output-monitor error: ")
+appendError :: NOMError -> Maybe Builder.Builder -> Builder.Builder
+appendError err prev' = Builder.lazyByteString prev <> (if LazyByteString.null prev || LazyByteString.isSuffixOf "\n" prev then "" else "\n") <> nomError <> show err <> "\n"
+ where
+  prev = maybe mempty Builder.toLazyByteString prev'
+
+nomError :: Builder.Builder
+nomError = Builder.byteString $ encodeUtf8 (markup (red . bold) "nix-output-monitor error: ")
 
 truncateOutput :: Maybe Window -> Text -> Text
 truncateOutput win output = maybe output go win
