@@ -35,7 +35,7 @@
 }:
 mkDerivation {
   pname = "nix-output-monitor";
-  version = "2.0.0.5";
+  version = "2.0.0.6";
   src = ./.;
   isLibrary = true;
   isExecutable = true;
