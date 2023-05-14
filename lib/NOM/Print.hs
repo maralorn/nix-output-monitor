@@ -148,8 +148,8 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       | otherwise = time
     sections =
       fmap snd . filter fst $
-        [ (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
-        , (not (Seq.null nixErrors), const errorDisplay)
+        [ -- (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
+          (not (Seq.null nixErrors), const errorDisplay)
         , (not (Seq.null forestRoots), buildsDisplay . snd)
         ]
     maxHeight = case maybeWindow of
