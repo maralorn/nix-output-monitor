@@ -1,5 +1,10 @@
 # Revision history for nix-output-monitor
 
+## 2.0.0.6 -- 2023-05-14
+
+* Small improvements in error reporting.
+* Significant performance improvements.
+
 ## 2.0.0.5 -- 2022-11-28
 
 * Fix a bug, where nom failed to parse build errors in json mode.
