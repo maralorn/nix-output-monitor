@@ -136,7 +136,7 @@ processStateUpdater ::
   (NOMInput a, UpdateMonad m) =>
   Config ->
   a ->
-  StateT (ProcessState a) m ([NOMError], ByteString)
+  StateT (ProcessState a) m ([NOMError], ByteString, Bool)
 processStateUpdater config input = do
   old_state <- get
   updater_result <- updateState input (old_state.updaterState)
@@ -145,7 +145,13 @@ processStateUpdater config input = do
       { updaterState = updater_result.newState
       , printFunction = maybe old_state.printFunction (stateToText config) updater_result.newStateToPrint
       }
-  pure (updater_result.errors, updater_result.output)
+  pure
+    ( updater_result.errors
+    , updater_result.output
+    , not (null updater_result.errors)
+        || not (ByteString.null updater_result.output)
+        || isJust updater_result.newStateToPrint
+    )
 
 finalizer ::
   forall a m.

@@ -107,12 +107,12 @@ testProcess input = withParser @input \streamParser -> do
   end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)
   pure (end_state ^. nomState @input)
 
-stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT (UpdaterState input) m ([NOMError], ByteString)
+stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT (UpdaterState input) m ([NOMError], ByteString, Bool)
 stateUpdater input = do
   old_state <- get
   new_state <- (.newState) <$> updateState @input input old_state
   put new_state
-  pure (mempty, mempty)
+  pure (mempty, mempty, False)
 
 finalizer :: forall input m. (NOMInput input, UpdateMonad m) => StateT (UpdaterState input) m ()
 finalizer = do
