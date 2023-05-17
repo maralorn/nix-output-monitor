@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Control.Exception qualified as Exception
-import Control.Monad.Writer.Strict (WriterT (runWriterT))
+import Control.Monad.Trans.Writer.CPS (runWriterT)
 import Data.ByteString qualified as ByteString
 import Data.Text.IO (hPutStrLn)
 import Data.Time (ZonedTime)

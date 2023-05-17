@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad.Writer.Strict (WriterT (runWriterT))
+import Control.Monad.Trans.Writer.CPS (runWriterT)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
 import NOM.Builds (parseStorePath)

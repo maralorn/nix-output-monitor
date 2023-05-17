@@ -16,7 +16,6 @@
   lib,
   lock-file,
   MemoTrie,
-  mtl,
   nix-derivation,
   optics,
   random,
@@ -29,6 +28,7 @@
   terminal-size,
   text,
   time,
+  transformers,
   typed-process,
   wcwidth,
   word8,
@@ -54,7 +54,6 @@ mkDerivation {
     hermes-json
     lock-file
     MemoTrie
-    mtl
     nix-derivation
     optics
     relude
@@ -66,6 +65,8 @@ mkDerivation {
     terminal-size
     text
     time
+    transformers
+    typed-process
     wcwidth
     word8
   ];
@@ -84,7 +85,6 @@ mkDerivation {
     hermes-json
     lock-file
     MemoTrie
-    mtl
     nix-derivation
     optics
     relude
@@ -96,6 +96,7 @@ mkDerivation {
     terminal-size
     text
     time
+    transformers
     typed-process
     wcwidth
     word8
@@ -116,7 +117,6 @@ mkDerivation {
     HUnit
     lock-file
     MemoTrie
-    mtl
     nix-derivation
     optics
     random
@@ -129,6 +129,7 @@ mkDerivation {
     terminal-size
     text
     time
+    transformers
     typed-process
     wcwidth
     word8

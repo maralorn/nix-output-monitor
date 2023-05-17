@@ -1,3 +1,4 @@
  - ignore: {name: Avoid lambda}
+ - ignore: {name: Eta reduce}
  - ignore: {name: Avoid lambda using `infix`}
  - ignore: {name: Redundant irrefutable pattern}

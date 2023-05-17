@@ -207,12 +207,18 @@ data NOMV1State = MkNOMV1State
   , activities :: IntMap ActivityStatus
   , nixErrors :: Seq Text
   , buildPlatform :: Strict.Maybe Text
-  , interestingActivities :: IntMap InterestingActivity
   , evaluationState :: EvalInfo
   }
   deriving stock (Show, Eq, Ord, Generic)
 
-data ProgressState = JustStarted | InputReceived | Finished
+data ProgressState
+  = JustStarted
+  | InputReceived
+  | Evaluating
+  | QueryingSubstituers
+  | Planning (Set StorePath) (Set Derivation)
+  | Realising
+  | Finished
   deriving stock (Show, Eq, Ord, Generic)
 
 data BuildFail = MkBuildFail
@@ -264,7 +270,6 @@ initalStateFromBuildPlatform platform = do
       mempty
       mempty
       (Strict.toStrict platform)
-      mempty
       MkEvalInfo{count = 0, at = 0, lastFileName = Strict.Nothing}
 
 instance Semigroup DependencySummary where

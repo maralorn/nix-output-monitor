@@ -7,7 +7,7 @@ module NOM.Update.Monad.CacheBuildReports (
 ) where
 
 import Control.Exception (IOException, catch)
-import Control.Monad.Writer.Strict (WriterT)
+import Control.Monad.Trans.Writer.CPS (WriterT)
 -- cassava
 import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
 -- data-default
@@ -55,7 +55,7 @@ instance MonadCacheBuildReports m => MonadCacheBuildReports (StateT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
 
-instance (Monoid a, MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
+instance MonadCacheBuildReports m => MonadCacheBuildReports (WriterT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
 
