@@ -163,7 +163,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       clock <> " " <> runTime now <> " evaluating, " <> show (evaluationState.count) <> " files so far" <> case evaluationState.lastFileName of
         Strict.Just file_name -> ", last one was '" <> file_name <> "'"
         Strict.Nothing -> " …"
-    Planning _ _ -> \(_, now) -> clock <> " " <> runTime now <> " planning builds and/or downloads …"
+    Planning paths drvs -> \(_, now) -> clock <> " " <> runTime now <> " planning " <> Text.intercalate " and " (["builds" | not (Set.null drvs)] <> ["downloads" | not (Set.null paths)]) <> " …"
     QueryingSubstituers -> \(_, now) -> clock <> " " <> runTime now <> " looking for store paths on substituters …"
     JustStarted -> \(_, now) -> clock <> " " <> runTime now <> " waiting for Nix to start …"
     Realising -> \(_, now) -> clock <> " " <> runTime now
