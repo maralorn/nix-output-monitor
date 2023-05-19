@@ -131,12 +131,12 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
    where
     printWithTime :: (ZonedTime, Double) -> Text
     printWithTime
-      | progressState == JustStarted && config.piping = \nows@(_, now) -> time nows <> showCond (now - startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See -h and the README for details.)")
+      | progressState == JustStarted && config.piping = \nows@(_, now) -> markup bold (time nows <> showCond (now - startTime > 15) (markup grey " nom hasn‘t detected any input. Have you redirected nix-build stderr into nom? (See -h and the README for details.)"))
       | progressState == Finished && config.silent = const ""
       | Just sections' <- nonEmpty sections = \now -> printSections . fmap ($ now) $ sections' <> one (table . time)
       | fullSummary /= mempty = printSections . one . table . time
       | config.silent = const ""
-      | otherwise = time
+      | otherwise = markup bold . time
     sections =
       fmap snd . filter fst $
         [ (not (Seq.null nixErrors), const errorDisplay)
