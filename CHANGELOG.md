@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## 2.0.0.7 -- 2023-09-17
+
+* Bump hermes-json dependency to 0.6.0.0
+
 ## 2.0.0.6 -- 2023-05-14
 
 * Small improvements in error reporting.

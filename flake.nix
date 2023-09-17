@@ -1,7 +1,7 @@
 {
   description = "nix-output-monitor";
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-unstable";
+    nixpkgs.url = "nixpkgs/haskell-updates";
     pre-commit-hooks = {
       url = "github:cachix/pre-commit-hooks.nix";
       inputs = {
@@ -10,18 +10,23 @@
       };
     };
   };
-  outputs = {
-    self,
-    nixpkgs,
-    flake-utils,
-    pre-commit-hooks,
-    ...
-  }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      pre-commit-hooks,
+      ...
+    }:
     flake-utils.lib.eachDefaultSystem (
-      system: let
-        ghc-version = "92";
-        inherit (nixpkgs.legacyPackages.${system}) lib haskell pkgs;
-        haskellPackages = haskell.packages."ghc${ghc-version}";
+      system:
+      let
+        inherit (nixpkgs.legacyPackages.${system})
+          lib
+          haskell
+          pkgs
+          haskellPackages
+        ;
         hlib = (_: haskell.lib.compose) system;
         inherit (hlib) doJailbreak dontCheck;
         golden-tests = import ./test/golden/all.nix;
@@ -37,46 +42,36 @@
           "CHANGELOG.md"
           "default.nix"
         ];
-      in rec {
+      in
+      rec {
         packages = {
           default =
-            (lib.pipe {}
-              [
-                (haskellPackages.callPackage self)
-                haskellPackages.buildFromCabalSdist
-                hlib.justStaticExecutables
-                (hlib.overrideCabal
-                  {
-                    src = cleanSelf;
-                    preConfigure = ''
-                      echo "Checking that default.nix is up-to-date."
-                      ${haskellPackages.cabal2nix}/bin/cabal2nix . > fresh-default.nix
-                      cp ${cleanSelf}/default.nix .
-                      ${pkgs.alejandra}/bin/alejandra -q fresh-default.nix default.nix
-                      ${pkgs.diffutils}/bin/diff -w default.nix fresh-default.nix
-                    '';
-                    preCheck = ''
-                      # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
-                      export TESTS_FROM_FILE=true;
-                    '';
-                    buildTools = [pkgs.installShellFiles];
-                    postInstall = ''
-                      ln -s nom "$out/bin/nom-build"
-                      ln -s nom "$out/bin/nom-shell"
-                      chmod a+x $out/bin/nom-shell
-                      installShellCompletion --zsh --name _nom-build completions/completion.zsh
-                    '';
-                  })
-              ])
-            .overrideScope (
-              if ghc-version == "94"
-              then
-                (final: prev: {
-                  optics = dontCheck prev.optics;
-                  hermes-json = dontCheck (doJailbreak prev.hermes-json);
-                })
-              else _: _: {}
-            );
+            (lib.pipe { } [
+              (haskellPackages.callPackage self)
+              haskellPackages.buildFromCabalSdist
+              hlib.justStaticExecutables
+              (hlib.overrideCabal {
+                src = cleanSelf;
+                preConfigure = ''
+                  echo "Checking that default.nix is up-to-date."
+                  ${haskellPackages.cabal2nix}/bin/cabal2nix . > fresh-default.nix
+                  cp ${cleanSelf}/default.nix .
+                  ${pkgs.alejandra}/bin/alejandra -q fresh-default.nix default.nix
+                  ${pkgs.diffutils}/bin/diff -w default.nix fresh-default.nix
+                '';
+                preCheck = ''
+                  # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
+                  export TESTS_FROM_FILE=true;
+                '';
+                buildTools = [ pkgs.installShellFiles ];
+                postInstall = ''
+                  ln -s nom "$out/bin/nom-build"
+                  ln -s nom "$out/bin/nom-shell"
+                  chmod a+x $out/bin/nom-shell
+                  installShellCompletion --zsh --name _nom-build completions/completion.zsh
+                '';
+              })
+            ]);
         };
         checks = {
           pre-commit-check = pre-commit-hooks.lib.${system}.run rec {
@@ -94,7 +89,18 @@
               statix.enable = true;
               fourmolu = {
                 enable = true;
-                entry = lib.mkForce "${pkgs.haskellPackages.fourmolu}/bin/fourmolu --mode inplace ${lib.escapeShellArgs (lib.concatMap (ext: ["--ghc-opt" "-X${ext}"]) settings.ormolu.defaultExtensions)}";
+                entry =
+                  lib.mkForce
+                    "${pkgs.haskellPackages.fourmolu}/bin/fourmolu --mode inplace ${
+                      lib.escapeShellArgs (
+                        lib.concatMap
+                          (ext: [
+                            "--ghc-opt"
+                            "-X${ext}"
+                          ])
+                          settings.ormolu.defaultExtensions
+                      )
+                    }";
               };
               cabal-fmt.enable = true;
               shellcheck.enable = true;
@@ -102,7 +108,7 @@
           };
         };
         devShells.default = haskellPackages.shellFor {
-          packages = _: [packages.default];
+          packages = _: [ packages.default ];
           buildInputs = [
             pre-commit-hooks.defaultPackage.${system}
             haskellPackages.haskell-language-server
