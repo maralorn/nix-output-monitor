@@ -31,7 +31,7 @@ import System.IO.LockFile (
 
 -- Exposed functions
 
-class Monad m => MonadCacheBuildReports m where
+class (Monad m) => MonadCacheBuildReports m where
   getCachedBuildReports :: m BuildReportMap
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
 
@@ -51,11 +51,11 @@ instance MonadCacheBuildReports IO where
     loadBuildReports dir
   updateBuildReports updateFunc = catch (tryUpdateBuildReports updateFunc) memptyOnLockFail
 
-instance MonadCacheBuildReports m => MonadCacheBuildReports (StateT a m) where
+instance (MonadCacheBuildReports m) => MonadCacheBuildReports (StateT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
 
-instance MonadCacheBuildReports m => MonadCacheBuildReports (WriterT a m) where
+instance (MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
 
@@ -75,7 +75,7 @@ updateBuildReportsUnlocked updateFunc dir = do
   reports <- updateFunc <$> loadBuildReports dir
   reports <$ saveBuildReports dir reports
 
-memptyOnLockFail :: Monoid b => LockingException -> IO b
+memptyOnLockFail :: (Monoid b) => LockingException -> IO b
 memptyOnLockFail = \case
   UnableToAcquireLockFile file -> mempty <$ removeFile file
   CaughtIOException{} -> pure mempty

@@ -28,19 +28,19 @@ import System.Process.Typed qualified as Process
 
 type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
-class Monad m => MonadNow m where
+class (Monad m) => MonadNow m where
   getNow :: m Double
 
 instance MonadNow IO where
   getNow = GHC.Clock.getMonotonicTime
 
-instance MonadNow m => MonadNow (StateT a m) where
+instance (MonadNow m) => MonadNow (StateT a m) where
   getNow = lift getNow
 
 instance (MonadNow m) => MonadNow (WriterT a m) where
   getNow = lift getNow
 
-class Monad m => MonadReadDerivation m where
+class (Monad m) => MonadReadDerivation m where
   getDerivation :: Derivation -> m (Either NOMError (Nix.Derivation FilePath Text))
 
 instance MonadReadDerivation IO where
@@ -53,16 +53,16 @@ instance MonadReadDerivation IO where
       . TextIO.readFile
       . toString
 
-instance MonadReadDerivation m => MonadReadDerivation (StateT a m) where
+instance (MonadReadDerivation m) => MonadReadDerivation (StateT a m) where
   getDerivation = lift . getDerivation
 
-instance MonadReadDerivation m => MonadReadDerivation (ExceptT a m) where
+instance (MonadReadDerivation m) => MonadReadDerivation (ExceptT a m) where
   getDerivation = lift . getDerivation
 
 instance (MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
   getDerivation = lift . getDerivation
 
-class Monad m => MonadCheckStorePath m where
+class (Monad m) => MonadCheckStorePath m where
   storePathExists :: StorePath -> m Bool
   getProducers :: [StorePath] -> m [Derivation]
 
@@ -86,7 +86,7 @@ instance MonadCheckStorePath IO where
               & mapMaybe parseDerivation
           else mempty
 
-instance MonadCheckStorePath m => MonadCheckStorePath (StateT a m) where
+instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
   storePathExists = lift . storePathExists
   getProducers = lift . getProducers
 

@@ -26,11 +26,11 @@ type StreamParser update = Stream ByteString -> Stream update
 
 type Output = Text
 
-type UpdateFunc update state = forall m. UpdateMonad m => update -> StateT state m ([NOMError], ByteString, Bool)
+type UpdateFunc update state = forall m. (UpdateMonad m) => update -> StateT state m ([NOMError], ByteString, Bool)
 
 type OutputFunc state = state -> Maybe Window -> (ZonedTime, Double) -> Output
 
-type Finalizer state = forall m. UpdateMonad m => StateT state m ()
+type Finalizer state = forall m. (UpdateMonad m) => StateT state m ()
 
 type Window = Terminal.Size.Window Int
 

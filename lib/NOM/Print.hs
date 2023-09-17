@@ -90,7 +90,7 @@ average = "∅" <> textRep
 -- ["2211","FE0E"]
 bigsum = "∑" <> textRep
 
-showCond :: Monoid m => Bool -> m -> m
+showCond :: (Monoid m) => Bool -> m -> m
 showCond = memptyIfFalse
 
 targetRatio, defaultTreeMax :: Int
@@ -258,7 +258,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       downloadsRunning' = action_count_for_host host runningDownloads
       numRunningBuildsOnHost = action_count_for_host host runningBuilds
       doneBuilds = action_count_for_host host completedBuilds
-    action_count_for_host :: HasField "host" a Host => Host -> CMap.CacheIdMap b a -> Int
+    action_count_for_host :: (HasField "host" a Host) => Host -> CMap.CacheIdMap b a -> Int
     action_count_for_host host = CMap.size . CMap.filter (\x -> host == x.host)
 
 nonZeroShowBold :: Text -> Int -> Entry

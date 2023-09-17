@@ -1,4 +1,4 @@
-{pkgs ? (import <nixpkgs> {})}:
+{ pkgs ? (import <nixpkgs> { }) }:
 pkgs.stdenv.mkDerivation {
   name = "robot-that-screams";
   buildCommand = ''

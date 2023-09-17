@@ -27,7 +27,7 @@ insert (MkCacheId x) = MkCacheIdSet . IntSet.insert x . (.ints)
 toList :: CacheIdSet b -> [CacheId b]
 toList = fmap MkCacheId . IntSet.toList . (.ints)
 
-fromFoldable :: Foldable f => f (CacheId b) -> CacheIdSet b
+fromFoldable :: (Foldable f) => f (CacheId b) -> CacheIdSet b
 fromFoldable = foldl' (flip insert) mempty
 
 null :: CacheIdSet b -> Bool

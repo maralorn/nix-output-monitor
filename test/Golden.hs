@@ -101,7 +101,7 @@ testBuild name config asserts =
     end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
     asserts output end_state
 
-testProcess :: forall input. NOMInput input => Stream.Stream IO ByteString -> IO NOMV1State
+testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMV1State
 testProcess input = withParser @input \streamParser -> do
   first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
   end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)

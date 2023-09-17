@@ -10,7 +10,7 @@ import Streamly.Data.Unfold qualified as Unfold
 type ContParser update = ByteString -> Result update
 
 parseChunk ::
-  Monad m =>
+  (Monad m) =>
   ContParser update ->
   Unfold.Unfold (StateT (ContParser update) m) (ByteString, ByteString) (Maybe update, ByteString)
 parseChunk fresh_parse_function = unfoldNext generate
@@ -45,10 +45,10 @@ csi = "\27["
 breakOnANSIStartCode :: ByteString -> (ByteString, ByteString)
 breakOnANSIStartCode = ByteString.breakSubstring csi
 
-streamANSIChunks :: Monad m => Unfold.Unfold m ByteString (ByteString, ByteString)
+streamANSIChunks :: (Monad m) => Unfold.Unfold m ByteString (ByteString, ByteString)
 streamANSIChunks = unfoldNext generate
  where
-  generate :: Monad m => ByteString -> m ((ByteString, ByteString), Maybe ByteString)
+  generate :: (Monad m) => ByteString -> m ((ByteString, ByteString), Maybe ByteString)
   generate input = pure ((filtered, filtered <> code), restOfStream)
    where
     (filtered, unfiltered) = breakOnANSIStartCode input
@@ -61,14 +61,14 @@ streamANSIChunks = unfoldNext generate
 this means that the generator function will definitely generate the next
 stream item, but the stream can finish after that item.
 -}
-unfoldNext :: Monad m => (s -> m (a, Maybe s)) -> Unfold.Unfold m s a
+unfoldNext :: (Monad m) => (s -> m (a, Maybe s)) -> Unfold.Unfold m s a
 unfoldNext =
   Unfold.lmap Just
     . Unfold.unfoldrM
     . mapM
 
 parseStreamAttoparsec ::
-  Monad m =>
+  (Monad m) =>
   Parser update ->
   Stream.Stream m ByteString ->
   Stream.Stream m (Maybe update, ByteString)

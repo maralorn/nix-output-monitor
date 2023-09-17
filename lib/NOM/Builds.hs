@@ -32,7 +32,7 @@ derivationTextParser :: TextParser.Parser Derivation
 derivationTextParser =
   storePathTextParser >>= storePathToDerivation
 
-storePathToDerivation :: MonadFail m => StorePath -> m Derivation
+storePathToDerivation :: (MonadFail m) => StorePath -> m Derivation
 storePathToDerivation path = case Text.stripSuffix ".drv" path.name of
   Just realName -> pure $ Derivation $ path{name = realName}
   Nothing -> fail "StorePath is not a derivation."
@@ -47,13 +47,13 @@ indentedStoreObjectTextParser =
       Just drv -> Left drv
       Nothing -> Right path
 
-parseDerivation :: MonadFail m => Text -> m Derivation
+parseDerivation :: (MonadFail m) => Text -> m Derivation
 parseDerivation = either fail pure . TextParser.parseOnly (derivationTextParser <* TextParser.endOfInput)
 
-parseStorePath :: MonadFail m => Text -> m StorePath
+parseStorePath :: (MonadFail m) => Text -> m StorePath
 parseStorePath = either fail pure . TextParser.parseOnly (storePathTextParser <* TextParser.endOfInput)
 
-parseIndentedStoreObject :: MonadFail m => Text -> m (Either Derivation StorePath)
+parseIndentedStoreObject :: (MonadFail m) => Text -> m (Either Derivation StorePath)
 parseIndentedStoreObject = either fail pure . TextParser.parseOnly indentedStoreObjectTextParser
 
 parseHost :: Text -> Host

@@ -37,13 +37,6 @@
             hlib.justStaticExecutables
             (hlib.overrideCabal {
               src = cleanSelf;
-              preConfigure = ''
-                echo "Checking that default.nix is up-to-date."
-                ${haskellPackages.cabal2nix}/bin/cabal2nix . > fresh-default.nix
-                cp ${cleanSelf}/default.nix .
-                ${pkgs.alejandra}/bin/alejandra -q fresh-default.nix default.nix
-                ${pkgs.diffutils}/bin/diff -w default.nix fresh-default.nix
-              '';
               preCheck = ''
                 # ${
                   lib.concatStringsSep ", "
@@ -72,8 +65,12 @@
             ];
             hooks = {
               hlint.enable = true;
-              nixfmt.enable = true;
+              nixfmt = {
+                enable = true;
+                excludes = [ "default.nix" ];
+              };
               statix.enable = true;
+              cabal2nix.enable = true;
               fourmolu = {
                 enable = true;
                 entry = lib.mkForce
@@ -84,7 +81,10 @@
                   }";
               };
               cabal-fmt.enable = true;
-              shellcheck.enable = true;
+              shellcheck = {
+                enable = true;
+                excludes = [ "\\.zsh" ];
+              };
             };
           };
         };

@@ -70,7 +70,7 @@ import Optics (gconstructor, gfield, has, preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
-type ProcessingT m a = UpdateMonad m => NOMStateT (CPS.WriterT [Either NOMError ByteString] m) a
+type ProcessingT m a = (UpdateMonad m) => NOMStateT (CPS.WriterT [Either NOMError ByteString] m) a
 
 getReportName :: DerivationInfo -> Text
 getReportName drv = case drv.pname of
@@ -91,7 +91,7 @@ minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
 {-# INLINE updateStateNixJSONMessage #-}
-updateStateNixJSONMessage :: forall m. UpdateMonad m => NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
+updateStateNixJSONMessage :: forall m. (UpdateMonad m) => NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
 updateStateNixJSONMessage input inputState =
   do
     ((hasChanged, msgs), outputState) <-
@@ -100,7 +100,7 @@ updateStateNixJSONMessage input inputState =
         errors = lefts msgs
     pure ((errors, ByteString.unlines (rights msgs)), retval)
 
-updateStateNixOldStyleMessage :: forall m. UpdateMonad m => (Maybe NixOldStyleMessage, ByteString) -> (Maybe Double, NOMV1State) -> m (([NOMError], ByteString), (Maybe Double, Maybe NOMV1State))
+updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> (Maybe Double, NOMV1State) -> m (([NOMError], ByteString), (Maybe Double, Maybe NOMV1State))
 updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
   now <- getNow
 
@@ -127,7 +127,7 @@ updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
       errors = lefts msgs
   pure ((errors, input <> ByteString.unlines (rights msgs)), retval)
 
-derivationIsCompleted :: UpdateMonad m => DerivationId -> NOMStateT m Bool
+derivationIsCompleted :: (UpdateMonad m) => DerivationId -> NOMStateT m Bool
 derivationIsCompleted drvId =
   derivationToAnyOutPath drvId >>= \case
     Nothing -> pure False -- Derivation has no "out" output.
@@ -183,7 +183,7 @@ withChange update action = do
 noChange :: ProcessingT m Bool
 noChange = withChange Irrelevant pass
 
-processResult :: UpdateMonad m => NixOldStyleMessage -> ProcessingT m Bool
+processResult :: (UpdateMonad m) => NixOldStyleMessage -> ProcessingT m Bool
 processResult result = do
   now <- getNow
   case result of
@@ -205,7 +205,7 @@ processResult result = do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
 
-processJsonMessage :: UpdateMonad m => NixJSONMessage -> ProcessingT m Bool
+processJsonMessage :: (UpdateMonad m) => NixJSONMessage -> ProcessingT m Bool
 processJsonMessage = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message

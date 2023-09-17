@@ -66,13 +66,13 @@ import Optics (gfield, (%~))
 import Relude
 import Type.Strict qualified as StrictType
 
-instance StrictType.StrictType seen v => StrictType.StrictType seen (IntMap v)
+instance (StrictType.StrictType seen v) => StrictType.StrictType seen (IntMap v)
 
-instance StrictType.StrictType seen v => StrictType.StrictType seen (Map k v)
+instance (StrictType.StrictType seen v) => StrictType.StrictType seen (Map k v)
 
 instance StrictType.StrictType seen IntSet
 
-instance StrictType.StrictType seen v => StrictType.StrictType seen (Seq v)
+instance (StrictType.StrictType seen v) => StrictType.StrictType seen (Seq v)
 
 data StorePathState
   = DownloadPlanned
@@ -287,9 +287,9 @@ getRunningBuildsByHost host = CMap.filter (\x -> x.host == host) <$> getRunningB
 lookupStorePathId :: StorePathId -> NOMState StorePath
 lookupStorePathId pathId = (.name) <$> getStorePathInfos pathId
 
-type NOMState a = forall m. MonadState NOMV1State m => m a
+type NOMState a = forall m. (MonadState NOMV1State m) => m a
 
-type NOMStateT m a = MonadState NOMV1State m => m a
+type NOMStateT m a = (MonadState NOMV1State m) => m a
 
 emptyStorePathInfo :: StorePath -> StorePathInfo
 emptyStorePathInfo path = MkStorePathInfo path mempty Strict.Nothing mempty
