@@ -1,6 +1,6 @@
 cabal-version:      2.2
 name:               nix-output-monitor
-version:            2.0.0.6
+version:            2.0.1.0
 
 -- The first two numbers get bumped, when the user interfaces changes in a breaking way. The first number, when the change feels large.
 -- The third number gets bumped, when new features get added.
@@ -69,7 +69,7 @@ common common-config
     , directory
     , extra
     , filepath
-    , hermes-json     >=0.5.0.0
+    , hermes-json     >=0.6.0.0
     , lock-file
     , MemoTrie
     , nix-derivation

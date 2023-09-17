@@ -29,7 +29,7 @@ parseVerbosity = JSON.withInt \case
   7 -> pure Vomit
   other -> fail ("invalid verbosity level:" <> show other)
 
-parseActivityType :: MonadFail m => Int -> m ActivityType
+parseActivityType :: (MonadFail m) => Int -> m ActivityType
 parseActivityType = \case
   0 -> pure UnknownType
   100 -> pure CopyPathType
@@ -47,66 +47,66 @@ parseActivityType = \case
   other -> fail ("invalid activity result type: " <> show other)
 
 parseAction :: JSON.Decoder NixJSONMessage
-parseAction = JSON.withObject $ \object -> do
-  action <- JSON.atKey "action" JSON.text object
+parseAction = JSON.object $ do
+  action <- JSON.atKey "action" JSON.text
   ( \case
-      "start" -> Start <$> parseStartAction object
-      "stop" -> Stop <$> parseStopAction object
-      "result" -> Result <$> parseResultAction object
-      "msg" -> Message <$> parseMessageAction object
+      "start" -> Start <$> parseStartAction
+      "stop" -> Stop <$> parseStopAction
+      "result" -> Result <$> parseResultAction
+      "msg" -> Message <$> parseMessageAction
       other -> fail ("unknown action type: " <> toString other)
     )
     action
 
-parseMessageAction :: JSON.Object -> JSON.Decoder MessageAction
-parseMessageAction object = do
-  level <- JSON.atKey "level" parseVerbosity object
-  message <- JSON.atKey "msg" JSON.text object
+parseMessageAction :: JSON.FieldsDecoder MessageAction
+parseMessageAction = do
+  level <- JSON.atKey "level" parseVerbosity
+  message <- JSON.atKey "msg" JSON.text
   pure MkMessageAction{..}
 
-textFields :: JSON.Object -> JSON.Decoder [Text]
+textFields :: JSON.FieldsDecoder [Text]
 textFields = JSON.atKey "fields" (JSON.list JSON.text)
 
-textOrNumFields :: JSON.Object -> JSON.Decoder [Either Text Int]
+textOrNumFields :: JSON.FieldsDecoder [Either Text Int]
 textOrNumFields = JSON.atKey "fields" $ JSON.list (Left <$> JSON.text <|> Right <$> JSON.int)
 
-intFields :: JSON.Object -> JSON.Decoder [Int]
+intFields :: JSON.FieldsDecoder [Int]
 intFields = JSON.atKey "fields" listOfInt
 
-one :: MonadFail m => m [b] -> m b
+one :: (MonadFail m) => m [b] -> m b
 one listdec = do
   fields <- listdec
   case fields of
     [field] -> pure field
     _ -> fail "expected one field"
 
-two :: MonadFail m => m [b] -> m (b, b)
+two :: (MonadFail m) => m [b] -> m (b, b)
 two listdec = do
   fields <- listdec
   case fields of
     [field1, field2] -> pure (field1, field2)
     _ -> fail "expected one field"
 
-three :: MonadFail m => m [b] -> m (b, b, b)
+three :: (MonadFail m) => m [b] -> m (b, b, b)
 three listdec = do
   fields <- listdec
   case fields of
     [field1, field2, field3] -> pure (field1, field2, field3)
     _ -> fail "expected one field"
 
-four :: MonadFail m => m [b] -> m (b, b, b, b)
+four :: (MonadFail m) => m [b] -> m (b, b, b, b)
 four listdec = do
   fields <- listdec
   case fields of
     [field1, field2, field3, field4] -> pure (field1, field2, field3, field4)
     _ -> fail "expected one field"
 
-parseResultAction :: JSON.Object -> JSON.Decoder ResultAction
-parseResultAction object = do
-  idField <- MkId <$> JSON.atKey "id" JSON.int object
-  type' <- JSON.atKey "type" JSON.int object
-  let txt = textFields object
-  let num = intFields object
+parseResultAction :: JSON.FieldsDecoder ResultAction
+parseResultAction = do
+  idField <- MkId <$> JSON.atKey "id" JSON.int
+  type' <- JSON.atKey "type" JSON.int
+  let txt = textFields
+  let num = intFields
   result <- case type' of
     100 -> uncurry FileLinked <$> two num
     101 -> BuildLogLine <$> one txt
@@ -122,16 +122,16 @@ parseResultAction object = do
     other -> fail ("invalid activity result type: " <> show other)
   pure MkResultAction{id = idField, result}
 
-parseStopAction :: JSON.Object -> JSON.Decoder StopAction
-parseStopAction object = MkStopAction . MkId <$> JSON.atKey "id" JSON.int object
+parseStopAction :: JSON.FieldsDecoder StopAction
+parseStopAction = MkStopAction . MkId <$> JSON.atKey "id" JSON.int
 
-parseStartAction :: JSON.Object -> JSON.Decoder StartAction
-parseStartAction object = do
-  idField <- JSON.atKey "id" JSON.int object
-  text <- JSON.atKey "text" JSON.text object
-  level <- JSON.atKey "level" parseVerbosity object
-  activityType <- JSON.atKey "type" (JSON.withInt parseActivityType) object
-  let txt = textFields object
+parseStartAction :: JSON.FieldsDecoder StartAction
+parseStartAction = do
+  idField <- JSON.atKey "id" JSON.int
+  text <- JSON.atKey "text" JSON.text
+  level <- JSON.atKey "level" parseVerbosity
+  activityType <- JSON.atKey "type" (JSON.withInt parseActivityType)
+  let txt = textFields
   activity <- case activityType of
     UnknownType -> pure Unknown
     CopyPathType ->
@@ -143,7 +143,7 @@ parseStartAction object = do
     CopyPathsType -> pure CopyPaths
     BuildsType -> pure Builds
     BuildType ->
-      four (textOrNumFields object) >>= \(path, host, _, _) -> do
+      four textOrNumFields >>= \(path, host, _, _) -> do
         path' <- either pure (const $ fail "Got Int expected Text") path
         path'' <- parseDerivation path'
         host' <- either pure (const $ fail "Got Int expected Text") host
