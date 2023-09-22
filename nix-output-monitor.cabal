@@ -138,6 +138,7 @@ executable nom
   build-depends:
     , nix-output-monitor
     , typed-process
+    , unix
 
   autogen-modules: Paths_nix_output_monitor
 
