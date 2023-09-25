@@ -1,8 +1,10 @@
 module Main (main) where
 
+import Control.Concurrent (ThreadId, myThreadId, throwTo)
 import Control.Exception qualified as Exception
 import Control.Monad.Trans.Writer.CPS (runWriterT)
 import Data.ByteString qualified as ByteString
+import Data.IORef qualified as IORef
 import Data.Text.IO (hPutStrLn)
 import Data.Time (ZonedTime)
 import Data.Version (showVersion)
@@ -26,8 +28,11 @@ import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size (Window)
 import System.Environment qualified as Environment
 import System.IO.Error qualified as IOError
+import System.Posix.Signals qualified as Signals
 import System.Process.Typed qualified as Process
 import Type.Strict qualified as StrictType
+
+type MainThreadId = ThreadId
 
 outputHandle :: Handle
 outputHandle = stderr
@@ -49,6 +54,10 @@ main :: IO Void
 main = do
   args <- Environment.getArgs
   prog_name <- Environment.getProgName
+
+  mainThreadId <- myThreadId >>= IORef.newIORef
+  _ <- Signals.installHandler Signals.sigTERM (Signals.CatchInfo $ quitSignalHandler mainThreadId) Nothing
+  _ <- Signals.installHandler Signals.sigINT (Signals.CatchInfo $ quitSignalHandler mainThreadId) Nothing
   case (args, prog_name) of
     (["--version"], _) -> do
       hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
@@ -79,6 +88,14 @@ main = do
       -- It's not a mistake if the user requests the help text, otherwise tell
       -- them off with a non-zero exit code.
       if any (liftA2 (||) (== "-h") (== "--help")) xs then exitSuccess else exitFailure
+
+quitSignalHandler :: IORef MainThreadId -> Signals.SignalInfo -> IO ()
+quitSignalHandler iomtid _ = do
+  mtid <- IORef.readIORef iomtid
+  Terminal.hShowCursor outputHandle
+  -- The RTS runtime kills for us the sub-threads when the main thread
+  -- is terminated.
+  throwTo mtid $ ExitFailure 1
 
 exitOnFailure :: Process.ExitCode -> IO ()
 exitOnFailure = \case
