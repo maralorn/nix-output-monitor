@@ -11,6 +11,7 @@ data StorePath = StorePath
   , name :: Text
   }
   deriving stock (Show, Ord, Eq, Generic)
+  deriving anyclass (Hashable)
 
 storePathByteStringParser :: Parser.Parser StorePath
 storePathByteStringParser =
@@ -64,7 +65,7 @@ parseHost = \case
 
 newtype Derivation = Derivation {storePath :: StorePath}
   deriving stock (Show, Generic)
-  deriving newtype (Eq, Ord)
+  deriving newtype (Eq, Ord, Hashable)
 
 instance ToText Derivation where
   toText drv = toText drv.storePath <> ".drv"
@@ -86,6 +87,7 @@ instance ToString StorePath where
 
 data Host = Localhost | Host Text
   deriving stock (Ord, Eq, Show, Generic)
+  deriving anyclass (Hashable)
 
 instance ToText Host where
   toText (Host name) = name

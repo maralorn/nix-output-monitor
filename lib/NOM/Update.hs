@@ -2,6 +2,7 @@ module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, mai
 
 import Control.Monad.Trans.Writer.CPS (WriterT, runWriterT, tell)
 import Data.ByteString.Char8 qualified as ByteString
+import Data.HashMap.Strict qualified as HashMap
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
@@ -334,7 +335,7 @@ modifyBuildReports :: Host -> NonEmpty (DerivationInfo, Int) -> BuildReportMap -
 modifyBuildReports host = foldMapEndo (uncurry insertBuildReport)
  where
   insertBuildReport name =
-    Map.insertWith
+    HashMap.insertWith
       (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
       (host, getReportName name)
 
@@ -370,8 +371,12 @@ insertDerivation derivation drvId = do
   -- collected.
 
   outputs <-
-    derivation.outputs & Map.mapKeys (parseOutputName . Text.copy) & Map.traverseMaybeWithKey \_ path ->
-      parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
+    derivation.outputs
+      & Map.toList
+      & HashMap.fromList
+      & HashMap.mapKeys (parseOutputName . Text.copy)
+      & HashMap.mapMaybe (parseStorePath . toText . Nix.path)
+      & mapM \pathName -> do
         pathId <- getStorePathId pathName
         modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
         pure pathId
@@ -456,7 +461,7 @@ uploaded host pathId end =
 building :: Host -> Derivation -> Double -> Maybe ActivityId -> ProcessingT m ()
 building host drvName now activityId = do
   reportName <- getReportName <$> lookupDerivationInfos drvName
-  lastNeeded <- Map.lookup (host, reportName) . (.buildReports) <$> get
+  lastNeeded <- HashMap.lookup (host, reportName) . (.buildReports) <$> get
   drvId <- lookupDerivation drvName
   updateDerivationState drvId (const (Building (MkBuildInfo now host (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ())))
 
@@ -499,7 +504,7 @@ updateParents force_direct update_func clear_func direct_parents = do
     Nothing -> pure collected_parents
     Just (current_parent, rest_to_scan) -> do
       drv_infos <- getDerivationInfos current_parent
-      transfer_states <- fold <$> forM (Map.lookup Out drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
+      transfer_states <- fold <$> forM (HashMap.lookup Out drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
       let all_transfers_completed = all (\x -> has (gconstructor @"Downloaded") x || has (gconstructor @"Uploaded") x) transfer_states
           is_irrelevant = all_transfers_completed && has (gconstructor @"Unknown") drv_infos.buildStatus || has (gconstructor @"Built") drv_infos.buildStatus
           proceed = collect_parents no_irrelevant

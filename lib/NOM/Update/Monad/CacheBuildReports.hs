@@ -12,7 +12,7 @@ import Control.Monad.Trans.Writer.CPS (WriterT)
 import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
 -- data-default
 import Data.Default (def)
-import Data.Map.Strict qualified as Map
+import Data.HashMap.Strict qualified as HashMap
 -- filepath
 
 -- lock-file
@@ -43,7 +43,7 @@ data BuildReport = BuildReport
   deriving stock (Generic, Show, Eq)
   deriving anyclass (FromRecord, ToRecord)
 
-type BuildReportMap = Map (Host, Text) Int
+type BuildReportMap = HashMap (Host, Text) Int
 
 instance MonadCacheBuildReports IO where
   getCachedBuildReports = do
@@ -102,7 +102,7 @@ loadBuildReports dir = catch @IOException tryLoad (const (pure mempty))
       . decode NoHeader
 
 toCSV :: BuildReportMap -> [BuildReport]
-toCSV = fmap (\((fromHost -> host, name), seconds) -> BuildReport{..}) . Map.assocs
+toCSV = fmap (\((fromHost -> host, name), seconds) -> BuildReport{..}) . HashMap.toList
 
 fromHost :: Host -> Text
 fromHost = \case

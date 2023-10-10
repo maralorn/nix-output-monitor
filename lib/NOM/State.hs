@@ -44,7 +44,7 @@ module NOM.State (
   OutputName (..),
 ) where
 
-import Data.Map.Strict qualified as Map
+import Data.HashMap.Strict qualified as HashMap
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
@@ -68,7 +68,7 @@ import Type.Strict qualified as StrictType
 
 instance (StrictType.StrictType seen v) => StrictType.StrictType seen (IntMap v)
 
-instance (StrictType.StrictType seen v) => StrictType.StrictType seen (Map k v)
+instance (StrictType.StrictType seen v) => StrictType.StrictType seen (HashMap k v)
 
 instance StrictType.StrictType seen IntSet
 
@@ -93,10 +93,11 @@ data OutputName
   | Dist
   | Other Text
   deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass (Hashable)
 
-outputNames :: Map Text OutputName
+outputNames :: HashMap Text OutputName
 outputNames =
-  Map.fromList
+  HashMap.fromList
     . fmap (\x -> (Text.toLower (show x), x))
     $ [ Out
       , Doc
@@ -109,7 +110,7 @@ outputNames =
       ]
 
 parseOutputName :: Text -> OutputName
-parseOutputName name = fromMaybe (Other name) $ Map.lookup name outputNames
+parseOutputName name = fromMaybe (Other name) $ HashMap.lookup name outputNames
 
 data InputDerivation = MkInputDerivation
   { derivation :: DerivationId
@@ -119,7 +120,7 @@ data InputDerivation = MkInputDerivation
 
 data DerivationInfo = MkDerivationInfo
   { name :: Derivation
-  , outputs :: Map OutputName StorePathId
+  , outputs :: HashMap OutputName StorePathId
   , inputDerivations :: Seq InputDerivation
   , inputSources :: StorePathSet
   , buildStatus :: BuildStatus
@@ -202,8 +203,8 @@ data NOMV1State = MkNOMV1State
   , buildReports :: BuildReportMap
   , startTime :: Double
   , progressState :: ProgressState
-  , storePathIds :: Map StorePath StorePathId
-  , derivationIds :: Map Derivation DerivationId
+  , storePathIds :: HashMap StorePath StorePathId
+  , derivationIds :: HashMap Derivation DerivationId
   , touchedIds :: DerivationSet
   , activities :: IntMap ActivityStatus
   , nixErrors :: Seq Text
@@ -298,29 +299,29 @@ getStorePathId path = do
   let newId = do
         key <- gets (CMap.nextKey . (.storePathInfos))
         modify' (gfield @"storePathInfos" %~ CMap.insert key (emptyStorePathInfo path))
-        modify' (gfield @"storePathIds" %~ Map.insert path key)
+        modify' (gfield @"storePathIds" %~ HashMap.insert path key)
         pure key
-  gets (Map.lookup path . (.storePathIds)) >>= maybe newId pure
+  gets (HashMap.lookup path . (.storePathIds)) >>= maybe newId pure
 
 getDerivationId :: Derivation -> NOMState DerivationId
 getDerivationId drv = do
   let newId = do
         key <- gets (CMap.nextKey . (.derivationInfos))
         modify' (gfield @"derivationInfos" %~ CMap.insert key (emptyDerivationInfo drv))
-        modify' (gfield @"derivationIds" %~ Map.insert drv key)
+        modify' (gfield @"derivationIds" %~ HashMap.insert drv key)
         pure key
-  gets (Map.lookup drv . (.derivationIds)) >>= maybe newId pure
+  gets (HashMap.lookup drv . (.derivationIds)) >>= maybe newId pure
 
-inputStorePaths :: DerivationInfo -> NOMState (Map Text StorePathId)
+inputStorePaths :: DerivationInfo -> NOMState (HashMap Text StorePathId)
 inputStorePaths drv_info = do
   inputs <- forM (CSet.toList drv_info.inputSources) \source -> do
     store_path_infos <- getStorePathInfos source
     pure (store_path_infos.name.name, source)
-  pure $ Map.fromList inputs
+  pure $ HashMap.fromList inputs
 
 derivationToAnyOutPath :: DerivationId -> NOMState (Maybe StorePath)
 derivationToAnyOutPath drv =
-  gets (CMap.lookup drv . (.derivationInfos) >=> listToMaybe . Map.elems . (.outputs))
+  gets (CMap.lookup drv . (.derivationInfos) >=> listToMaybe . HashMap.elems . (.outputs))
     >>= mapM (\pathId -> lookupStorePathId pathId)
 
 outPathToDerivation :: StorePathId -> NOMState (Maybe DerivationId)

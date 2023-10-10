@@ -1,10 +1,10 @@
 module NOM.Print (stateToText, showCode, Config (..)) where
 
 import Data.Foldable qualified as Unsafe
+import Data.HashMap.Strict qualified as HashMap
 import Data.IntMap.Strict qualified as IntMap
 import Data.List qualified as List
 import Data.List.NonEmpty.Extra (appendr)
-import Data.Map.Strict qualified as Map
 import Data.MemoTrie (memo)
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
@@ -311,7 +311,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   printTreeNode :: TreeLocation -> DerivationInfo -> Double -> Text
   printTreeNode location drvInfo =
     let summary = showSummary drvInfo.dependencySummary
-        (planned, display_drv) = printDerivation drvInfo (get' (inputStorePaths drvInfo))
+        (planned, display_drv) = printDerivation drvInfo $ get' $ inputStorePaths drvInfo
         displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
      in \now -> display_drv now <> displayed_summary
 
@@ -423,12 +423,12 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   print_hosts_down color = print_hosts color "from"
   print_hosts_up color = print_hosts color "to"
 
-  printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, Double -> Text)
+  printDerivation :: DerivationInfo -> HashMap Text StorePathId -> (Bool, Double -> Text)
   printDerivation drvInfo _input_store_paths = do
     let store_paths_in :: StorePathSet -> Bool
-        store_paths_in some_set = not $ Map.null $ Map.filter (`CSet.member` some_set) drvInfo.outputs
+        store_paths_in some_set = not $ HashMap.null $ HashMap.filter (`CSet.member` some_set) drvInfo.outputs
         store_paths_in_map :: StorePathMap (TransferInfo a) -> [TransferInfo a]
-        store_paths_in_map info_map = toList $ Map.mapMaybe (`CMap.lookup` info_map) drvInfo.outputs
+        store_paths_in_map info_map = toList $ HashMap.mapMaybe (`CMap.lookup` info_map) drvInfo.outputs
         hosts :: [TransferInfo a] -> [Host]
         hosts = toList . Set.fromList . fmap (.host)
         earliest_start :: [TransferInfo a] -> Double
