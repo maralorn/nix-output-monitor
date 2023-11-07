@@ -71,8 +71,15 @@ truncateFold cut (Right (l, x, e)) c =
 widthFold :: (Int, Bool) -> Char -> (Int, Bool)
 widthFold (x, True) 'm' = (x, False)
 widthFold (x, True) _ = (x, True)
-widthFold (x, False) (fromEnum -> 27) = (x, True) -- Escape sequence
-widthFold (x, False) c = (x + wcwidth c, False)
+widthFold (x, False) (fromEnum -> 0x1b) = (x, True) -- Escape sequence
+widthFold (x, False) (fromEnum -> 0xfe0e) = (x, False) -- Variation selector 15, force text display
+widthFold (x, False) (fromEnum -> 0xfe0f) = (x, False) -- Variation selector 16, force emoji display
+widthFold (x, False) (fromEnum -> 0x23f3) = (x + 2, False) -- Clock symbol ⏳
+widthFold (x, False) c =
+  -- `wcwidth` sometimes returns -1.
+  -- See: https://github.com/maralorn/nix-output-monitor/issues/78
+  let width = wcwidth c
+   in (x + max width 1, False)
 
 dummy :: Entry
 dummy = text ""
