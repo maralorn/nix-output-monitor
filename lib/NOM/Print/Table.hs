@@ -74,7 +74,7 @@ widthFold ::
 widthFold (x, True) 'm' = (x, False)
 widthFold (x, True) _ = (x, True)
 widthFold (x, False) (fromEnum -> 0x1b) = (x, True) -- Escape sequence
-widthFold (x, False) c = (x + 1, False)
+widthFold (x, False) _ = (x + 1, False)
 
 dummy :: Entry
 dummy = text ""
