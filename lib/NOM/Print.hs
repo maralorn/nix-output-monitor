@@ -56,19 +56,47 @@ showCode :: Text -> [String]
 showCode = map (printf "%02X" . fromEnum) . toString
 
 vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
+
+-- | U+2503 BOX DRAWINGS HEAVY VERTICAL
 vertical = "┃"
+
+-- | U+2517 BOX DRAWINGS HEAVY UP AND RIGHT
 lowerleft = "┗"
+
+-- | U+250F BOX DRAWINGS HEAVY DOWN AND RIGHT
 upperleft = "┏"
+
+-- | U+2523 BOX DRAWINGS HEAVY VERTICAL AND RIGHT
 leftT = "┣"
+
+-- | U+2501 BOX DRAWINGS HEAVY HORIZONTAL
 horizontal = "━"
+
+-- | U+2193 DOWNWARDS ARROW
 down = "↓"
+
+-- | U+2191 UPWARDS ARROW
 up = "↑"
+
+-- | U+23F1 STOPWATCH
 clock = "⏱"
+
+-- | U+23F5 BLACK MEDIUM RIGHT-POINTING TRIANGLE
 running = "⏵"
+
+-- | U+2714 HEAVY CHECK MARK
 done = "✔"
+
+-- | U+23F8 DOUBLE VERTICAL BAR
 todo = "⏸"
+
+-- | U+26A0 WARNING SIGN
 warning = "⚠"
+
+-- | U+2205 EMPTY SET
 average = "∅"
+
+-- | U+2211 N-ARY SUMMATION
 bigsum = "∑"
 
 showCond :: (Monoid m) => Bool -> m -> m
