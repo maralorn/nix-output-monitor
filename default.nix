@@ -3,7 +3,7 @@
 , hermes-json, HUnit, lib, lock-file, MemoTrie, nix-derivation
 , optics, random, relude, safe, stm, streamly-core, strict
 , strict-types, terminal-size, text, time, transformers
-, typed-process, unix, wcwidth, word8
+, typed-process, unix, word8
 }:
 mkDerivation {
   pname = "nix-output-monitor";
@@ -16,21 +16,21 @@ mkDerivation {
     data-default directory extra filepath hermes-json lock-file
     MemoTrie nix-derivation optics relude safe stm streamly-core strict
     strict-types terminal-size text time transformers typed-process
-    wcwidth word8
+    word8
   ];
   executableHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
     data-default directory extra filepath hermes-json lock-file
     MemoTrie nix-derivation optics relude safe stm streamly-core strict
     strict-types terminal-size text time transformers typed-process
-    unix wcwidth word8
+    unix word8
   ];
   testHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
     data-default directory extra filepath hermes-json HUnit lock-file
     MemoTrie nix-derivation optics random relude safe stm streamly-core
     strict strict-types terminal-size text time transformers
-    typed-process wcwidth word8
+    typed-process word8
   ];
   homepage = "https://github.com/maralorn/nix-output-monitor";
   description = "Parses output of nix-build to show additional information";

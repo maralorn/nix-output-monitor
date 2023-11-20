@@ -85,7 +85,6 @@ common common-config
     , time
     , transformers
     , typed-process
-    , wcwidth
     , word8
 
   default-language:   GHC2021

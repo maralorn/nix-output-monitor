@@ -55,40 +55,21 @@ import Text.Printf (printf)
 showCode :: Text -> [String]
 showCode = map (printf "%02X" . fromEnum) . toString
 
-textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
-textRep = fromString [toEnum 0xFE0E]
+vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
 vertical = "┃"
 lowerleft = "┗"
 upperleft = "┏"
 leftT = "┣"
 horizontal = "━"
--- >>> showCode down
--- ["2193","FE0E"]
-down = "↓" <> textRep
--- >>> showCode up
--- ["2191","FE0E"]
-up = "↑" <> textRep
--- >>> showCode clock
--- ["23F1","FE0E"]
-clock = "⏱" <> textRep
--- >>> showCode running
--- ["25B6","FE0E"]
-running = "⏵" <> textRep
--- >>> showCode done
--- ["2714","FE0E"]
-done = "✔" <> textRep
--- >>> showCode todo
--- ["23F3","FE0E"]
-todo = "⏳" <> textRep
--- >>> showCode warning
--- ["26A0","FE0E"]
-warning = "⚠" <> textRep
--- >>> showCode average
--- ["2205","FE0E"]
-average = "∅" <> textRep
--- >>> showCode bigsum
--- ["2211","FE0E"]
-bigsum = "∑" <> textRep
+down = "↓"
+up = "↑"
+clock = "⏱"
+running = "⏵"
+done = "✔"
+todo = "⏸"
+warning = "⚠"
+average = "∅"
+bigsum = "∑"
 
 showCond :: (Monoid m) => Bool -> m -> m
 showCond = memptyIfFalse

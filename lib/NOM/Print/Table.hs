@@ -22,12 +22,9 @@ module NOM.Print.Table (
 ) where
 
 import Control.Exception (assert)
--- wcwidth
-
 -- ansi-terminal
 
 import Data.ByteString.Char8 qualified as ByteString
-import Data.Char.WCWidth (wcwidth)
 import Data.Text qualified as Text
 import Relude hiding (truncate)
 import System.Console.ANSI (
@@ -68,18 +65,16 @@ truncateFold cut (Right (l, x, e)) c =
   let (newX, newE) = widthFold (x, e) c
    in if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
 
-widthFold :: (Int, Bool) -> Char -> (Int, Bool)
+-- See: https://github.com/maralorn/nix-output-monitor/issues/78
+widthFold ::
+  -- | (Width so far, in an ANSI escape sequence)
+  (Int, Bool) ->
+  Char ->
+  (Int, Bool)
 widthFold (x, True) 'm' = (x, False)
 widthFold (x, True) _ = (x, True)
 widthFold (x, False) (fromEnum -> 0x1b) = (x, True) -- Escape sequence
-widthFold (x, False) (fromEnum -> 0xfe0e) = (x, False) -- Variation selector 15, force text display
-widthFold (x, False) (fromEnum -> 0xfe0f) = (x, False) -- Variation selector 16, force emoji display
-widthFold (x, False) (fromEnum -> 0x23f3) = (x + 2, False) -- Clock symbol ⏳
-widthFold (x, False) c =
-  -- `wcwidth` sometimes returns -1.
-  -- See: https://github.com/maralorn/nix-output-monitor/issues/78
-  let width = wcwidth c
-   in (x + max width 1, False)
+widthFold (x, False) c = (x + 1, False)
 
 dummy :: Entry
 dummy = text ""
