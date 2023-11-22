@@ -28,6 +28,7 @@ import NOM.State (
   DerivationSet,
   EvalInfo (..),
   InputDerivation (..),
+  InterestingActivity (..),
   NOMState,
   NOMV1State (..),
   ProgressState (..),
@@ -114,6 +115,14 @@ data Config = MkConfig
 printSections :: NonEmpty Text -> Text
 printSections = (upperleft <>) . Text.intercalate (toText (setSGRCode [Reset]) <> "\n" <> leftT) . toList
 
+printInterestingActivities :: Maybe Text -> IntMap InterestingActivity -> (ZonedTime, Double) -> Text
+printInterestingActivities message activities (_, now) =
+  prependLines
+    ""
+    (vertical <> " ")
+    (vertical <> " ")
+    (horizontal <> markup bold " Build Planning:" :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
+
 printErrors :: Seq Text -> Int -> Text
 printErrors errors maxHeight =
   prependLines
@@ -147,10 +156,12 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
       | config.silent = const ""
       | otherwise = markup bold . time
     sections =
-      fmap snd . filter fst $
-        [ (not (Seq.null nixErrors), const errorDisplay)
-        , (not (Seq.null forestRoots), buildsDisplay . snd)
-        ]
+      fmap snd
+        . filter fst
+        $ [ (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
+          , (not (Seq.null nixErrors), const errorDisplay)
+          , (not (Seq.null forestRoots), buildsDisplay . snd)
+          ]
     maxHeight = case maybeWindow of
       Just limit -> limit `div` targetRatio -- targetRatio is hardcoded to be bigger than zero.
       Nothing -> defaultTreeMax
@@ -161,21 +172,13 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         (vertical <> " ")
         (printBuilds buildState hostNums maxHeight now)
     errorDisplay = printErrors nixErrors maxHeight
-  -- evalMessage = case evaluationState.lastFileName of
-  --  Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
-  --  Strict.Nothing -> Nothing
+  evalMessage = case evaluationState.lastFileName of
+    Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
+    Strict.Nothing -> Nothing
   runTime now = timeDiff now startTime
-  time = case progressState of
-    Finished -> \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
-    InputReceived -> \(_, now) -> clock <> " " <> runTime now <> " Nix is starting …"
-    Evaluating -> \(_, now) ->
-      clock <> " " <> runTime now <> " evaluating, " <> show (evaluationState.count) <> " files so far" <> case evaluationState.lastFileName of
-        Strict.Just file_name -> ", last one was '" <> file_name <> "'"
-        Strict.Nothing -> " …"
-    Planning paths drvs -> \(_, now) -> clock <> " " <> runTime now <> " planning " <> Text.intercalate " and " (["builds" | not (Set.null drvs)] <> ["downloads" | not (Set.null paths)]) <> " …"
-    QueryingSubstituers -> \(_, now) -> clock <> " " <> runTime now <> " looking for store paths on substituters …"
-    JustStarted -> \(_, now) -> clock <> " " <> runTime now <> " waiting for Nix to start …"
-    Realising -> \(_, now) -> clock <> " " <> runTime now
+  time
+    | progressState == Finished = \(nowClock, now) -> finishMarkup (" at " <> toText (formatTime defaultTimeLocale "%H:%M:%S" nowClock) <> " after " <> runTime now)
+    | otherwise = \(_, now) -> clock <> " " <> runTime now
   MkDependencySummary{..} = fullSummary
   runningBuilds' = (.host) <$> runningBuilds
   completedBuilds' = (.host) <$> completedBuilds
@@ -335,11 +338,11 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
   derivationsToShow =
     let should_be_shown (index, (can_be_hidden, _, _)) = not can_be_hidden || index < maxHeight
         (_, sorted_set) = execState (goDerivationsToShow forestRoots) mempty
-     in CSet.fromFoldable $
-          fmap (\(_, (_, _, drvId)) -> drvId) $
-            takeWhile should_be_shown $
-              itoList $
-                Set.toAscList sorted_set
+     in CSet.fromFoldable
+          $ fmap (\(_, (_, _, drvId)) -> drvId)
+          $ takeWhile should_be_shown
+          $ itoList
+          $ Set.toAscList sorted_set
 
   children :: DerivationId -> Seq DerivationId
   children drv_id = fmap (.derivation) $ (.inputDerivations) $ get' $ getDerivationInfos drv_id
@@ -366,12 +369,16 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
              in infos.inputFor <> CSet.fromFoldable infos.producer
           may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           show_this_node =
-            maxHeight > 0
-              && summary /= mempty
+            maxHeight
+              > 0
+              && summary
+              /= mempty
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
-                    || Set.size sorted_set < maxHeight
-                    || sort_key < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
+                    || Set.size sorted_set
+                    < maxHeight
+                    || sort_key
+                    < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
                  )
           new_seen_ids = CSet.insert thisDrv seen_ids
           new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
@@ -384,8 +391,8 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
 
   showSummary :: DependencySummary -> Text
   showSummary MkDependencySummary{..} =
-    unwords $
-      join
+    unwords
+      $ join
         [ memptyIfTrue
             (CMap.null failedBuilds)
             [markup red $ show (CMap.size failedBuilds) <> " " <> warning]
@@ -453,44 +460,44 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
             | not $ null downloadingOutputs ->
                 ( False
                 , \now ->
-                    unwords $
-                      markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
-                        : ( print_hosts_down True (hosts downloadingOutputs)
-                              <> ifTimeDiffRelevant now (earliest_start downloadingOutputs) id
-                          )
+                    unwords
+                      $ markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
+                      : ( print_hosts_down True (hosts downloadingOutputs)
+                            <> ifTimeDiffRelevant now (earliest_start downloadingOutputs) id
+                        )
                 )
             | not $ null uploadingOutputs ->
                 ( False
                 , \now ->
-                    unwords $
-                      markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
-                        : ( print_hosts_up True (hosts uploadingOutputs)
-                              <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
-                          )
+                    unwords
+                      $ markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
+                      : ( print_hosts_up True (hosts uploadingOutputs)
+                            <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
+                        )
                 )
           Unknown
             | plannedDownloads -> (True, const $ markup blue (down <> " " <> todo <> " " <> drvName))
             | not $ null downloadedOutputs ->
                 ( False
-                , const $
-                    unwords $
-                      markup green (down <> " " <> done <> " " <> drvName)
-                        : fmap
-                          (markup grey)
-                          ( print_hosts_down False (hosts downloadedOutputs)
-                              <> ifTimeDurRelevant (build_sum downloadedOutputs) id
-                          )
+                , const
+                    $ unwords
+                    $ markup green (down <> " " <> done <> " " <> drvName)
+                    : fmap
+                      (markup grey)
+                      ( print_hosts_down False (hosts downloadedOutputs)
+                          <> ifTimeDurRelevant (build_sum downloadedOutputs) id
+                      )
                 )
             | not $ null uploadedOutputs ->
                 ( False
-                , const $
-                    unwords $
-                      markup green (up <> " " <> done <> " " <> drvName)
-                        : fmap
-                          (markup grey)
-                          ( print_hosts_up False (hosts uploadedOutputs)
-                              <> ifTimeDurRelevant (build_sum uploadedOutputs) id
-                          )
+                , const
+                    $ unwords
+                    $ markup green (up <> " " <> done <> " " <> drvName)
+                    : fmap
+                      (markup grey)
+                      ( print_hosts_up False (hosts uploadedOutputs)
+                          <> ifTimeDurRelevant (build_sum uploadedOutputs) id
+                      )
                 )
             | otherwise -> (False, const drvName)
           Planned -> (True, const $ markup blue (todo <> " " <> drvName))
@@ -513,18 +520,22 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                 , const
                     . markups [red, bold]
                     . unwords
-                    $ [warning, drvName] <> hostMarkup False buildInfo.host <> ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start] <> phaseInfo
+                    $ [warning, drvName]
+                    <> hostMarkup False buildInfo.host
+                    <> ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start]
+                    <> phaseInfo
                 )
           Built buildInfo ->
             ( False
-            , const $
-                markup green (done <> " " <> drvName)
-                  <> " "
-                  <> ( markup grey . unwords $
-                        ( hostMarkup False buildInfo.host
+            , const
+                $ markup green (done <> " " <> drvName)
+                <> " "
+                <> ( markup grey
+                      . unwords
+                      $ ( hostMarkup False buildInfo.host
                             <> ifTimeDiffRelevant buildInfo.end buildInfo.start id
                         )
-                     )
+                   )
             )
 
 printFailType :: FailType -> Text

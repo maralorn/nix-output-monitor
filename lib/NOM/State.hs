@@ -96,16 +96,17 @@ data OutputName
 
 outputNames :: Map Text OutputName
 outputNames =
-  Map.fromList . fmap (\x -> (Text.toLower (show x), x)) $
-    [ Out
-    , Doc
-    , Dev
-    , Bin
-    , Info
-    , Lib
-    , Man
-    , Dist
-    ]
+  Map.fromList
+    . fmap (\x -> (Text.toLower (show x), x))
+    $ [ Out
+      , Doc
+      , Dev
+      , Bin
+      , Info
+      , Lib
+      , Man
+      , Dist
+      ]
 
 parseOutputName :: Text -> OutputName
 parseOutputName name = fromMaybe (Other name) $ Map.lookup name outputNames
@@ -207,18 +208,12 @@ data NOMV1State = MkNOMV1State
   , activities :: IntMap ActivityStatus
   , nixErrors :: Seq Text
   , buildPlatform :: Strict.Maybe Text
+  , interestingActivities :: IntMap InterestingActivity
   , evaluationState :: EvalInfo
   }
   deriving stock (Show, Eq, Ord, Generic)
 
-data ProgressState
-  = JustStarted
-  | InputReceived
-  | Evaluating
-  | QueryingSubstituers
-  | Planning (Set StorePath) (Set Derivation)
-  | Realising
-  | Finished
+data ProgressState = JustStarted | InputReceived | Finished
   deriving stock (Show, Eq, Ord, Generic)
 
 data BuildFail = MkBuildFail
@@ -255,8 +250,8 @@ initalStateFromBuildPlatform :: (MonadCacheBuildReports m, MonadNow m) => Maybe 
 initalStateFromBuildPlatform platform = do
   now <- getNow
   buildReports <- getCachedBuildReports
-  pure $
-    MkNOMV1State
+  pure
+    $ MkNOMV1State
       mempty
       mempty
       mempty
@@ -270,6 +265,7 @@ initalStateFromBuildPlatform platform = do
       mempty
       mempty
       (Strict.toStrict platform)
+      mempty
       MkEvalInfo{count = 0, at = 0, lastFileName = Strict.Nothing}
 
 instance Semigroup DependencySummary where

@@ -2,7 +2,7 @@ module Main (main) where
 
 import Control.Concurrent (ThreadId, myThreadId, throwTo)
 import Control.Exception qualified as Exception
-import Control.Monad.Trans.Writer.CPS (runWriterT)
+import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.ByteString qualified as ByteString
 import Data.IORef qualified as IORef
 import Data.Text.IO (hPutStrLn)
@@ -112,12 +112,12 @@ printIOException io_exception = do
 runMonitoredCommand :: Config -> Process.ProcessConfig () () () -> IO Process.ExitCode
 runMonitoredCommand config process_config = do
   let process_config_with_handles =
-        Process.setStdout Process.createPipe $
-          Process.setStderr
+        Process.setStdout Process.createPipe
+          $ Process.setStderr
             Process.createPipe
             process_config
-  Exception.handle ((ExitFailure 1 <$) . printIOException) $
-    Process.withProcessWait process_config_with_handles \process -> do
+  Exception.handle ((ExitFailure 1 <$) . printIOException)
+    $ Process.withProcessWait process_config_with_handles \process -> do
       void $ monitorHandle @NixJSONMessage config (Process.getStderr process)
       exitCode <- Process.waitExitCode process
       output <- ByteString.hGetContents (Process.getStdout process)

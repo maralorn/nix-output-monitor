@@ -7,7 +7,7 @@ module NOM.Update.Monad.CacheBuildReports (
 ) where
 
 import Control.Exception (IOException, catch)
-import Control.Monad.Trans.Writer.CPS (WriterT)
+import Control.Monad.Writer.Strict (WriterT)
 -- cassava
 import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
 -- data-default
@@ -55,7 +55,7 @@ instance (MonadCacheBuildReports m) => MonadCacheBuildReports (StateT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
 
-instance (MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
+instance (Monoid a, MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
 
@@ -98,7 +98,8 @@ loadBuildReports dir = catch @IOException tryLoad (const (pure mempty))
  where
   tryLoad =
     readFileLBS (dir </> buildReportsFilename)
-      <&> either (const mempty) (fromCSV . toList) . decode NoHeader
+      <&> either (const mempty) (fromCSV . toList)
+      . decode NoHeader
 
 toCSV :: BuildReportMap -> [BuildReport]
 toCSV = fmap (\((fromHost -> host, name), seconds) -> BuildReport{..}) . Map.assocs

@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad.Trans.Writer.CPS (runWriterT)
+import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
 import NOM.Builds (parseStorePath)
@@ -55,15 +55,16 @@ allBools = [True, False]
 main :: IO ()
 main = do
   with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
-  when with_nix $
-    Process.runProcess_ $
-      Process.setStderr Process.nullStream $
-        Process.setStdout Process.nullStream $
-          Process.proc
-            "nix-store"
-            ["-r", "/nix/store/y7ji7mwys7g60j2w8bl93cmfbvd3xi3r-busybox-static-x86_64-unknown-linux-musl-1.35.0/bin/"]
-  counts <- runTestTT $
-    test $ do
+  when with_nix
+    $ Process.runProcess_
+    $ Process.setStderr Process.nullStream
+    $ Process.setStdout Process.nullStream
+    $ Process.proc
+      "nix-store"
+      ["-r", "/nix/store/y7ji7mwys7g60j2w8bl93cmfbvd3xi3r-busybox-static-x86_64-unknown-linux-musl-1.35.0/bin/"]
+  counts <- runTestTT
+    $ test
+    $ do
       test' <- tests
       if with_nix
         then do
@@ -132,8 +133,8 @@ goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMV1
     assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
     let outputDerivations :: [DerivationId]
         outputDerivations =
-          flip evalState endState $
-            forMaybeM outputStorePaths \path -> do
+          flip evalState endState
+            $ forMaybeM outputStorePaths \path -> do
               pathId <- getStorePathId path
               outPathToDerivation pathId
     assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)

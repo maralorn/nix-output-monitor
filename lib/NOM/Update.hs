@@ -1,6 +1,7 @@
 module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, maintainState, detectLocalFinishedBuilds, appendDifferingPlatform) where
 
-import Control.Monad.Trans.Writer.CPS qualified as CPS
+import Control.Monad.Writer (MonadWriter (tell))
+import Control.Monad.Writer.Strict (WriterT (runWriterT))
 import Data.ByteString.Char8 qualified as ByteString
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as Map
@@ -29,6 +30,7 @@ import NOM.State (
   DerivationSet,
   EvalInfo (..),
   InputDerivation (..),
+  InterestingActivity (..),
   NOMState,
   NOMStateT,
   NOMV1State (..),
@@ -70,22 +72,29 @@ import Optics (gconstructor, gfield, has, preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
-type ProcessingT m a = (UpdateMonad m) => NOMStateT (CPS.WriterT [Either NOMError ByteString] m) a
+type ProcessingT m a = (UpdateMonad m) => NOMStateT (WriterT [Either NOMError ByteString] m) a
 
 getReportName :: DerivationInfo -> Text
 getReportName drv = case drv.pname of
   Strict.Just pname -> pname
   Strict.Nothing -> Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.name.storePath.name
 
+setInputReceived :: NOMState Bool
+setInputReceived = do
+  s <- get
+  let change = s.progressState == JustStarted
+  when change (put s{progressState = InputReceived})
+  pure change
+
 maintainState :: Double -> NOMV1State -> NOMV1State
 maintainState now = execState $ do
   currentState <- get
   unless (CSet.null currentState.touchedIds) $ do
     sortDepsOfSet currentState.touchedIds
-    modify' (gfield @"forestRoots" %~ Seq.sortOn (sortKey currentState))
-    modify' (gfield @"touchedIds" .~ mempty)
+    modify (gfield @"forestRoots" %~ Seq.sortOn (sortKey currentState))
+    modify (gfield @"touchedIds" .~ mempty)
   when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
-    modify' (gfield @"evaluationState" %~ \old_state -> old_state{lastFileName = Strict.Nothing})
+    modify (gfield @"evaluationState" %~ \old_state -> old_state{lastFileName = Strict.Nothing})
 
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
@@ -93,27 +102,41 @@ minTimeBetweenPollingNixStore = 0.2 -- in seconds
 {-# INLINE updateStateNixJSONMessage #-}
 updateStateNixJSONMessage :: forall m. (UpdateMonad m) => NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
 updateStateNixJSONMessage input inputState =
+  {-# SCC "updateStateNixJSONMessage" #-}
   do
     ((hasChanged, msgs), outputState) <-
-      runStateT (CPS.runWriterT (processJsonMessage input)) inputState
-    let retval = if hasChanged then Just outputState else Nothing
+      {-# SCC "run_state" #-}
+        runStateT
+          ( runWriterT
+              ( sequence
+                  [ {-# SCC "input_received" #-} setInputReceived
+                  , {-# SCC "processing" #-} processJsonMessage input
+                  ]
+              )
+          )
+          inputState
+    let retval = if or hasChanged then Just outputState else Nothing
         errors = lefts msgs
-    pure ((errors, ByteString.unlines (rights msgs)), retval)
+    {-# SCC "emitting_new_state" #-} pure ((errors, ByteString.unlines (rights msgs)), retval)
 
 updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> (Maybe Double, NOMV1State) -> m (([NOMError], ByteString), (Maybe Double, Maybe NOMV1State))
 updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
   now <- getNow
 
-  let processing = maybe noChange (\result' -> processResult result') result
+  let processing = case result of
+        Just result' -> processResult result'
+        Nothing -> pure False
       (outputAccessTime, check)
         | maybe True ((>= minTimeBetweenPollingNixStore) . realToFrac . (now -)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
         | otherwise = (inputAccessTime, pure False)
   ((hasChanged, msgs), outputState) <-
     runStateT
-      ( CPS.runWriterT
+      ( runWriterT
           ( or
               <$> sequence
-                [ -- Update the state if any changes where parsed.
+                [ -- First check if this is the first time that we receive input (for error messages).
+                  setInputReceived
+                , -- Update the state if any changes where parsed.
                   processing
                 , -- Check if any local builds have finished, because nix-build would not tell us.
                   -- If we haven‘t done so in the last minTimeBetweenPollingNixStore seconds.
@@ -135,73 +158,41 @@ derivationIsCompleted drvId =
 
 detectLocalFinishedBuilds :: ProcessingT m Bool
 detectLocalFinishedBuilds = do
-  runningLocalBuilds <- CMap.toList <$> getRunningBuildsByHost Localhost
+  runningLocalBuilds <- CMap.toList <$> getRunningBuildsByHost Localhost -- .> traceShowId
   newCompletedOutputs <- filterM (\(x, _) -> derivationIsCompleted x) runningLocalBuilds
   let anyBuildsFinished = not (null newCompletedOutputs)
   when anyBuildsFinished (finishBuilds Localhost newCompletedOutputs)
   pure anyBuildsFinished
 
-data ProgressUpdate
-  = PlanDownloads (Set StorePath)
-  | PlanBuilds (Set Derivation)
-  | Evaluation
-  | Query
-  | Other
-  | Irrelevant
-  deriving stock (Show)
+withChange :: (Functor f) => f b -> f Bool
+withChange = (True <$)
 
-withChange :: ProgressUpdate -> ProcessingT m b -> ProcessingT m Bool
-withChange update action = do
-  current_state <- gets (.progressState)
-  new_progress_state <- case (current_state, update) of
-    (Planning store_paths derivations, PlanDownloads new_store_paths) -> pure (Planning (new_store_paths <> store_paths) derivations)
-    (Planning store_paths derivations, PlanBuilds new_derivations) -> pure (Planning store_paths (new_derivations <> derivations))
-    (_, PlanDownloads store_paths) -> pure (Planning store_paths mempty)
-    (_, PlanBuilds derivations) -> pure (Planning mempty derivations)
-    (Planning store_paths derivations, Other) -> do
-      let store_paths_list = toList store_paths
-          derivations_list = toList derivations
-      producers <- lookupProducers store_paths_list
-      void $ lookupDerivations (derivations_list <> producers)
-      planned_build_ids <- forM (toList derivations) (\derivation -> getDerivationId derivation)
-      planBuilds (fromList planned_build_ids)
-      planned_download_ids <- forM store_paths_list (\x -> getStorePathId x)
-      planDownloads (fromList planned_download_ids)
-      pure Realising
-    (_, Evaluation) -> pure Evaluating
-    (Evaluating, Query) -> pure QueryingSubstituers
-    _ -> pure current_state
-  let change = case (current_state, update) of
-        (JustStarted, _) -> True
-        (_, Irrelevant) -> False
-        _ -> True
-  when (change && new_progress_state /= current_state) do
-    modify' (gfield @"progressState" .~ new_progress_state)
-  void action
-  pure change
-
-noChange :: ProcessingT m Bool
-noChange = withChange Irrelevant pass
+noChange :: (Applicative f) => f Bool
+noChange = pure False
 
 processResult :: (UpdateMonad m) => NixOldStyleMessage -> ProcessingT m Bool
 processResult result = do
   now <- getNow
   case result of
-    OldStyleMessage.Uploading path host -> withChange Other do
-      pathId <- lookupStorePath path
+    OldStyleMessage.Uploading path host -> withChange do
+      pathId <- getStorePathId path
       uploaded host pathId now
-    OldStyleMessage.Downloading path host -> withChange Other do
-      pathId <- lookupStorePath path
+    OldStyleMessage.Downloading path host -> withChange do
+      pathId <- getStorePathId path
       downloaded host pathId now
       finishBuildByPathId host pathId
     OldStyleMessage.PlanCopies _ -> noChange
-    OldStyleMessage.Build drvName host -> withChange Other do
+    OldStyleMessage.Build drvName host -> withChange do
       building host drvName now Nothing
-    OldStyleMessage.PlanBuilds planned_builds _lastBuild -> withChange (PlanBuilds planned_builds) pass
-    OldStyleMessage.PlanDownloads _download _unpacked planned_downloads -> withChange (PlanDownloads planned_downloads) pass
-    OldStyleMessage.Checking drvName -> withChange Other do
+    OldStyleMessage.PlanBuilds plannedBuilds _lastBuild -> withChange do
+      plannedDrvIds <- forM (toList plannedBuilds) (\x -> lookupDerivation x)
+      planBuilds (fromList plannedDrvIds)
+    OldStyleMessage.PlanDownloads _download _unpacked plannedDownloads -> withChange do
+      plannedDownloadIds <- forM (toList plannedDownloads) (\x -> getStorePathId x)
+      planDownloads (fromList plannedDownloadIds)
+    OldStyleMessage.Checking drvName -> withChange do
       building Localhost drvName now Nothing
-    OldStyleMessage.Failed drv code -> withChange Other do
+    OldStyleMessage.Failed drv code -> withChange do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
 
@@ -209,74 +200,93 @@ processJsonMessage :: (UpdateMonad m) => NixJSONMessage -> ProcessingT m Bool
 processJsonMessage = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
-    CPS.tell [Right message']
+    tell [Right message']
     case parseIndentedStoreObject message of
-      Just (Right download) -> withChange (PlanDownloads (one download)) pass
-      Just (Left build) -> withChange (PlanBuilds (one build)) pass
+      Just (Right download) ->
+        {-# SCC "plan_download" #-}
+        withChange do
+          plannedDownloadId <- getStorePathId download
+          planDownloads $ one plannedDownloadId
+      Just (Left build) ->
+        {-# SCC "plan_build" #-}
+        withChange do
+          plannedDrvId <- lookupDerivation build
+          planBuilds (one plannedDrvId)
       _ -> noChange
   Message MkMessageAction{message, level = Error}
     | stripped <- stripANSICodes message
     , Text.isPrefixOf "error:" stripped ->
-        withChange Other do
+        {-# SCC "pass_through_error" #-}
+        withChange do
           errors <- gets (.nixErrors)
           unless (any (Text.isInfixOf (Text.drop 7 stripped) . stripANSICodes) errors) do
             modify' (gfield @"nixErrors" %~ (<> (message Seq.<| mempty)))
-            CPS.tell [Right (encodeUtf8 message)]
+            tell [Right (encodeUtf8 message)]
           whenJust
             (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
             (\old_style_parse_result -> void $ processResult old_style_parse_result)
-  Message MkMessageAction{message} | Just suffix <- Text.stripPrefix "evaluating file '" message -> withChange Evaluation do
+  Message MkMessageAction{message} | Just suffix <- Text.stripPrefix "evaluating file '" message -> withChange do
     let file_name = Text.dropEnd 1 suffix
     now <- getNow
     modify' (gfield @"evaluationState" %~ \old -> old{count = old.count + 1, lastFileName = Strict.Just file_name, at = now})
   Result MkResultAction{result = BuildLogLine line, id = id'} ->
+    {-# SCC "pass_through_build_line" #-}
     do
       nomState <- get
       prefix <- activityPrefix ((.activity) <$> IntMap.lookup id'.value nomState.activities)
-      CPS.tell [Right (encodeUtf8 (prefix <> line))]
+      tell [Right (encodeUtf8 (prefix <> line))]
       noChange
   Result MkResultAction{result = SetPhase phase, id = id'} ->
-    withChange Other $ modify' (gfield @"activities" %~ IntMap.adjust (gfield @"phase" .~ Strict.Just phase) id'.value)
+    {-# SCC "updating_phase" #-} withChange $ modify' (gfield @"activities" %~ IntMap.adjust (gfield @"phase" .~ Strict.Just phase) id'.value)
   Result MkResultAction{result = Progress progress, id = id'} ->
-    withChange Other $ modify' (gfield @"activities" %~ IntMap.adjust (gfield @"progress" .~ Strict.Just progress) id'.value)
-  Start startAction@MkStartAction{id = id'} -> do
-    prefix <- activityPrefix $ Just startAction.activity
-    when (not (Text.null startAction.text) && startAction.level <= Info) $ CPS.tell [Right . encodeUtf8 $ prefix <> startAction.text]
-    changed <- case startAction.activity of
-      JSON.Build drvName host -> withChange Other do
-        now <- getNow
-        building host drvName now (Just id')
-      JSON.CopyPath path from Localhost -> withChange Other do
-        now <- getNow
-        pathId <- lookupStorePath path
-        downloading from pathId now
-      JSON.CopyPath path Localhost to -> withChange Other do
-        now <- getNow
-        pathId <- lookupStorePath path
-        uploading to pathId now
-      JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> withChange Query pass
-      JSON.QueryPathInfo{} -> withChange Query pass
-      _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
-    when changed $ modify' (gfield @"activities" %~ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing))
-    pure changed
-  Stop MkStopAction{id = id'} -> do
-    activity <- gets (\s -> IntMap.lookup id'.value s.activities)
-    case activity of
-      Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange Other do
-        now <- getNow
-        pathId <- lookupStorePath path
-        downloaded from pathId now
-      Just (MkActivityStatus{activity = JSON.CopyPath path Localhost to}) -> withChange Other do
-        now <- getNow
-        pathId <- lookupStorePath path
-        uploaded to pathId now
-      Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
-        drvId <- lookupDerivation drv
-        isCompleted <- derivationIsCompleted drvId
-        if isCompleted then withChange Other $ finishBuildByDrvId host drvId else noChange
-      _ -> noChange
-  Plain msg -> CPS.tell [Right msg] >> noChange
-  ParseError err -> CPS.tell [Left err] >> noChange
+    {-# SCC "updating_progress" #-} withChange $ modify' (gfield @"activities" %~ IntMap.adjust (gfield @"progress" .~ Strict.Just progress) id'.value)
+  Start startAction@MkStartAction{id = id'} ->
+    {-# SCC "starting_action" #-}
+    do
+      prefix <- activityPrefix $ Just startAction.activity
+      when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
+      let set_interesting = withChange do
+            now <- getNow
+            modify' (gfield @"interestingActivities" %~ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now))
+      changed <- case startAction.activity of
+        JSON.Build drvName host -> withChange do
+          now <- getNow
+          building host drvName now (Just id')
+        JSON.CopyPath path from Localhost -> withChange do
+          now <- getNow
+          pathId <- getStorePathId path
+          downloading from pathId now
+        JSON.CopyPath path Localhost to -> withChange do
+          now <- getNow
+          pathId <- getStorePathId path
+          uploading to pathId now
+        JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
+        JSON.QueryPathInfo{} -> set_interesting
+        _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
+      when changed $ modify' (gfield @"activities" %~ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing))
+      pure changed
+  Stop MkStopAction{id = id'} ->
+    {-# SCC "stoping_action" #-}
+    do
+      activity <- gets (\s -> IntMap.lookup id'.value s.activities)
+      interesting_activity <- gets (\s -> IntMap.lookup id'.value s.interestingActivities)
+      modify' (gfield @"interestingActivities" %~ IntMap.delete id'.value)
+      case activity of
+        Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
+          now <- getNow
+          pathId <- getStorePathId path
+          downloaded from pathId now
+        Just (MkActivityStatus{activity = JSON.CopyPath path Localhost to}) -> withChange do
+          now <- getNow
+          pathId <- getStorePathId path
+          uploaded to pathId now
+        Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
+          drvId <- lookupDerivation drv
+          isCompleted <- derivationIsCompleted drvId
+          if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
+        _ -> pure (isJust interesting_activity)
+  Plain msg -> tell [Right msg] >> noChange
+  ParseError err -> tell [Left err] >> noChange
   Result _other_result -> noChange
   Message _other_message -> noChange
 
@@ -315,7 +325,7 @@ finishBuilds host builds = do
       Nothing -> pass
       Just finishedBuilds -> do
         newBuildReports <- reportFinishingBuilds host finishedBuilds
-        modify' (gfield @"buildReports" .~ newBuildReports)
+        modify (gfield @"buildReports" .~ newBuildReports)
     )
     $ nonEmpty derivationsWithNames
   now <- getNow
@@ -337,29 +347,14 @@ failedBuild now drv code = updateDerivationState drv update
     Building a -> State.Failed (a $> MkBuildFail now code)
     x -> x
 
-lookupStorePath :: StorePath -> ProcessingT m StorePathId
-lookupStorePath !path = do
-  lookupProducers (one path) >>= (\derivations -> void $ lookupDerivations (toList derivations))
-  getStorePathId path
-
-lookupProducers :: [StorePath] -> ProcessingT m [Derivation]
-lookupProducers paths = do
-  storePathIds <- gets (.storePathIds)
-  let missing_paths =
-        paths
-          & filter (\path -> not $ Map.member path storePathIds)
-  getProducers missing_paths
-
-lookupDerivations :: [Derivation] -> ProcessingT m [DerivationId]
-lookupDerivations derivations = mapM (\derivation -> lookupDerivation derivation) derivations
-
 lookupDerivation :: Derivation -> ProcessingT m DerivationId
 lookupDerivation drv = do
   drvId <- getDerivationId drv
   isCached <- gets (maybe False (.cached) . CMap.lookup drvId . (.derivationInfos))
-  unless isCached $
-    getDerivation drv >>= \case
-      Left err -> CPS.tell [Left err]
+  unless isCached
+    $ getDerivation drv
+    >>= \case
+      Left err -> tell [Left err]
       Right parsedDrv -> insertDerivation parsedDrv drvId
   pure drvId
 
@@ -368,58 +363,38 @@ lookupDerivationInfos drvName = do
   drvId <- lookupDerivation drvName
   getDerivationInfos drvId
 
-forceList :: [a] -> [a]
-forceList [] = []
-forceList (!a : rest) = a : forced_rest
- where
-  !forced_rest = forceList rest
-
 insertDerivation :: Nix.Derivation FilePath Text -> DerivationId -> ProcessingT m ()
-insertDerivation nix_derivation drvId = do
+insertDerivation derivation drvId = do
   -- We need to be really careful in this function. The Nix.Derivation keeps the
   -- read-in derivation file in memory. When using Texts from it we must make
   -- sure we destroy sharing with the original file, so that it can be garbage
   -- collected.
-  let !unshared_outputs =
-        nix_derivation.outputs
-          & Map.mapKeys (parseOutputName . Text.copy)
-          & Map.mapMaybe (parseStorePath . toText . Nix.path)
-      !unshared_inputSrcs =
-        nix_derivation.inputSrcs
-          & toList
-          & mapMaybe (parseStorePath . toText)
-          & Set.fromList
-      unshared_inputDrvs :: [(Derivation, Set OutputName)]
-      !unshared_inputDrvs =
-        nix_derivation.inputDrvs
-          & Map.toList
-          & mapMaybe
-            ( \(drvPath, outputs_of_input) ->
-                let !unshared_outputs_of_input = Set.map (parseOutputName . Text.copy) outputs_of_input
-                 in (,unshared_outputs_of_input) <$> parseDerivation (toText drvPath)
-            )
-          & forceList
-      !unshared_platform = Strict.Just (Text.copy nix_derivation.platform)
-      !unshared_pname = Strict.toStrict (Text.copy <$> Map.lookup "pname" nix_derivation.env)
 
   outputs <-
-    unshared_outputs & Map.traverseWithKey \_ pathName -> do
-      pathId <- getStorePathId pathName
-      modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
-      pure pathId
+    derivation.outputs & Map.mapKeys (parseOutputName . Text.copy) & Map.traverseMaybeWithKey \_ path ->
+      parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
+        pathId <- getStorePathId pathName
+        modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
+        pure pathId
   inputSources <-
-    unshared_inputSrcs & flip foldlM mempty \acc pathName -> do
-      pathId <- getStorePathId pathName
-      modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"inputFor" %~ CSet.insert drvId) pathId)
-      pure $ CSet.insert pathId acc
+    derivation.inputSrcs & flip foldlM mempty \acc path -> do
+      pathIdMay <-
+        parseStorePath (toText path) & mapM \pathName -> do
+          pathId <- getStorePathId pathName
+          modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"inputFor" %~ CSet.insert drvId) pathId)
+          pure pathId
+      pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
-    unshared_inputDrvs & mapM \(dep_name, outputs_of_input) -> do
-      depId <- getDerivationId dep_name
-      modify' (gfield @"derivationInfos" %~ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId)
-      modify' (gfield @"forestRoots" %~ Seq.filter (/= depId))
-      pure (MkInputDerivation{derivation = depId, outputs = outputs_of_input})
+    derivation.inputDrvs & Map.toList & mapMaybeM \(drvPath, outputs_of_input) -> do
+      depIdMay <-
+        parseDerivation (toText drvPath) & mapM \depName -> do
+          depId <- lookupDerivation depName
+          modify (gfield @"derivationInfos" %~ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId)
+          modify (gfield @"forestRoots" %~ Seq.filter (/= depId))
+          pure depId
+      pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = Set.map (parseOutputName . Text.copy) outputs_of_input}) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
-  modify'
+  modify
     ( gfield @"derivationInfos"
         %~ CMap.adjust
           ( \derivation_info ->
@@ -428,14 +403,14 @@ insertDerivation nix_derivation drvId = do
                 , inputSources
                 , inputDerivations
                 , cached = True
-                , platform = unshared_platform
-                , pname = unshared_pname
+                , platform = Strict.Just (Text.copy derivation.platform)
+                , pname = Strict.toStrict (Text.copy <$> Map.lookup "pname" derivation.env)
                 }
           )
           drvId
     )
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
-  when noParents $ modify' (gfield @"forestRoots" %~ (drvId Seq.<|))
+  when noParents $ modify (gfield @"forestRoots" %~ (drvId Seq.<|))
 
 planBuilds :: Set DerivationId -> NOMState ()
 planBuilds drvIds = forM_ drvIds \drvId ->
@@ -493,7 +468,7 @@ updateDerivationState drvId updateStatus = do
   let oldStatus = derivation_infos.buildStatus
       newStatus = updateStatus oldStatus
   when (oldStatus /= newStatus) do
-    modify' (gfield @"derivationInfos" %~ CMap.adjust (gfield @"buildStatus" .~ newStatus) drvId)
+    modify (gfield @"derivationInfos" %~ CMap.adjust (gfield @"buildStatus" .~ newStatus) drvId)
     let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
         clear_summary = clearDerivationIdFromSummary oldStatus drvId
 
@@ -501,18 +476,18 @@ updateDerivationState drvId updateStatus = do
     updateParents False update_summary clear_summary (derivation_infos.derivationParents)
 
     -- Update fullSummary
-    modify' (gfield @"fullSummary" %~ update_summary)
+    modify (gfield @"fullSummary" %~ update_summary)
 
 updateParents :: Bool -> (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
 updateParents force_direct update_func clear_func direct_parents = do
   relevant_parents <- (if force_direct then CSet.union direct_parents else id) <$> collect_parents True mempty direct_parents
   parents <- collect_parents False mempty direct_parents
-  modify'
+  modify
     ( gfield @"derivationInfos"
         %~ apply_to_all_summaries update_func relevant_parents
-          . apply_to_all_summaries clear_func (CSet.difference parents relevant_parents)
+        . apply_to_all_summaries clear_func (CSet.difference parents relevant_parents)
     )
-  modify' (gfield @"touchedIds" %~ CSet.union parents)
+  modify (gfield @"touchedIds" %~ CSet.union parents)
  where
   apply_to_all_summaries ::
     (DependencySummary -> DependencySummary) ->
@@ -555,7 +530,7 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   store_path_info <- getStorePathInfos storePathId
   let oldStatus = store_path_info.states
       newStatus = updateStorePathStates new_store_path_state update_store_path_state oldStatus
-  modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"states" .~ newStatus) storePathId)
+  modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"states" .~ newStatus) storePathId)
 
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
       clear_summary = clearStorePathsFromSummary oldStatus storePathId
@@ -564,4 +539,4 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   updateParents True update_summary clear_summary (Strict.maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
 
   -- Update fullSummary
-  modify' (gfield @"fullSummary" %~ update_summary)
+  modify (gfield @"fullSummary" %~ update_summary)

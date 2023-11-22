@@ -38,8 +38,6 @@ source-repository head
 
 common common-config
   default-extensions:
-    NoFieldSelectors
-    NoImplicitPrelude
     AllowAmbiguousTypes
     BlockArguments
     DataKinds
@@ -48,6 +46,8 @@ common common-config
     DuplicateRecordFields
     ImportQualifiedPost
     LambdaCase
+    NoFieldSelectors
+    NoImplicitPrelude
     OverloadedRecordDot
     OverloadedStrings
     RecordWildCards
@@ -72,6 +72,7 @@ common common-config
     , hermes-json     >=0.6.0.0
     , lock-file
     , MemoTrie
+    , mtl
     , nix-derivation
     , optics
     , relude
@@ -83,8 +84,6 @@ common common-config
     , terminal-size
     , text
     , time
-    , transformers
-    , typed-process
     , word8
 
   default-language:   GHC2021
