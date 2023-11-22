@@ -72,32 +72,27 @@ main = do
         else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
-data TestConfig = MkTestConfig
-  { withNix :: Bool
-  , oldStyle :: Bool
-  }
+data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
 
 testBuild :: String -> TestConfig -> (Text -> NOMV1State -> IO ()) -> Test
 testBuild name config asserts =
   label config name ~: do
-    let
-      suffix = if config.oldStyle then "" else ".json"
-      callNix = do
-        seed <- randomIO @Int
-        let
-          command =
-            if config.oldStyle
-              then
-                Process.proc
-                  "nix-build"
-                  ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
-              else
-                Process.proc
-                  "nix"
-                  ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
-        Process.readProcess command
-          <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
-      readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
+    let suffix = if config.oldStyle then "" else ".json"
+        callNix = do
+          seed <- randomIO @Int
+          let command =
+                if config.oldStyle
+                  then
+                    Process.proc
+                      "nix-build"
+                      ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+                  else
+                    Process.proc
+                      "nix"
+                      ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
+          Process.readProcess command
+            <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
+        readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
     (output, errors) <- if config.withNix then callNix else readFiles
     end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
     asserts output end_state
@@ -132,17 +127,15 @@ goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMV1
     let outputStorePaths = mapMaybe parseStorePath (Text.lines nix_output)
     assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
     let outputDerivations :: [DerivationId]
-        outputDerivations =
-          flip evalState endState
-            $ forMaybeM outputStorePaths \path -> do
-              pathId <- getStorePathId path
-              outPathToDerivation pathId
+        outputDerivations = flip evalState endState $ forMaybeM outputStorePaths \path -> do
+          pathId <- getStorePathId path
+          outPathToDerivation pathId
     assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
     assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
 
 goldenFail :: TestConfig -> Test
-goldenFail config = testBuild "fail" config \_ MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do
-  assertEqual "One waiting build" 1 (CSet.size plannedBuilds)
-  assertEqual "One failed build" 1 (CMap.size failedBuilds)
-  assertEqual "One unfinished build" 1 (CMap.size runningBuilds)
-  assertEqual "No completed builds" 0 (CMap.size completedBuilds)
+goldenFail config = testBuild "fail" config \_ MkNOMV1State{fullSummary = d@MkDependencySummary{..}} -> do
+  assertEqual ("There should be one waiting build in " <> show d) 1 (CSet.size plannedBuilds)
+  assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
+  assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)
+  assertEqual ("There should be one unfinished build " <> show d) 1 (CMap.size runningBuilds)
