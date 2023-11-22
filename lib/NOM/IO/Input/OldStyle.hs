@@ -16,8 +16,9 @@ import Relude
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
 readTextChunks handle =
-  statelessUnfoldM $
-    Exception.try (ByteString.hGetSome handle bufferSize) <&> \case
+  statelessUnfoldM
+    $ Exception.try (ByteString.hGetSome handle bufferSize)
+    <&> \case
       Left err -> Just (Left (InputError err)) -- Forward Exceptions, when we encounter them
       Right "" -> Nothing -- EOF
       Right input -> Just (Right input)

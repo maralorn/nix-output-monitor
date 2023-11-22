@@ -130,30 +130,30 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
           -- when we clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
           -- we do that before clearing because we can
           memptyIfFalse (last_printed_line_count == 1) (Builder.stringUtf8 $ Terminal.setCursorColumnCode 0)
-            <>
-            -- Clear last output from screen.
-            -- First we clear the current line, if we have written on it.
-            memptyIfFalse (last_printed_line_count > 0) (Builder.stringUtf8 Terminal.clearLineCode)
-            <>
-            -- Then, if necessary we, move up and clear more lines.
-            stimesMonoid
-              (max (last_printed_line_count - 1) 0)
-              ( Builder.stringUtf8 (Terminal.cursorUpLineCode 1) -- Moves cursor one line up and to the beginning of the line.
-                  <> Builder.stringUtf8 Terminal.clearLineCode -- We are avoiding to use clearFromCursorToScreenEnd
-                  -- because it apparently triggers a flush on some terminals.
-              )
-            <>
-            -- Insert the output to write to the screen.
-            ( output_to_print_with_newline_annotations & foldMap \(newline, line) ->
-                ( case newline of
-                    StayInLine -> mempty
-                    MoveToNextLine -> Builder.stringUtf8 (Terminal.cursorDownLineCode 1)
-                    PrintNewLine -> Builder.byteString "\n"
-                )
-                  <> Builder.byteString line
+          <>
+          -- Clear last output from screen.
+          -- First we clear the current line, if we have written on it.
+          memptyIfFalse (last_printed_line_count > 0) (Builder.stringUtf8 Terminal.clearLineCode)
+          <>
+          -- Then, if necessary we, move up and clear more lines.
+          stimesMonoid
+            (max (last_printed_line_count - 1) 0)
+            ( Builder.stringUtf8 (Terminal.cursorUpLineCode 1) -- Moves cursor one line up and to the beginning of the line.
+                <> Builder.stringUtf8 Terminal.clearLineCode -- We are avoiding to use clearFromCursorToScreenEnd
+                -- because it apparently triggers a flush on some terminals.
             )
-            -- Corner case: If nom is not outputting anything but we are printing output from nix, then we want to append a newline
-            <> memptyIfFalse (nom_output_length == 0 && nix_output_length > 0) Builder.byteString "\n"
+          <>
+          -- Insert the output to write to the screen.
+          ( output_to_print_with_newline_annotations & foldMap \(newline, line) ->
+              ( case newline of
+                  StayInLine -> mempty
+                  MoveToNextLine -> Builder.stringUtf8 (Terminal.cursorDownLineCode 1)
+                  PrintNewLine -> Builder.byteString "\n"
+              )
+                <> Builder.byteString line
+          )
+          -- Corner case: If nom is not outputting anything but we are printing output from nix, then we want to append a newline
+          <> memptyIfFalse (nom_output_length == 0 && nix_output_length > 0) Builder.byteString "\n"
 
   -- Actually write to the buffer. We do this all in one step and with a strict
   -- ByteString so that everything is precalculated and the actual put is

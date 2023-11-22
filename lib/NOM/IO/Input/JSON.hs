@@ -18,8 +18,9 @@ import System.IO.Error qualified as IOError
 
 readLines :: Handle -> Stream (Either NOMError ByteString)
 readLines handle =
-  statelessUnfoldM $
-    Exception.try (ByteString.hGetLine handle) <&> \case
+  statelessUnfoldM
+    $ Exception.try (ByteString.hGetLine handle)
+    <&> \case
       Left err | IOError.isEOFError err -> Nothing
       Left err -> Just (Left (InputError err)) -- Forward Exceptions, when we encounter them
       Right input -> Just (Right input)

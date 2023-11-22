@@ -18,8 +18,8 @@ assertOldStyleParse input = do
 main :: IO ()
 main = do
   counts <-
-    runTestTT $
-      test
+    runTestTT
+      $ test
         [ "Parse Plan" ~: do
             (rest, result) <-
               assertOldStyleParse
@@ -28,14 +28,14 @@ main = do
               "result matches"
               ( PlanBuilds
                   ( singleton
-                      ( Derivation $
-                          StorePath
+                      ( Derivation
+                          $ StorePath
                             "7n05q79qhrgvnfmvv2v3cnj3yqf4d1hf"
                             "haskell-language-server-0.4.0.0"
                       )
                   )
-                  ( Derivation $
-                      StorePath
+                  ( Derivation
+                      $ StorePath
                         "7n05q79qhrgvnfmvv2v3cnj3yqf4d1hf"
                         "haskell-language-server-0.4.0.0"
                   )

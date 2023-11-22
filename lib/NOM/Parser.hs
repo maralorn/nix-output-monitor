@@ -58,14 +58,15 @@ indent = void $ string "  "
 --  /nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv
 planBuilds :: Parser NixOldStyleMessage
 planBuilds =
-  maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x))) . nonEmpty
+  maybe mzero (\x -> pure (PlanBuilds (fromList (toList x)) (last x)))
+    . nonEmpty
     =<< choice
       [ string "these derivations will be built:"
       , string "this derivation will be built:"
       , string "these " *> (decimal :: Parser Int) *> string " derivations will be built:"
       ]
-      *> endOfLine
-      *> many planBuildLine
+    *> endOfLine
+    *> many planBuildLine
 
 planBuildLine :: Parser Derivation
 planBuildLine = indent *> derivationByteStringParser <* endOfLine
@@ -104,9 +105,9 @@ failed =
     <|>
     -- error: hash mismatch in fixed-output derivation '/nix/store/nrx4swgzs3iy049fqfx51vhnbb9kzkyv-source.drv':
     Failed
-      <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivationByteStringParser <* string ":")
-      <*> pure HashMismatch
-      <* endOfLine
+    <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivationByteStringParser <* string ":")
+    <*> pure HashMismatch
+    <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser NixOldStyleMessage

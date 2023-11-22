@@ -94,7 +94,7 @@ summaryOnlyThisNode drvId = do
           updateSummaryForStorePath mempty output_info.states output_id
       )
       output_infos
-      . updateSummaryForDerivation Unknown buildStatus drvId
+    . updateSummaryForDerivation Unknown buildStatus drvId
     $ mempty
 
 sortOrder :: DependencySummary -> SortOrder
