@@ -1,7 +1,6 @@
 module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, maintainState, detectLocalFinishedBuilds, appendDifferingPlatform) where
 
-import Control.Monad.Writer (MonadWriter (tell))
-import Control.Monad.Writer.Strict (WriterT (runWriterT))
+import Control.Monad.Trans.Writer.CPS (WriterT, runWriterT, tell)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as Map

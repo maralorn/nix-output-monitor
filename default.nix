@@ -1,9 +1,9 @@
 { mkDerivation, ansi-terminal, async, attoparsec, base, bytestring
 , cassava, containers, data-default, directory, extra, filepath
-, hermes-json, HUnit, lib, lock-file, MemoTrie, mtl, nix-derivation
+, hermes-json, HUnit, lib, lock-file, MemoTrie, nix-derivation
 , optics, random, relude, safe, stm, streamly-core, strict
-, strict-types, terminal-size, text, time, typed-process, unix
-, word8
+, strict-types, terminal-size, text, time, transformers
+, typed-process, unix, word8
 }:
 mkDerivation {
   pname = "nix-output-monitor";
@@ -14,21 +14,21 @@ mkDerivation {
   libraryHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
     data-default directory extra filepath hermes-json lock-file
-    MemoTrie mtl nix-derivation optics relude safe stm streamly-core
-    strict strict-types terminal-size text time word8
+    MemoTrie nix-derivation optics relude safe stm streamly-core strict
+    strict-types terminal-size text time transformers word8
   ];
   executableHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
     data-default directory extra filepath hermes-json lock-file
-    MemoTrie mtl nix-derivation optics relude safe stm streamly-core
-    strict strict-types terminal-size text time typed-process unix
-    word8
+    MemoTrie nix-derivation optics relude safe stm streamly-core strict
+    strict-types terminal-size text time transformers typed-process
+    unix word8
   ];
   testHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
     data-default directory extra filepath hermes-json HUnit lock-file
-    MemoTrie mtl nix-derivation optics random relude safe stm
-    streamly-core strict strict-types terminal-size text time
+    MemoTrie nix-derivation optics random relude safe stm streamly-core
+    strict strict-types terminal-size text time transformers
     typed-process word8
   ];
   homepage = "https://github.com/maralorn/nix-output-monitor";

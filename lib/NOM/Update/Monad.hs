@@ -1,3 +1,6 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module NOM.Update.Monad (
   UpdateMonad,
   MonadNow (..),
@@ -7,16 +10,15 @@ module NOM.Update.Monad (
 ) where
 
 import Control.Exception (try)
-import Control.Monad.Writer.Strict (WriterT)
+import Control.Monad.Trans.Writer.CPS (WriterT)
 -- attoparsec
 import Data.Attoparsec.Text (eitherResult, parse)
 import Data.Text.IO qualified as TextIO
--- nix-derivation
-
 import GHC.Clock qualified
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
+-- nix-derivation
 import Nix.Derivation qualified as Nix
 import Relude
 import System.Directory (doesPathExist)
@@ -32,7 +34,7 @@ instance MonadNow IO where
 instance (MonadNow m) => MonadNow (StateT a m) where
   getNow = lift getNow
 
-instance (Monoid a, MonadNow m) => MonadNow (WriterT a m) where
+instance (MonadNow m) => MonadNow (WriterT a m) where
   getNow = lift getNow
 
 class (Monad m) => MonadReadDerivation m where
@@ -56,7 +58,7 @@ instance (MonadReadDerivation m) => MonadReadDerivation (StateT a m) where
 instance (MonadReadDerivation m) => MonadReadDerivation (ExceptT a m) where
   getDerivation = lift . getDerivation
 
-instance (Monoid a, MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
+instance (MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
   getDerivation = lift . getDerivation
 
 class (Monad m) => MonadCheckStorePath m where
@@ -68,5 +70,10 @@ instance MonadCheckStorePath IO where
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
   storePathExists = lift . storePathExists
 
-instance (Monoid a, MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
+instance (MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
   storePathExists = lift . storePathExists
+
+instance (MonadState s m) => MonadState s (WriterT w m) where
+  get = lift get
+  put = lift . put
+  state = lift . state

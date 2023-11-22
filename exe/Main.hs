@@ -2,7 +2,7 @@ module Main (main) where
 
 import Control.Concurrent (ThreadId, myThreadId, throwTo)
 import Control.Exception qualified as Exception
-import Control.Monad.Writer.Strict (WriterT (runWriterT))
+import Control.Monad.Trans.Writer.CPS (runWriterT)
 import Data.ByteString qualified as ByteString
 import Data.IORef qualified as IORef
 import Data.Text.IO (hPutStrLn)

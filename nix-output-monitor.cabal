@@ -72,7 +72,6 @@ common common-config
     , hermes-json     >=0.6.0.0
     , lock-file
     , MemoTrie
-    , mtl
     , nix-derivation
     , optics
     , relude
@@ -84,6 +83,7 @@ common common-config
     , terminal-size
     , text
     , time
+    , transformers
     , word8
 
   default-language:   GHC2021
