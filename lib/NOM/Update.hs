@@ -90,10 +90,10 @@ maintainState now = execState $ do
   currentState <- get
   unless (CSet.null currentState.touchedIds) $ do
     sortDepsOfSet currentState.touchedIds
-    modify (gfield @"forestRoots" %~ Seq.sortOn (sortKey currentState))
-    modify (gfield @"touchedIds" .~ mempty)
+    modify' (gfield @"forestRoots" %~ Seq.sortOn (sortKey currentState))
+    modify' (gfield @"touchedIds" .~ mempty)
   when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
-    modify (gfield @"evaluationState" %~ \old_state -> old_state{lastFileName = Strict.Nothing})
+    modify' (gfield @"evaluationState" %~ \old_state -> old_state{lastFileName = Strict.Nothing})
 
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
@@ -324,7 +324,7 @@ finishBuilds host builds = do
       Nothing -> pass
       Just finishedBuilds -> do
         newBuildReports <- reportFinishingBuilds host finishedBuilds
-        modify (gfield @"buildReports" .~ newBuildReports)
+        modify' (gfield @"buildReports" .~ newBuildReports)
     )
     $ nonEmpty derivationsWithNames
   now <- getNow
@@ -373,14 +373,14 @@ insertDerivation derivation drvId = do
     derivation.outputs & Map.mapKeys (parseOutputName . Text.copy) & Map.traverseMaybeWithKey \_ path ->
       parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
         pathId <- getStorePathId pathName
-        modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
+        modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
         pure pathId
   inputSources <-
     derivation.inputSrcs & flip foldlM mempty \acc path -> do
       pathIdMay <-
         parseStorePath (toText path) & mapM \pathName -> do
           pathId <- getStorePathId pathName
-          modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"inputFor" %~ CSet.insert drvId) pathId)
+          modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"inputFor" %~ CSet.insert drvId) pathId)
           pure pathId
       pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
@@ -388,8 +388,8 @@ insertDerivation derivation drvId = do
       depIdMay <-
         parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
-          modify (gfield @"derivationInfos" %~ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId)
-          modify (gfield @"forestRoots" %~ Seq.filter (/= depId))
+          modify' (gfield @"derivationInfos" %~ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId)
+          modify' (gfield @"forestRoots" %~ Seq.filter (/= depId))
           pure depId
       pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = Set.map (parseOutputName . Text.copy) outputs_of_input}) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
@@ -409,7 +409,7 @@ insertDerivation derivation drvId = do
           drvId
     )
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
-  when noParents $ modify (gfield @"forestRoots" %~ (drvId Seq.<|))
+  when noParents $ modify' (gfield @"forestRoots" %~ (drvId Seq.<|))
 
 planBuilds :: Set DerivationId -> NOMState ()
 planBuilds drvIds = forM_ drvIds \drvId ->
@@ -467,7 +467,7 @@ updateDerivationState drvId updateStatus = do
   let oldStatus = derivation_infos.buildStatus
       newStatus = updateStatus oldStatus
   when (oldStatus /= newStatus) do
-    modify (gfield @"derivationInfos" %~ CMap.adjust (gfield @"buildStatus" .~ newStatus) drvId)
+    modify' (gfield @"derivationInfos" %~ CMap.adjust (gfield @"buildStatus" .~ newStatus) drvId)
     let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
         clear_summary = clearDerivationIdFromSummary oldStatus drvId
 
@@ -475,7 +475,7 @@ updateDerivationState drvId updateStatus = do
     updateParents False update_summary clear_summary (derivation_infos.derivationParents)
 
     -- Update fullSummary
-    modify (gfield @"fullSummary" %~ update_summary)
+    modify' (gfield @"fullSummary" %~ update_summary)
 
 updateParents :: Bool -> (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
 updateParents force_direct update_func clear_func direct_parents = do
@@ -486,7 +486,7 @@ updateParents force_direct update_func clear_func direct_parents = do
         %~ apply_to_all_summaries update_func relevant_parents
         . apply_to_all_summaries clear_func (CSet.difference parents relevant_parents)
     )
-  modify (gfield @"touchedIds" %~ CSet.union parents)
+  modify' (gfield @"touchedIds" %~ CSet.union parents)
  where
   apply_to_all_summaries ::
     (DependencySummary -> DependencySummary) ->
@@ -529,7 +529,7 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   store_path_info <- getStorePathInfos storePathId
   let oldStatus = store_path_info.states
       newStatus = updateStorePathStates new_store_path_state update_store_path_state oldStatus
-  modify (gfield @"storePathInfos" %~ CMap.adjust (gfield @"states" .~ newStatus) storePathId)
+  modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"states" .~ newStatus) storePathId)
 
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
       clear_summary = clearStorePathsFromSummary oldStatus storePathId
@@ -538,4 +538,4 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   updateParents True update_summary clear_summary (Strict.maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
 
   -- Update fullSummary
-  modify (gfield @"fullSummary" %~ update_summary)
+  modify' (gfield @"fullSummary" %~ update_summary)
