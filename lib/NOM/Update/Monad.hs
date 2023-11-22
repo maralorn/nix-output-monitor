@@ -11,17 +11,17 @@ module NOM.Update.Monad (
 
 import Control.Exception (try)
 import Control.Monad.Trans.Writer.CPS (WriterT)
--- attoparsec
 import Data.Attoparsec.Text (eitherResult, parse)
+import Data.Text qualified as Text
 import Data.Text.IO qualified as TextIO
 import GHC.Clock qualified
-import NOM.Builds (Derivation, StorePath)
+import NOM.Builds (Derivation, StorePath, parseDerivation)
 import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
--- nix-derivation
 import Nix.Derivation qualified as Nix
 import Relude
 import System.Directory (doesPathExist)
+import System.Process.Typed qualified as Process
 
 type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
@@ -41,7 +41,7 @@ class (Monad m) => MonadReadDerivation m where
   getDerivation :: Derivation -> m (Either NOMError (Nix.Derivation FilePath Text))
 
 instance MonadReadDerivation IO where
-  getDerivation =
+  getDerivation = do
     fmap
       ( first DerivationReadError
           >=> first (DerivationParseError . toText)
@@ -63,15 +63,35 @@ instance (MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
 
 class (Monad m) => MonadCheckStorePath m where
   storePathExists :: StorePath -> m Bool
+  getProducers :: [StorePath] -> m [Derivation]
 
 instance MonadCheckStorePath IO where
   storePathExists = doesPathExist . toString
+  getProducers = \case
+    [] -> pure mempty
+    paths -> do
+      (exit_code, producer_bs) <-
+        Process.readProcessStdout
+          $ Process.setStdin Process.nullStream
+          $ Process.setStderr Process.nullStream
+          $ Process.proc "nix" (["path-info", "--derivation"] <> fmap toString paths)
+      pure
+        if Process.ExitSuccess == exit_code
+          then
+            producer_bs
+              & decodeUtf8
+              & Text.strip
+              & Text.lines
+              & mapMaybe parseDerivation
+          else mempty
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
   storePathExists = lift . storePathExists
+  getProducers = lift . getProducers
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
   storePathExists = lift . storePathExists
+  getProducers = lift . getProducers
 
 instance (MonadState s m) => MonadState s (WriterT w m) where
   get = lift get
