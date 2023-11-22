@@ -55,40 +55,49 @@ import Text.Printf (printf)
 showCode :: Text -> [String]
 showCode = map (printf "%02X" . fromEnum) . toString
 
-textRep, vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
-textRep = fromString [toEnum 0xFE0E]
+vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
+
+-- | U+2503 BOX DRAWINGS HEAVY VERTICAL
 vertical = "┃"
+
+-- | U+2517 BOX DRAWINGS HEAVY UP AND RIGHT
 lowerleft = "┗"
+
+-- | U+250F BOX DRAWINGS HEAVY DOWN AND RIGHT
 upperleft = "┏"
+
+-- | U+2523 BOX DRAWINGS HEAVY VERTICAL AND RIGHT
 leftT = "┣"
+
+-- | U+2501 BOX DRAWINGS HEAVY HORIZONTAL
 horizontal = "━"
--- >>> showCode down
--- ["2193","FE0E"]
-down = "↓" <> textRep
--- >>> showCode up
--- ["2191","FE0E"]
-up = "↑" <> textRep
--- >>> showCode clock
--- ["23F1","FE0E"]
-clock = "⏱" <> textRep
--- >>> showCode running
--- ["25B6","FE0E"]
-running = "⏵" <> textRep
--- >>> showCode done
--- ["2714","FE0E"]
-done = "✔" <> textRep
--- >>> showCode todo
--- ["23F3","FE0E"]
-todo = "⏳" <> textRep
--- >>> showCode warning
--- ["26A0","FE0E"]
-warning = "⚠" <> textRep
--- >>> showCode average
--- ["2205","FE0E"]
-average = "∅" <> textRep
--- >>> showCode bigsum
--- ["2211","FE0E"]
-bigsum = "∑" <> textRep
+
+-- | U+2193 DOWNWARDS ARROW
+down = "↓"
+
+-- | U+2191 UPWARDS ARROW
+up = "↑"
+
+-- | U+23F1 STOPWATCH
+clock = "⏱"
+
+-- | U+23F5 BLACK MEDIUM RIGHT-POINTING TRIANGLE
+running = "⏵"
+
+-- | U+2714 HEAVY CHECK MARK
+done = "✔"
+
+-- | U+23F8 DOUBLE VERTICAL BAR
+todo = "⏸"
+
+-- | U+26A0 WARNING SIGN
+warning = "⚠"
+
+-- | U+2205 EMPTY SET
+average = "∅"
+
+-- | U+2211 N-ARY SUMMATION
+bigsum = "∑"
 
 showCond :: (Monoid m) => Bool -> m -> m
 showCond = memptyIfFalse

@@ -22,12 +22,9 @@ module NOM.Print.Table (
 ) where
 
 import Control.Exception (assert)
--- wcwidth
-
 -- ansi-terminal
 
 import Data.ByteString.Char8 qualified as ByteString
-import Data.Char.WCWidth (wcwidth)
 import Data.Text qualified as Text
 import Relude hiding (truncate)
 import System.Console.ANSI (
@@ -68,11 +65,16 @@ truncateFold cut (Right (l, x, e)) c =
   let (newX, newE) = widthFold (x, e) c
    in if newX > cut then Left l else Right (l <> Text.singleton c, newX, newE)
 
-widthFold :: (Int, Bool) -> Char -> (Int, Bool)
+-- See: https://github.com/maralorn/nix-output-monitor/issues/78
+widthFold ::
+  -- | (Width so far, in an ANSI escape sequence)
+  (Int, Bool) ->
+  Char ->
+  (Int, Bool)
 widthFold (x, True) 'm' = (x, False)
 widthFold (x, True) _ = (x, True)
-widthFold (x, False) (fromEnum -> 27) = (x, True) -- Escape sequence
-widthFold (x, False) c = (x + wcwidth c, False)
+widthFold (x, False) (fromEnum -> 0x1b) = (x, True) -- Escape sequence
+widthFold (x, False) _ = (x + 1, False)
 
 dummy :: Entry
 dummy = text ""
