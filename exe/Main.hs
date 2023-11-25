@@ -47,43 +47,58 @@ defaultConfig =
 replaceCommandWithExit :: [String] -> [String]
 replaceCommandWithExit = (<> ["--command", "sh", "-c", "exit"]) . takeWhile (\x -> x /= "--command" && x /= "-c")
 
-withJSON :: [String] -> [String]
-withJSON x = "-v" : "--log-format" : "internal-json" : x
+withJSON :: Maybe a -> [String] -> [String]
+withJSON Nothing x = "-v" : "--log-format" : "internal-json" : x
+withJSON (Just _) x = x
+
+findMatches :: String -> [String] -> [String]
+findMatches input = filter (input `isPrefixOf`)
 
 main :: IO Void
 main = do
   args <- Environment.getArgs
   prog_name <- Environment.getProgName
+  completion <- Environment.lookupEnv "NIX_GET_COMPLETIONS"
 
   mainThreadId <- myThreadId >>= IORef.newIORef
   _ <- Signals.installHandler Signals.sigTERM (Signals.CatchInfo $ quitSignalHandler mainThreadId) Nothing
   _ <- Signals.installHandler Signals.sigINT (Signals.CatchInfo $ quitSignalHandler mainThreadId) Nothing
-  case (args, prog_name) of
-    (["--version"], _) -> do
+  case (args, prog_name, completion) of
+    (["--version"], _, _) -> do
       hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
       exitWith =<< Process.runProcess (Process.proc "nix" ["--version"])
-    (nix_args, "nom-build") -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix-build" (withJSON nix_args))
-    (nix_args, "nom-shell") -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix-shell" (withJSON nix_args <> ["--run", "exit"]))
+    (nix_args, "nom-build", _) -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix-build" (withJSON completion nix_args))
+    (nix_args, "nom-shell", _) -> do
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix-shell" (withJSON completion nix_args <> ["--run", "exit"]))
       exitWith =<< Process.runProcess (Process.proc "nix-shell" nix_args)
-    ("build" : nix_args, _) -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix" ("build" : withJSON nix_args))
-    ("shell" : nix_args, _) -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("shell" : withJSON (replaceCommandWithExit nix_args)))
+    ([input], _, Just _) -> do
+      putStrLn "normal"
+      mapM_ putStrLn $ findMatches input ["build", "shell", "develop", "--version", "-h", "--help"]
+      exitSuccess
+    ("build" : nix_args, _, Just _) -> do
+      exitWith =<< Process.runProcess (Process.proc "nix" ("build" : nix_args))
+    ("build" : nix_args, _, _) -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix" ("build" : withJSON completion nix_args))
+    ("shell" : nix_args, _, Just _) -> do
       exitWith =<< Process.runProcess (Process.proc "nix" ("shell" : nix_args))
-    ("develop" : nix_args, _) -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("develop" : withJSON (replaceCommandWithExit nix_args)))
+    ("shell" : nix_args, _, _) -> do
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("shell" : withJSON completion (replaceCommandWithExit nix_args)))
+      exitWith =<< Process.runProcess (Process.proc "nix" ("shell" : nix_args))
+    ("develop" : nix_args, _, Just _) -> do
       exitWith =<< Process.runProcess (Process.proc "nix" ("develop" : nix_args))
-    ([], _) -> do
+    ("develop" : nix_args, _, _) -> do
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("develop" : withJSON completion (replaceCommandWithExit nix_args)))
+      exitWith =<< Process.runProcess (Process.proc "nix" ("develop" : nix_args))
+    ([], _, _) -> do
       finalState <- monitorHandle @OldStyleInput defaultConfig{piping = True} stdin
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure
-    (["--json"], _) -> do
+    (["--json"], _, _) -> do
       finalState <- monitorHandle @NixJSONMessage defaultConfig{piping = True} stdin
       if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
         then exitSuccess
         else exitFailure
-    xs -> do
+    (xs, _, _) -> do
       hPutStrLn stderr helpText
       -- It's not a mistake if the user requests the help text, otherwise tell
       -- them off with a non-zero exit code.
