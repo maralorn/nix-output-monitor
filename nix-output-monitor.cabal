@@ -17,6 +17,7 @@ author:             maralorn <mail@maralorn.de>
 maintainer:         maralorn <mail@maralorn.de>
 build-type:         Simple
 extra-source-files:
+  completions/completion.bash
   completions/completion.zsh
   test/golden/fail/stderr
   test/golden/fail/stderr.json

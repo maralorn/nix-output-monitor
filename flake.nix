@@ -25,6 +25,7 @@
           "stderr.json"
           "stdout.json"
           ".zsh"
+          ".bash"
           "LICENSE"
           "CHANGELOG.md"
           "default.nix"
@@ -50,6 +51,7 @@
                 ln -s nom "$out/bin/nom-shell"
                 chmod a+x $out/bin/nom-shell
                 installShellCompletion --zsh --name _nom-build completions/completion.zsh
+                installShellCompletion --bash --name _nom completions/completion.bash
               '';
             })
           ];
