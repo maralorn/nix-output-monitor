@@ -10,7 +10,6 @@ While your build runs nom will draw something like this at the bottom of your bu
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/nix-output-monitor.svg)](https://repology.org/project/nix-output-monitor/versions)
 
-
 ## Status
 
 This was an experimental fun project, which proved to be useful to quite a lot of people.
@@ -21,7 +20,16 @@ By now, nom is quite fully featured with support for nix v1 commands (e.g. `nix-
 
 Issues and pull requests welcome under https://github.com/maralorn/nix-output-monitor.
 
-**Call for screenshots:** I would be very glad to receive screenshot of your nom use. I never know how it looks on your machine and seeing how you use nom might help me in making the UX better.
+### Versioning Policy
+
+Release versions are of the form: X.Y.Z(.W)
+
+- X gets bumped for major breaking behavior changes
+- Y gets bumped for breaking behaviour changes (e.g. option renames/removals) which are unlikely to affect users a lot.
+- Z gets bumped for feature additions (especially if flags or config options get added) and relevant user facing improvements.
+- W gets appended/bumped for changes irrelevant to users (e.g. caused by the release process.)
+
+*This policy applies to all versions starting from 2.0.1.*
 
 ## Support
 
