@@ -1,5 +1,13 @@
 # Revision history for nix-output-monitor
 
+## 2.0.1 -- ???
+
+* More consistent table alignment calculation (thanks to @9999years)
+  * Alignment issues on WSL, macOS or kitty should be gone now, please report any issues you encounter
+* Correct SIGINT/SIGTERM handling (thanks to @picnoir)
+* Use bold font in status line
+* Significant performance fixes
+
 ## 2.0.0.7 -- 2023-09-17
 
 * Bump hermes-json dependency to 0.6.0.0
