@@ -5,9 +5,11 @@ version:            2.0.0.7
 -- The first two numbers get bumped, when the user interfaces changes in a breaking way. The first number, when the change feels large.
 -- The third number gets bumped, when new features get added.
 -- The fourth number is for all other releases, e.g. bug fixes, refactorings, performance.
-synopsis:           Parses output of nix-build to show additional information
+synopsis:
+  Process output of nix commands to show helpful and pretty information
+
 description:
-  A tool you can pipe stdout and stderr into to get your terminal output enriched with useful information.
+  A tool which consumes nix’s output to enrich your terminal output with useful information.
 
 homepage:           https://github.com/maralorn/nix-output-monitor
 bug-reports:        https://github.com/maralorn/nix-output-monitor/issues
