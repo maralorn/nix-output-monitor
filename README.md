@@ -2,7 +2,7 @@
 
 Pipe your nix-build output through the nix-output-monitor (aka nom) to get additional information while building.
 
-While your build runs nom will draw something like this at the bottom of your build log:
+While your build runs, nom will draw something like this at the bottom of your build log:
 
 ![](example-screenshot.png)
 
@@ -14,32 +14,26 @@ While your build runs nom will draw something like this at the bottom of your bu
 
 This was an experimental fun project, which proved to be useful to quite a lot of people.
 The purpose of it is to write something fun and useful in Haskell.
-You are free and very welcome to contribute feedback, issues or PRs. I do not commit to maintain this project over a long time period, but it doesn’t look, like I am stopping anytime soon.
+You are free and very welcome to contribute feedback, issues or PRs.
+I do not commit to maintain this project over a long time period but it doesn’t look like I am stopping anytime soon.
 
 By now, nom is quite fully featured with support for nix v1 commands (e.g. `nix-build`) and nix v2 command (e.g. `nix build`).
 
-Issues and pull requests welcome under https://github.com/maralorn/nix-output-monitor.
+Issues and pull requests are welcome at https://github.com/maralorn/nix-output-monitor.
 
-### Versioning Policy
-
-Release versions are of the form: X.Y.Z(.W)
-
-- X gets bumped for major breaking behavior changes
-- Y gets bumped for breaking behaviour changes (e.g. option renames/removals) which are unlikely to affect users a lot.
-- Z gets bumped for feature additions (especially if flags or config options get added) and relevant user facing improvements.
-- W gets appended/bumped for changes irrelevant to users (e.g. caused by the release process.)
-
-*This policy applies to all versions starting from 2.0.1.*
+Starting from version 2.1.0, nom uses [SemVer](https://semver).
+The versioning applies to the behavior of the executable.
+There are no stability guarantees for the library component in the cabal project.
 
 ## Support
 
-If your question is not answered in this README you can ask it in [#nix-output-monitor:maralorn.de](https://matrix.to/#/#nix-output-monitor:maralorn.de) on matrix or open an issue here on github.
+If your question is not answered in this README you can ask it in [#nix-output-monitor:maralorn.de](https://matrix.to/#/#nix-output-monitor:maralorn.de) on matrix or open an issue on github.
 
 ## Installing
 
 * nixpkgs: nom is in nixpkgs. Just install `pkgs.nix-output-monitor` in the usual way. You might want to install it from nixos-unstable to get the newest version.
 * cabal: Install `cabal-install` and run `cabal install` in the checked out repo.
-* nix: or run `nix-build` or `nix-env` or include the `default.nix` of this repo in your nixos config.
+* nix: or use `nix build` or `nix-env` or include the flake output of this repo in your nixos config.
 
 ## Running
 
@@ -47,7 +41,7 @@ If your question is not answered in this README you can ask it in [#nix-output-m
 
 **Warning:** The displayed build tree might be incomplete with new-style commands like `nix build` for nix versions <2.10.
 
-The `nom` binary (starting from version 2.0) behaves as a `nix` drop in, with much more colorful output, for the following commands:
+The `nom` binary (starting from version 2.0) behaves as a `nix` drop in, with much more colorful output, but **only** for the following commands:
 
 `nom build <args>`: Behaves like `nix build <args>`.  
 `nom shell <args>`: Behaves like `nix shell <args>`.  
