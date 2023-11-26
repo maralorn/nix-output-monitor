@@ -1,9 +1,10 @@
 # Revision history for nix-output-monitor
 
-## 2.0.1 -- ???
+## 2.1.0 -- 2023-11-26
 
 * More consistent table alignment calculation (thanks to @9999years)
   * Alignment issues on WSL, macOS or kitty should be gone now, please report any issues you encounter
+  * This changes the icon for waiting builds and downloads to use the pause symbol
 * Correct SIGINT/SIGTERM handling (thanks to @picnoir)
 * Use bold font in status line
 * Significant performance fixes

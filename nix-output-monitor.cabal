@@ -1,10 +1,6 @@
 cabal-version:      2.2
 name:               nix-output-monitor
-version:            2.0.0.7
-
--- The first two numbers get bumped, when the user interfaces changes in a breaking way. The first number, when the change feels large.
--- The third number gets bumped, when new features get added.
--- The fourth number is for all other releases, e.g. bug fixes, refactorings, performance.
+version:            2.1.0
 synopsis:
   Process output of nix commands to show helpful and pretty information
 
