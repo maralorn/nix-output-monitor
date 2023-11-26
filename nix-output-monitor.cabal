@@ -127,7 +127,7 @@ library
 
 common exes
   import:      common-config
-  ghc-options: -threaded -Wno-unused-packages -with-rtsopts=-maxN2
+  ghc-options: -threaded -Wno-unused-packages -with-rtsopts=-N
 
 executable nom
   import:          exes
