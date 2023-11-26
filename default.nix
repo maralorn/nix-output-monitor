@@ -15,8 +15,7 @@ mkDerivation {
     ansi-terminal async attoparsec base bytestring cassava containers
     data-default directory extra filepath hermes-json lock-file
     MemoTrie nix-derivation optics relude safe stm streamly-core strict
-    strict-types terminal-size text time transformers typed-process
-    word8
+    strict-types terminal-size text time transformers word8
   ];
   executableHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
