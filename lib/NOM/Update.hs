@@ -161,12 +161,8 @@ withChange update action = do
     (Planning store_paths derivations, _) -> do
       let store_paths_list = toList store_paths
           derivations_list = toList derivations
-      producers <- lookupProducers store_paths_list
-      void $ lookupDerivations (derivations_list <> producers)
-      planned_build_ids <- forM (toList derivations) (\derivation -> getDerivationId derivation)
-      planBuilds (fromList planned_build_ids)
-      planned_download_ids <- forM store_paths_list (\x -> getStorePathId x)
-      planDownloads (fromList planned_download_ids)
+      lookupDerivations derivations_list >>= (\p -> planBuilds p) . fromList
+      forM store_paths_list (\s -> lookupStorePath s) >>= (\p -> planDownloads p) . fromList
       pure Realising
     (_, Evaluation) -> pure Evaluating
     (Evaluating, Query) -> pure QueryingSubstituers
