@@ -1,0 +1,33 @@
+name: Nix build
+on: [push]
+run-name: Test and build flake
+jobs:
+  nix-build:
+    runs-on: nix
+    strategy:
+       matrix:
+         attribute:
+           - default
+    env:
+        HOME: .
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configuring remote builders
+        run: |
+          mkdir -p ~/.config/nix
+          cp $(builders-configurator) ~/.config/nix/machines
+          echo "builders = @$(pwd)/.config/nix/machines" >> ~/.config/nix/nix.conf
+      - run: nix build --log-format bar-with-logs .#${{ matrix.attribute }} -v
+      - run: archive-nix-path
+  nix-flake-check:
+    runs-on: nix
+    env:
+        HOME: .
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configuring remote builders
+        run: |
+          mkdir -p ~/.config/nix
+          cp $(builders-configurator) ~/.config/nix/machines
+          echo "builders = @$(pwd)/.config/nix/machines" >> ~/.config/nix/nix.conf
+      - run: nix flake check --log-format bar-with-logs -v
