@@ -1,6 +1,6 @@
 # Revision history for nix-output-monitor
 
-## 2.1.1 -- ???
+## 2.1.1 -- 2023-11-27
 
 * Maintenance: Only use `-Werror` in CI, not in release
 
