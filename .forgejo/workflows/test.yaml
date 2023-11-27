@@ -31,3 +31,10 @@ jobs:
           cp $(builders-configurator) ~/.config/nix/machines
           echo "builders = @$(pwd)/.config/nix/machines" >> ~/.config/nix/nix.conf
       - run: nix flake check --log-format bar-with-logs -v
+  cabal-test:
+    runs-on: nix
+    env:
+        HOME: .
+    steps:
+      - uses: actions/checkout@v3
+      - run: nix develop --command cabal test
