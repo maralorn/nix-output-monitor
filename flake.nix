@@ -35,6 +35,7 @@
             (haskellPackages.callPackage self)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
+            (hlib.appendConfigureFlag "--ghc-option=-Werror")
             (hlib.overrideCabal {
               src = cleanSelf;
               preCheck = ''

@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## 2.1.1 -- ???
+
+* Maintenance: Only use `-Werror` in CI, not in release
+
 ## 2.1.0 -- 2023-11-26
 
 * More consistent table alignment calculation (thanks to @9999years)

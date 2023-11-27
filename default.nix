@@ -32,7 +32,7 @@ mkDerivation {
     typed-process word8
   ];
   homepage = "https://github.com/maralorn/nix-output-monitor";
-  description = "Process output of nix commands to show helpful and pretty information";
+  description = "Processes output of Nix commands to show helpful and pretty information";
   license = lib.licenses.agpl3Plus;
   mainProgram = "nom";
 }
