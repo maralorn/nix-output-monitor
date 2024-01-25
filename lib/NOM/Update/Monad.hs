@@ -1,5 +1,4 @@
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 module NOM.Update.Monad (
   UpdateMonad,
@@ -72,8 +71,3 @@ instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
   storePathExists = lift . storePathExists
-
-instance (MonadState s m) => MonadState s (WriterT w m) where
-  get = lift get
-  put = lift . put
-  state = lift . state
