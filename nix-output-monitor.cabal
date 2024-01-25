@@ -34,6 +34,34 @@ source-repository head
   type:     git
   location: https://git.maralorn.de/nix-output-monitor
 
+common common-deps
+  build-depends:
+    , ansi-terminal
+    , async
+    , attoparsec
+    , bytestring
+    , cassava
+    , containers
+    , data-default
+    , directory
+    , extra
+    , filepath
+    , hermes-json    >=0.6.0.0
+    , lock-file
+    , MemoTrie
+    , optics
+    , relude
+    , safe
+    , stm
+    , streamly-core
+    , strict
+    , strict-types
+    , terminal-size
+    , text
+    , time
+    , transformers
+    , word8
+
 common common-config
   default-extensions:
     AllowAmbiguousTypes
@@ -55,35 +83,7 @@ common common-config
     UnicodeSyntax
     ViewPatterns
 
-  build-depends:
-    , ansi-terminal
-    , async
-    , attoparsec
-    , base            >=4.10    && <5.0
-    , bytestring
-    , cassava
-    , containers
-    , data-default
-    , directory
-    , extra
-    , filepath
-    , hermes-json     >=0.6.0.0
-    , lock-file
-    , MemoTrie
-    , nix-derivation
-    , optics
-    , relude
-    , safe
-    , stm
-    , streamly-core
-    , strict
-    , strict-types
-    , terminal-size
-    , text
-    , time
-    , transformers
-    , word8
-
+  build-depends:      base >=4.10 && <5.0
   default-language:   GHC2021
   ghc-options:
     -Weverything -Wno-missing-import-lists
@@ -94,8 +94,27 @@ common common-config
     -fno-show-valid-hole-fits -fexpose-all-unfoldings
     -fshow-warning-groups
 
-library
+library lib-nix-derivation
   import:          common-config
+  hs-source-dirs:  lib-nix-derivation
+  exposed-modules:
+    Nix.Derivation
+    Nix.Derivation.Parser
+    Nix.Derivation.Types
+
+  build-depends:
+    , attoparsec
+    , containers
+    , deepseq
+    , filepath
+    , text
+    , vector
+
+library
+  import:
+    , common-config
+    , common-deps
+
   hs-source-dirs:  lib
   exposed-modules:
     Data.Sequence.Strict
@@ -124,8 +143,13 @@ library
     NOM.Update.Monad.CacheBuildReports
     NOM.Util
 
+  build-depends:   lib-nix-derivation
+
 common exes
-  import:      common-config
+  import:
+    , common-config
+    , common-deps
+
   ghc-options: -threaded -Wno-unused-packages -with-rtsopts=-maxN2
 
 executable nom

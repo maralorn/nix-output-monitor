@@ -38,7 +38,7 @@ instance (MonadNow m) => MonadNow (WriterT a m) where
   getNow = lift getNow
 
 class (Monad m) => MonadReadDerivation m where
-  getDerivation :: Derivation -> m (Either NOMError (Nix.Derivation FilePath Text))
+  getDerivation :: Derivation -> m (Either NOMError (Nix.Derivation FilePath Text Text Nix.DerivationOutput Nix.DerivationInputs))
 
 instance MonadReadDerivation IO where
   getDerivation =

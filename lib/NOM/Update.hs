@@ -362,7 +362,7 @@ lookupDerivationInfos drvName = do
   drvId <- lookupDerivation drvName
   getDerivationInfos drvId
 
-insertDerivation :: Nix.Derivation FilePath Text -> DerivationId -> ProcessingT m ()
+insertDerivation :: Nix.Derivation FilePath Text Text Nix.DerivationOutput Nix.DerivationInputs -> DerivationId -> ProcessingT m ()
 insertDerivation derivation drvId = do
   -- We need to be really careful in this function. The Nix.Derivation keeps the
   -- read-in derivation file in memory. When using Texts from it we must make
@@ -371,12 +371,17 @@ insertDerivation derivation drvId = do
 
   outputs <-
     derivation.outputs & Map.mapKeys (parseOutputName . Text.copy) & Map.traverseMaybeWithKey \_ path ->
-      parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
+      let
+        storePath = case path of
+          Nix.ContentAddressedDerivationOutput{} -> error "God help us all it's a content-addressed output"
+          _ -> path.path
+      in
+      parseStorePath (toText storePath) & mapM \pathName -> do
         pathId <- getStorePathId pathName
         modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
         pure pathId
   inputSources <-
-    derivation.inputSrcs & flip foldlM mempty \acc path -> do
+    derivation.inputs.srcs & flip foldlM mempty \acc path -> do
       pathIdMay <-
         parseStorePath (toText path) & mapM \pathName -> do
           pathId <- getStorePathId pathName
@@ -384,7 +389,7 @@ insertDerivation derivation drvId = do
           pure pathId
       pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
-    derivation.inputDrvs & Map.toList & mapMaybeM \(drvPath, outputs_of_input) -> do
+    derivation.inputs.drvs & Map.toList & mapMaybeM \(drvPath, outputs_of_input) -> do
       depIdMay <-
         parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
