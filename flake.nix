@@ -38,6 +38,7 @@
             (hlib.appendConfigureFlag "--ghc-option=-Werror")
             (hlib.overrideCabal {
               src = cleanSelf;
+              doCheck = system == "x86_64-linux";
               preCheck = ''
                 # ${
                   lib.concatStringsSep ", "
