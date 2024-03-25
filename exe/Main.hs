@@ -212,5 +212,5 @@ helpText =
     , "  --json     Parse input as nix internal-json"
     , ""
     , "Please see the readme for more details:"
-    , "https://git.maralorn.de/nix-output-monitor/about/"
+    , "https://code.maralorn.de/maralorn/nix-output-monitor/src/branch/main/README.md"
     ]

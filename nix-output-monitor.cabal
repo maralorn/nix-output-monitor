@@ -32,7 +32,7 @@ category:
 
 source-repository head
   type:     git
-  location: https://git.maralorn.de/nix-output-monitor
+  location: https://code.maralorn.de/maralorn/nix-output-monitor.git
 
 common common-config
   default-extensions:
