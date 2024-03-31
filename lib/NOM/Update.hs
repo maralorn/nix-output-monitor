@@ -224,6 +224,18 @@ processJsonMessage = \case
           whenJust
             (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
             (\old_style_parse_result -> void $ processResult old_style_parse_result)
+  Message MkMessageAction{message, level = Error}
+    | stripped <- stripANSICodes message
+    , Text.isPrefixOf "trace:" stripped ->
+        {-# SCC "pass_through_error" #-}
+        withChange do
+          traces <- gets (.nixTraces)
+          unless (any (Text.isInfixOf (Text.drop 7 stripped) . stripANSICodes) traces) do
+            modify' (gfield @"nixTraces" %~ (<> (message Seq.<| mempty)))
+            tell [Right (encodeUtf8 message)]
+          whenJust
+            (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
+            (\old_style_parse_result -> void $ processResult old_style_parse_result)
   Message MkMessageAction{message} | Just suffix <- Text.stripPrefix "evaluating file '" message -> withChange do
     let file_name = Text.dropEnd 1 suffix
     now <- getNow
