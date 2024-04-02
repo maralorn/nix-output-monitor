@@ -121,6 +121,18 @@ printSections = (upperleft <>) . Text.intercalate (toText (setSGRCode [Reset]) <
 --     (vertical <> " ")
 --     (horizontal <> markup bold " Build Planning:" :| maybeToList message <> (IntMap.elems activities <&> \activity -> unwords (activity.text : ifTimeDiffRelevant now activity.start id)))
 
+printTraces :: Seq Text -> Int -> Text
+printTraces traces maxHeight =
+  prependLines
+    ""
+    (vertical <> " ")
+    (vertical <> " ")
+    (horizontal <> markup (bold . yellow) (" " <> show (length interesting_traces) <> " Traces: ") :| (lines =<< filtered_traces))
+ where
+  interesting_traces = toList traces
+  compact_traces = sum (length . lines <$> interesting_traces) > maxHeight
+  filtered_traces = (if compact_traces then map compactError else id) interesting_traces
+
 printErrors :: Seq Text -> Int -> Text
 printErrors errors maxHeight =
   prependLines
@@ -159,6 +171,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         $ [
             -- (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
             (not (Seq.null nixErrors), const errorDisplay)
+          , (not (Seq.null nixTraces), const traceDisplay)
           , (not (Seq.null forestRoots), buildsDisplay . snd)
           ]
     maxHeight = case maybeWindow of
@@ -171,6 +184,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         (vertical <> " ")
         (printBuilds buildState hostNums maxHeight now)
     errorDisplay = printErrors nixErrors maxHeight
+    traceDisplay = printTraces nixTraces maxHeight
   -- evalMessage = case evaluationState.lastFileName of
   --   Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
   --   Strict.Nothing -> Nothing
@@ -237,6 +251,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   finishMarkup
     | numFailedBuilds > 0 = markup red . ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>)
     | not (null nixErrors) = markup red . ((warning <> " Exited with " <> show (length nixErrors) <> " errors reported by nix") <>)
+    | not (null nixTraces) = markup yellow . ((warning <> " Exited with " <> show (length nixTraces) <> " traces reported by nix") <>)
     | otherwise = markup green . ("Finished" <>)
   printHosts :: [NonEmpty Entry]
   printHosts =

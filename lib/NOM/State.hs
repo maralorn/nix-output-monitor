@@ -207,6 +207,7 @@ data NOMV1State = MkNOMV1State
   , touchedIds :: DerivationSet
   , activities :: IntMap ActivityStatus
   , nixErrors :: Seq Text
+  , nixTraces :: Seq Text
   , buildPlatform :: Strict.Maybe Text
   , interestingActivities :: IntMap InterestingActivity
   , evaluationState :: EvalInfo
@@ -259,6 +260,7 @@ initalStateFromBuildPlatform platform = do
       buildReports
       now
       JustStarted
+      mempty
       mempty
       mempty
       mempty
