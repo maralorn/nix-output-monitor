@@ -204,7 +204,7 @@ helpText =
     , "    via human-readable log parsing:"
     , "      nix-build |& nom"
     , ""
-    , "    Don‘t forget to redirect stderr, too. That's what the & does."
+    , "    Don't forget to redirect stderr, too. That's what the & does."
     , ""
     , "Flags:"
     , "  --version  Show version."
