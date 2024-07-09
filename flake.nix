@@ -4,10 +4,7 @@
     nixpkgs.url = "nixpkgs/haskell-updates";
     pre-commit-hooks = {
       url = "github:cachix/pre-commit-hooks.nix";
-      inputs = {
-        flake-utils.follows = "flake-utils";
-        nixpkgs.follows = "nixpkgs";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
   outputs =
@@ -67,33 +64,27 @@
           ];
         };
         checks = {
-          pre-commit-check = pre-commit-hooks.lib.${system}.run rec {
+          pre-commit-check = pre-commit-hooks.lib.${system}.run {
             src = ./.;
-            settings.ormolu.defaultExtensions = [
-              "TypeApplications"
-              "BangPatterns"
-              "ImportQualifiedPost"
-              "BlockArguments"
-            ];
             hooks = {
               hlint.enable = true;
               nixfmt = {
-                enable = true;
                 excludes = [ "default.nix" ];
+                package = lib.getBin pkgs.nixfmt-rfc-style;
               };
               statix.enable = true;
               cabal2nix.enable = true;
-              fourmolu = {
+              editorconfig-checker = {
                 enable = true;
-                entry = lib.mkForce "${pkgs.haskellPackages.fourmolu}/bin/fourmolu --mode inplace ${
-                  lib.escapeShellArgs (
-                    lib.concatMap (ext: [
-                      "--ghc-opt"
-                      "-X${ext}"
-                    ]) settings.ormolu.defaultExtensions
-                  )
-                }";
+                excludes = [ ".*\\.md" ];
               };
+              fourmolu.enable = true;
+              ormolu.settings.defaultExtensions = [
+                "TypeApplications"
+                "BangPatterns"
+                "ImportQualifiedPost"
+                "BlockArguments"
+              ];
               cabal-fmt.enable = true;
               shellcheck = {
                 enable = true;
