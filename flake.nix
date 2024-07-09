@@ -10,11 +10,23 @@
       };
     };
   };
-  outputs = { self, nixpkgs, flake-utils, pre-commit-hooks, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      pre-commit-hooks,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         inherit (nixpkgs.legacyPackages.${system})
-          lib haskell pkgs haskellPackages;
+          lib
+          haskell
+          pkgs
+          haskellPackages
+          ;
         hlib = (_: haskell.lib.compose) system;
         golden-tests = import ./test/golden/all.nix;
         cleanSelf = lib.sourceFilesBySuffices self [
@@ -29,7 +41,8 @@
           "CHANGELOG.md"
           "default.nix"
         ];
-      in rec {
+      in
+      rec {
         packages = {
           default = lib.pipe { } [
             (haskellPackages.callPackage self)
@@ -40,10 +53,7 @@
               src = cleanSelf;
               doCheck = system == "x86_64-linux";
               preCheck = ''
-                # ${
-                  lib.concatStringsSep ", "
-                  (golden-tests ++ map (x: x.drvPath) golden-tests)
-                }
+                # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
                 export TESTS_FROM_FILE=true;
               '';
               buildTools = [ pkgs.installShellFiles ];
@@ -75,12 +85,14 @@
               cabal2nix.enable = true;
               fourmolu = {
                 enable = true;
-                entry = lib.mkForce
-                  "${pkgs.haskellPackages.fourmolu}/bin/fourmolu --mode inplace ${
-                    lib.escapeShellArgs
-                    (lib.concatMap (ext: [ "--ghc-opt" "-X${ext}" ])
-                      settings.ormolu.defaultExtensions)
-                  }";
+                entry = lib.mkForce "${pkgs.haskellPackages.fourmolu}/bin/fourmolu --mode inplace ${
+                  lib.escapeShellArgs (
+                    lib.concatMap (ext: [
+                      "--ghc-opt"
+                      "-X${ext}"
+                    ]) settings.ormolu.defaultExtensions
+                  )
+                }";
               };
               cabal-fmt.enable = true;
               shellcheck = {
@@ -93,7 +105,7 @@
         devShells.default = haskellPackages.shellFor {
           packages = _: [ packages.default ];
           buildInputs = [
-            pre-commit-hooks.defaultPackage.${system}
+            pre-commit-hooks.packages.${system}.default
             haskellPackages.haskell-language-server
             pkgs.haskell.packages.ghc92.weeder
             pkgs.haskellPackages.cabal-install
@@ -102,5 +114,6 @@
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;
         };
-      });
+      }
+    );
 }
