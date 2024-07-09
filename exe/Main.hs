@@ -174,7 +174,7 @@ monitorHandle config input_handle = withParser @a \streamParser -> do
       first_state <- initalStateFromBuildPlatform current_system
       -- We enforce here, that the state type is completely strict so that we don‘t accumulate thunks while running the program.
       let first_process_state = MkProcessState (StrictType.Strict $ firstState @a first_state) (stateToText config first_state)
-      interact config streamParser (processStateUpdater @a config) (\now -> gfield @"updaterState" % nomState @a %~ maintainState now) (.printFunction) (finalizer config) (inputStream @a input_handle) outputHandle first_process_state
+      interact config streamParser (processStateUpdater @a config) (\now -> gfield @"updaterState" % nomState @a %~ maintainState now) (.printFunction) (finalizer config) input_handle outputHandle first_process_state
       `Exception.finally` do
         Terminal.hShowCursor outputHandle
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.

@@ -74,6 +74,7 @@ common common-config
     , nix-derivation
     , optics
     , relude
+    , rhine
     , safe
     , stm
     , streamly-core

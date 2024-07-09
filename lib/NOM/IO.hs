@@ -3,11 +3,13 @@ module NOM.IO (interact, processTextStream, StreamParser, Stream) where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, swapTVar)
+import Control.Exception qualified as Exception
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
-import Data.Time (ZonedTime, getZonedTime)
+import Data.Time (ZonedTime, getCurrentTime, getZonedTime)
+import FRP.Rhine hiding (pass)
 import NOM.Error (NOMError)
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
@@ -19,10 +21,11 @@ import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
 import System.IO qualified
+import System.IO.Error qualified as IOError
 
 type Stream = Stream.Stream IO
 
-type StreamParser update = Stream ByteString -> Stream update
+type StreamParser update = ByteString -> update
 
 type Output = Text
 
@@ -130,30 +133,30 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
           -- when we clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
           -- we do that before clearing because we can
           memptyIfFalse (last_printed_line_count == 1) (Builder.stringUtf8 $ Terminal.setCursorColumnCode 0)
-          <>
-          -- Clear last output from screen.
-          -- First we clear the current line, if we have written on it.
-          memptyIfFalse (last_printed_line_count > 0) (Builder.stringUtf8 Terminal.clearLineCode)
-          <>
-          -- Then, if necessary we, move up and clear more lines.
-          stimesMonoid
-            (max (last_printed_line_count - 1) 0)
-            ( Builder.stringUtf8 (Terminal.cursorUpLineCode 1) -- Moves cursor one line up and to the beginning of the line.
-                <> Builder.stringUtf8 Terminal.clearLineCode -- We are avoiding to use clearFromCursorToScreenEnd
-                -- because it apparently triggers a flush on some terminals.
-            )
-          <>
-          -- Insert the output to write to the screen.
-          ( output_to_print_with_newline_annotations & foldMap \(newline, line) ->
-              ( case newline of
-                  StayInLine -> mempty
-                  MoveToNextLine -> Builder.stringUtf8 (Terminal.cursorDownLineCode 1)
-                  PrintNewLine -> Builder.byteString "\n"
+            <>
+            -- Clear last output from screen.
+            -- First we clear the current line, if we have written on it.
+            memptyIfFalse (last_printed_line_count > 0) (Builder.stringUtf8 Terminal.clearLineCode)
+            <>
+            -- Then, if necessary we, move up and clear more lines.
+            stimesMonoid
+              (max (last_printed_line_count - 1) 0)
+              ( Builder.stringUtf8 (Terminal.cursorUpLineCode 1) -- Moves cursor one line up and to the beginning of the line.
+                  <> Builder.stringUtf8 Terminal.clearLineCode -- We are avoiding to use clearFromCursorToScreenEnd
+                  -- because it apparently triggers a flush on some terminals.
               )
-                <> Builder.byteString line
-          )
-          -- Corner case: If nom is not outputting anything but we are printing output from nix, then we want to append a newline
-          <> memptyIfFalse (nom_output_length == 0 && nix_output_length > 0) Builder.byteString "\n"
+            <>
+            -- Insert the output to write to the screen.
+            ( output_to_print_with_newline_annotations & foldMap \(newline, line) ->
+                ( case newline of
+                    StayInLine -> mempty
+                    MoveToNextLine -> Builder.stringUtf8 (Terminal.cursorDownLineCode 1)
+                    PrintNewLine -> Builder.byteString "\n"
+                )
+                  <> Builder.byteString line
+            )
+            -- Corner case: If nom is not outputting anything but we are printing output from nix, then we want to append a newline
+            <> memptyIfFalse (nom_output_length == 0 && nix_output_length > 0) Builder.byteString "\n"
 
   -- Actually write to the buffer. We do this all in one step and with a strict
   -- ByteString so that everything is precalculated and the actual put is
@@ -195,12 +198,12 @@ interact ::
   (Double -> state -> state) ->
   OutputFunc state ->
   Finalizer state ->
-  Stream (Either NOMError ByteString) ->
+  Handle ->
   Handle ->
   state ->
   IO state
-interact config parser updater maintenance printer finalize input_stream output_handle initialState =
-  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize initialState input_stream
+interact config parser updater maintenance printer finalize input_handle output_handle initialState =
+  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize input_handle initialState
 
 -- frame durations are passed to threadDelay and thus are given in microseconds
 
@@ -214,6 +217,27 @@ minFrameDuration =
   -- feel to sluggish for the eye, for me.
   60_000 -- ~17 times per second
 
+newtype HandleClock = MkHandleClock Handle
+
+instance GetClockProxy HandleClock
+
+instance Clock IO HandleClock where
+  type Time HandleClock = UTCTime
+  type Tag HandleClock = Maybe ByteString
+  initClock (MkHandleClock handle) = do
+    startTime <- getCurrentTime
+    let runningClock = constM $ do
+          inputE <- Exception.try (ByteString.hGetLine handle)
+          time <- getCurrentTime
+          case inputE of
+            Left err | IOError.isEOFError err -> pure (time, Nothing)
+            Left err -> Exception.throwIO err
+            Right input -> pure (time, Just input)
+    pure (runningClock, startTime)
+
+screenRefreshClock :: Millisecond 60
+screenRefreshClock = waitClock
+
 processTextStream ::
   forall update state.
   Config ->
@@ -222,34 +246,45 @@ processTextStream ::
   (Double -> state -> state) ->
   Maybe (OutputFunc state, Handle) ->
   Finalizer state ->
+  Handle ->
   state ->
-  Stream (Either NOMError ByteString) ->
   IO state
-processTextStream config parser updater maintenance printerMay finalize initialState inputStream = do
+processTextStream config parser updater maintenance printerMay finalize input_handle initialState = do
   state_var <- newTMVarIO initialState
   output_builder_var <- newTVarIO []
   refresh_display_var <- newTVarIO False
-  let keepProcessing :: IO ()
-      keepProcessing =
-        inputStream
-          & Stream.tap (errorsToBuilderFold output_builder_var)
-          & Stream.mapMaybe rightToMaybe
-          & parser
-          & Stream.fold (Fold.drainMapM (runUpdate output_builder_var state_var refresh_display_var updater))
-      waitForInput :: IO ()
-      waitForInput = atomically $ check =<< readTVar refresh_display_var
-  printerMay & maybe keepProcessing \(printer, output_handle) -> do
-    linesVar <- newTVarIO 0
-    let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen (not config.silent) linesVar state_var output_builder_var refresh_display_var maintenance printer output_handle
-        keepPrinting :: IO ()
-        keepPrinting = forever do
-          race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
-          writeToScreen
-    race_ keepProcessing keepPrinting
-    atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
-    writeToScreen
-  (if isNothing printerMay then (>>= execStateT finalize) else id) $ atomically $ takeTMVar state_var
+  finalState <-
+    fmap (either id absurd) $
+      runExceptT $
+        flow $
+          tagS
+            >-> arr parser
+            >-> arrMCl (liftIO . runUpdate output_builder_var state_var refresh_display_var updater)
+            @@ MkHandleClock input_handle
+            >-- resample
+            --> cache
+            >-> writeToScreen
+            @@ screenRefreshClock
+  -- TODO: Don’t forget to print finalState
+  let _x = 4
+  pure finalState
+
+--     -- & parser
+--     -- & Stream.fold (Fold.drainMapM ())
+--     waitForInput :: IO ()
+--     waitForInput = atomically $ check =<< readTVar refresh_display_var
+-- printerMay & maybe keepProcessing \(printer, output_handle) -> do
+--   linesVar <- newTVarIO 0
+--   let writeToScreen :: IO ()
+--       writeToScreen = writeStateToScreen (not config.silent) linesVar state_var output_builder_var refresh_display_var maintenance printer output_handle
+--       keepPrinting :: IO ()
+--       keepPrinting = forever do
+--         race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
+--         writeToScreen
+--   race_ keepProcessing keepPrinting
+--   atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
+--   writeToScreen
+-- (if isNothing printerMay then (>>= execStateT finalize) else id) $ atomically $ takeTMVar state_var
 
 errorsToBuilderFold :: TVar [ByteString] -> Fold.Fold IO (Either NOMError ByteString) ()
 errorsToBuilderFold builder_var = Fold.drainMapM saveInput

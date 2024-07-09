@@ -42,9 +42,10 @@ data OldStyleInput = MkOldStyleInput
   }
 
 instance NOMInput OldStyleInput where
-  withParser body = body (fmap (uncurry MkOldStyleInput . first join) <$> parseStreamAttoparsec parser)
+  withParser body = body (error "not implemented") -- (fmap (uncurry MkOldStyleInput . first join) <$> parseStreamAttoparsec parser)
   type UpdaterState OldStyleInput = OldStyleState
-  inputStream = readTextChunks
+
+  -- inputStream = readTextChunks
   nomState = gfield @"state"
   firstState state' = MkOldStyleState{state = state', lastRead = Strict.Nothing}
   {-# INLINE updateState #-}

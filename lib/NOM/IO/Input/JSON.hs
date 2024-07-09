@@ -2,9 +2,11 @@
 
 module NOM.IO.Input.JSON () where
 
+import Control.Exception (throwIO)
 import Control.Exception qualified as Exception
 import Data.ByteString qualified as ByteString
 import Data.Hermes qualified as JSON
+import Data.Time (getCurrentTime)
 import NOM.Error (NOMError (..))
 import NOM.IO (Stream)
 import NOM.IO.Input (NOMInput (..), UpdateResult (..), statelessUnfoldM)
@@ -26,9 +28,10 @@ readLines handle =
       Right input -> Just (Right input)
 
 instance NOMInput NixJSONMessage where
-  withParser body = JSON.withHermesEnv_ (body . fmap . parseJSONLine)
+  withParser body = JSON.withHermesEnv_ (body . parseJSONLine)
   type UpdaterState NixJSONMessage = NOMV1State
-  inputStream = readLines
+
+  -- inputStream = readLines
   nomState = Optics.equality'
   firstState = id
   {-# INLINE updateState #-}
