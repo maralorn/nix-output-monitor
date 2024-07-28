@@ -156,7 +156,7 @@ processStateUpdater ::
   StateT (ProcessState a) m ([NOMError], ByteString, Bool)
 processStateUpdater config input = do
   old_state <- get
-  updater_result <- updateState input (old_state.updaterState)
+  updater_result <- updateState input old_state.updaterState
   put
     MkProcessState
       { updaterState = updater_result.newState
@@ -212,5 +212,5 @@ helpText =
     , "  --json     Parse input as nix internal-json"
     , ""
     , "Please see the readme for more details:"
-    , "https://git.maralorn.de/nix-output-monitor/about/"
+    , "https://code.maralorn.de/maralorn/nix-output-monitor#readme"
     ]

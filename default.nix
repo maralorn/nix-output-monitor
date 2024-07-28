@@ -31,7 +31,7 @@ mkDerivation {
     strict strict-types terminal-size text time transformers
     typed-process word8
   ];
-  homepage = "https://github.com/maralorn/nix-output-monitor";
+  homepage = "https://code.maralorn.de/maralorn/nix-output-monitor";
   description = "Processes output of Nix commands to show helpful and pretty information";
   license = lib.licenses.agpl3Plus;
   mainProgram = "nom";

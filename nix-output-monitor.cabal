@@ -7,7 +7,7 @@ synopsis:
 description:
   A tool which consumes Nix’s output to enrich your terminal output with useful information.
 
-homepage:           https://github.com/maralorn/nix-output-monitor
+homepage:           https://code.maralorn.de/maralorn/nix-output-monitor
 bug-reports:        https://github.com/maralorn/nix-output-monitor/issues
 license:            AGPL-3.0-or-later
 license-file:       LICENSE
@@ -32,7 +32,7 @@ category:
 
 source-repository head
   type:     git
-  location: https://git.maralorn.de/nix-output-monitor
+  location: https://code.maralorn.de/maralorn/nix-output-monitor
 
 common common-config
   default-extensions:
