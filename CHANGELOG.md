@@ -1,5 +1,11 @@
 # Revision history for nix-output-monitor
 
+## 2.1.3 -- 2024-07-28
+
+* Remove non ascii characters from help message (thanks to @SandaruKasa)
+* Display trace/warning messages (thanks to @daniel-sampliner)
+* Internal: Flake updates (thanks to @SuperSandro2000)
+
 ## 2.1.2 -- 2024-01-26
 
 * Compatibility with mtl 2.3
