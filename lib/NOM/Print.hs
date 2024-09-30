@@ -80,8 +80,9 @@ up = "↑"
 -- | U+23F1 STOPWATCH
 clock = "⏱"
 
--- | U+23F5 BLACK MEDIUM RIGHT-POINTING TRIANGLE
-running = "⏵"
+-- | U+EB70 TRIANGLE RIGHT
+-- running = ""
+running = "\xeb70"
 
 -- | U+2714 HEAVY CHECK MARK
 done = "✔"
