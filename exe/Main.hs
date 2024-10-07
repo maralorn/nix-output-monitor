@@ -47,13 +47,15 @@ defaultConfig =
 replaceCommandWithExit :: [String] -> [String]
 replaceCommandWithExit = (<> ["--command", "sh", "-c", "exit"]) . takeWhile (\x -> x /= "--command" && x /= "-c")
 
-withJSON :: [String] -> [String]
-withJSON x = "-v" : "--log-format" : "internal-json" : x
+withJSON :: Maybe a -> [String] -> [String]
+withJSON Nothing x = "-v" : "--log-format" : "internal-json" : x
+withJSON (Just _) x = x
 
 main :: IO Void
 main = do
   args <- Environment.getArgs
   prog_name <- Environment.getProgName
+  completion <- Environment.lookupEnv "NIX_GET_COMPLETIONS"
 
   mainThreadId <- myThreadId >>= IORef.newIORef
   _ <- Signals.installHandler Signals.sigTERM (Signals.CatchInfo $ quitSignalHandler mainThreadId) Nothing
@@ -62,16 +64,16 @@ main = do
     (["--version"], _) -> do
       hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
       exitWith =<< Process.runProcess (Process.proc "nix" ["--version"])
-    (nix_args, "nom-build") -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix-build" (withJSON nix_args))
+    (nix_args, "nom-build") -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix-build" (withJSON completion nix_args))
     (nix_args, "nom-shell") -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix-shell" (withJSON nix_args <> ["--run", "exit"]))
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix-shell" (withJSON completion nix_args <> ["--run", "exit"]))
       exitWith =<< Process.runProcess (Process.proc "nix-shell" nix_args)
-    ("build" : nix_args, _) -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix" ("build" : withJSON nix_args))
+    ("build" : nix_args, _) -> exitWith =<< runMonitoredCommand defaultConfig (Process.proc "nix" ("build" : withJSON completion nix_args))
     ("shell" : nix_args, _) -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("shell" : withJSON (replaceCommandWithExit nix_args)))
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("shell" : withJSON completion (replaceCommandWithExit nix_args)))
       exitWith =<< Process.runProcess (Process.proc "nix" ("shell" : nix_args))
     ("develop" : nix_args, _) -> do
-      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("develop" : withJSON (replaceCommandWithExit nix_args)))
+      exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (Process.proc "nix" ("develop" : withJSON completion (replaceCommandWithExit nix_args)))
       exitWith =<< Process.runProcess (Process.proc "nix" ("develop" : nix_args))
     ([], _) -> do
       finalState <- monitorHandle @OldStyleInput defaultConfig{piping = True} stdin
