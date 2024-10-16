@@ -59,8 +59,7 @@
                 ln -s nom "$out/bin/nom-build"
                 ln -s nom "$out/bin/nom-shell"
                 chmod a+x $out/bin/nom-shell
-                installShellCompletion --zsh --name _nom-build completions/completion.zsh
-                installShellCompletion --bash --name _nom completions/completion.bash
+                installShellCompletion completions/*
               '';
             })
           ];
