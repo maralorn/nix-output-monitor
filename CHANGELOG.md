@@ -1,5 +1,11 @@
 # Revision history for nix-output-monitor
 
+## 2.1.4 -- 2024-10-17
+
+* bash: Add shell completion for `nom` command (thanks to @tomberek and @pdietl).
+* zsh: Add shell completion for `nom` and `nom-shell` command (additionally to the existing completion for `nom-build`).
+* Fix typo in README (thanks to @techie2000)
+
 ## 2.1.3 -- 2024-07-28
 
 * Remove non ascii characters from help message (thanks to @SandaruKasa)
