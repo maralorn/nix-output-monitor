@@ -12,15 +12,15 @@ While your build runs, nom will draw something like this at the bottom of your b
 
 ## Status
 
-This was an experimental to write something fun and useful in Haskell, which proved to be useful to quite a lot of people.
+This was an experiment to write something fun and useful in Haskell, which proved to be useful to quite a lot of people.
 By now, nom is quite fully featured with support for nix v1 commands (e.g. `nix-build`) and nix v2 command (e.g. `nix build`).
 At this point it seems like I will maintain nom until better UX options for nix arrive.
 
 You are free and **very welcome to contribute feedback, issues or PRs**.
-Issues and pull requests can be opened at **https://github.com/maralorn/nix-output-monitor**.
+Issues and pull requests can be opened at **[GitHub](https://github.com/maralorn/nix-output-monitor)**.
 
-**Source and releases** are available from **https://code.maralorn.de/maralorn/nix-output-monitor**.
-Starting from version 2.1.0, nom uses [SemVer](https://semver).
+**Source and releases** are available from **[code.maralorn.de](https://code.maralorn.de/maralorn/nix-output-monitor/releases)**.
+Starting from version 2.1.0, nom follows the [SemVer](https://semver) versioning scheme.
 The versioning applies to the behavior of the executable.
 There are no stability guarantees for the library component in the cabal project.
 
