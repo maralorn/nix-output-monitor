@@ -10,14 +10,15 @@ import Data.Time (ZonedTime)
 import Data.Version (showVersion)
 import GHC.IO.Exception (ExitCode (ExitFailure))
 import NOM.Error (NOMError)
-import NOM.IO (interact)
+import NOM.IO (Window, interact)
+import NOM.IO qualified as Nom.IO
 import NOM.IO.Input (NOMInput (..), UpdateResult (..))
 import NOM.IO.Input.JSON ()
 import NOM.IO.Input.OldStyle (OldStyleInput)
 import NOM.NixMessage.JSON (NixJSONMessage)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
-import NOM.State (NOMV1State (..), ProgressState (..), failedBuilds, fullSummary, initalStateFromBuildPlatform)
+import NOM.State (NOMV1State (..), PrintState, ProgressState (..), failedBuilds, fullSummary, initalStateFromBuildPlatform)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState)
 import NOM.Update.Monad (UpdateMonad)
@@ -25,8 +26,8 @@ import Optics (gfield, (%), (%~), (.~), (^.))
 import Paths_nix_output_monitor (version)
 import Relude
 import System.Console.ANSI qualified as Terminal
-import System.Console.Terminal.Size (Window)
 import System.Environment qualified as Environment
+import System.IO qualified
 import System.IO.Error qualified as IOError
 import System.Posix.Signals qualified as Signals
 import System.Process.Typed (proc, runProcess)
@@ -160,7 +161,8 @@ runMonitoredCommand config process_config = do
 
 data ProcessState a = MkProcessState
   { updaterState :: UpdaterState a
-  , printFunction :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
+  , printFunction :: PrintState -> Maybe NOM.IO.Window -> (ZonedTime, Double) -> Nom.IO.Output
+  -- ^ That print function is 'NOM.IO.OutputFunc' without the nom state.
   }
   deriving stock (Generic)
 
@@ -170,6 +172,8 @@ monitorHandle config input_handle = withParser @a \streamParser -> do
     do
       Terminal.hHideCursor outputHandle
       hSetBuffering stdout (BlockBuffering (Just 1_000_000))
+      System.IO.hSetBuffering stdin NoBuffering
+      System.IO.hSetEcho stdin False
 
       current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--extra-experimental-features", "nix-command", "--impure", "--raw", "--expr", "builtins.currentSystem"])
       first_state <- initalStateFromBuildPlatform current_system

@@ -1,8 +1,8 @@
-module NOM.IO (interact, processTextStream, StreamParser, Stream) where
+module NOM.IO (interact, processTextStream, StreamParser, Stream, Window, Output) where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently_, race_)
-import Control.Concurrent.STM (check, swapTVar)
+import Control.Concurrent.Async (Concurrently (Concurrently, runConcurrently))
+import Control.Concurrent.STM (check, swapTVar, writeTMVar)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as ByteString
@@ -11,6 +11,7 @@ import Data.Time (ZonedTime, getZonedTime)
 import NOM.Error (NOMError)
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
+import NOM.State (PrintNameStyle (..), PrintState (..), initPrintState)
 import NOM.Update.Monad (UpdateMonad, getNow)
 import Relude
 import Streamly.Data.Fold qualified as Fold
@@ -28,7 +29,7 @@ type Output = Text
 
 type UpdateFunc update state = forall m. (UpdateMonad m) => update -> StateT state m ([NOMError], ByteString, Bool)
 
-type OutputFunc state = state -> Maybe Window -> (ZonedTime, Double) -> Output
+type OutputFunc state = state -> PrintState -> Maybe Window -> (ZonedTime, Double) -> Output
 
 type Finalizer state = forall m. (UpdateMonad m) => StateT state m ()
 
@@ -59,13 +60,14 @@ writeStateToScreen ::
   Bool ->
   TVar Int ->
   TMVar state ->
+  TMVar PrintState ->
   TVar [ByteString] ->
   TVar Bool ->
   (Double -> state -> state) ->
   OutputFunc state ->
   Handle ->
   IO ()
-writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var refresh_display_var maintenance printer output_handle = do
+writeStateToScreen pad printed_lines_var nom_state_var print_state_var nix_output_buffer_var refresh_display_var maintenance printer output_handle = do
   nowClock <- getZonedTime
   now <- getNow
   terminalSize <-
@@ -88,11 +90,10 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
     nix_output_raw <- swapTVar nix_output_buffer_var []
     pure (nom_state, nix_output_raw)
   -- ====
-
+  print_state <- atomically $ readTMVar print_state_var
   let nix_output = ByteString.lines $ ByteString.concat $ reverse nix_output_raw
       nix_output_length = length nix_output
-
-      nom_output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer nom_state terminalSize (nowClock, now))
+      nom_output = ByteString.lines $ encodeUtf8 $ truncateOutput terminalSize (printer nom_state print_state terminalSize (nowClock, now))
       nom_output_length = length nom_output
 
       -- We will try to calculate how many lines we can draw without reaching the end
@@ -214,6 +215,14 @@ minFrameDuration =
   -- feel to sluggish for the eye, for me.
   60_000 -- ~17 times per second
 
+getKey :: IO [Char]
+getKey = reverse <$> getKey' ""
+ where
+  getKey' chars = do
+    char <- System.IO.getChar
+    more <- System.IO.hReady stdin
+    (if more then getKey' else return) (char : chars)
+
 processTextStream ::
   forall update state.
   Config ->
@@ -227,6 +236,8 @@ processTextStream ::
   IO state
 processTextStream config parser updater maintenance printerMay finalize initialState inputStream = do
   state_var <- newTMVarIO initialState
+  print_state_var <- newTMVarIO initPrintState
+  input_received <- newEmptyTMVarIO
   output_builder_var <- newTVarIO []
   refresh_display_var <- newTVarIO False
   let keepProcessing :: IO ()
@@ -240,13 +251,35 @@ processTextStream config parser updater maintenance printerMay finalize initialS
       waitForInput = atomically $ check =<< readTVar refresh_display_var
   printerMay & maybe keepProcessing \(printer, output_handle) -> do
     linesVar <- newTVarIO 0
-    let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen (not config.silent) linesVar state_var output_builder_var refresh_display_var maintenance printer output_handle
+    let keepProcessingStdin :: IO ()
+        keepProcessingStdin = forever $ do
+          key <- getKey
+          case key of
+            "n" -> do
+              atomically $ do
+                print_state <- readTMVar print_state_var
+                let print_state_style = if print_state.printName == PrintName then PrintDerivationPath else PrintName
+                writeTMVar print_state_var $ print_state{printName = print_state_style}
+                writeTMVar input_received ()
+            "?" -> do
+              atomically $ do
+                print_state <- takeTMVar print_state_var
+                putTMVar print_state_var $ print_state{printHelp = True}
+                writeTMVar input_received ()
+            _ -> pure ()
+        writeToScreen :: IO ()
+        writeToScreen = writeStateToScreen (not config.silent) linesVar state_var print_state_var output_builder_var refresh_display_var maintenance printer output_handle
         keepPrinting :: IO ()
         keepPrinting = forever do
-          race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
+          runConcurrently
+            $ (Concurrently (threadDelay minFrameDuration) *> Concurrently waitForInput)
+            <|> Concurrently (threadDelay maxFrameDuration)
+            <|> Concurrently (atomically $ takeTMVar input_received)
           writeToScreen
-    race_ keepProcessing keepPrinting
+    runConcurrently
+      $ Concurrently keepProcessing
+      <|> Concurrently keepProcessingStdin
+      <|> Concurrently keepPrinting
     atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
     writeToScreen
   (if isNothing printerMay then (>>= execStateT finalize) else id) $ atomically $ takeTMVar state_var

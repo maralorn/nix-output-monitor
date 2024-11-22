@@ -102,6 +102,7 @@
             pkgs.haskell.packages.ghc92.weeder
             pkgs.haskellPackages.cabal-install
             pkgs.pv
+            pkgs.haskellPackages.fourmolu
           ];
           withHoogle = true;
           inherit (self.checks.${system}.pre-commit-check) shellHook;

@@ -24,6 +24,9 @@ module NOM.State (
   InterestingActivity (..),
   InputDerivation (..),
   EvalInfo (..),
+  PrintState (..),
+  PrintNameStyle (..),
+  initPrintState,
   getDerivationInfos,
   initalStateFromBuildPlatform,
   updateSummaryForStorePath,
@@ -193,6 +196,21 @@ data EvalInfo = MkEvalInfo
   , at :: Double
   }
   deriving stock (Show, Eq, Ord, Generic)
+
+data PrintNameStyle = PrintName | PrintDerivationPath deriving stock (Show, Eq, Ord, Generic)
+
+data PrintState = MkPrintState
+  { printName :: PrintNameStyle
+  , printHelp :: Bool
+  }
+  deriving stock (Show, Eq, Ord, Generic)
+
+initPrintState :: PrintState
+initPrintState =
+  MkPrintState
+    { printName = PrintName
+    , printHelp = False
+    }
 
 data NOMV1State = MkNOMV1State
   { derivationInfos :: DerivationMap DerivationInfo
