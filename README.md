@@ -94,13 +94,13 @@ Nom tries to convey information via symbols and colors
 
 * `⏵`, yellow: running builds
 * `✔`, green: completed builds
-* `⏳︎︎︎`, blue: planned builds
+* `⏸`, blue: planned builds
 * `⚠`, red: failed builds
 * `↓ ⏵`, yellow: running downloads
 * `↑ ⏵`, yellow: running uploads
 * `↓ ✔`, green: completed downloads
 * `↑ ✔`, green: completed uploads
-* `↓ ⏳︎︎︎`, blue: waiting downloads
+* `↓ ⏸`, blue: waiting downloads
 * `∅`: a moving average over past builds of this derivation
 * `⏱︎`: running time
 * `∑`: a summary over all packages and hosts
