@@ -37,6 +37,7 @@ data ActivityType where
   QueryPathInfoType :: ActivityType
   PostBuildHookType :: ActivityType
   BuildWaitingType :: ActivityType
+  FetchTreeType :: ActivityType
   deriving stock (Show, Eq)
 
 data Activity where
@@ -53,6 +54,7 @@ data Activity where
   QueryPathInfo :: StorePath -> Host -> Activity
   PostBuildHook :: Derivation -> Activity
   BuildWaiting :: Activity
+  FetchTree :: Activity
   deriving stock (Show, Eq, Ord, Generic)
 
 data ActivityResult where

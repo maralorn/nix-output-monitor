@@ -44,6 +44,7 @@ parseActivityType = \case
   109 -> pure QueryPathInfoType
   110 -> pure PostBuildHookType
   111 -> pure BuildWaitingType
+  112 -> pure FetchTreeType
   other -> fail ("invalid activity result type: " <> show other)
 
 parseAction :: JSON.Decoder NixJSONMessage
@@ -160,4 +161,5 @@ parseStartAction = do
         pure $ QueryPathInfo path' (parseHost host)
     PostBuildHookType -> PostBuildHook <$> (one txt >>= parseDerivation)
     BuildWaitingType -> pure BuildWaiting
+    FetchTreeType -> pure FetchTree
   pure MkStartAction{id = MkId idField, text, activity, level}
