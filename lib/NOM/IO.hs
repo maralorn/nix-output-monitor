@@ -1,8 +1,5 @@
 module NOM.IO (interact, processTextStream, StreamParser, Stream) where
 
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently_, race_)
-import Control.Concurrent.STM (check, swapTVar)
 import Control.Exception qualified as Exception
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
@@ -16,13 +13,19 @@ import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red
 import NOM.Update.Monad (UpdateMonad, getNow)
 import Optics
 import Relude
-import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
 import System.IO qualified
 import System.IO.Error qualified as IOError
+
+-- TODO: state_var loswerden
+-- TODO: refresh_display_var loswerden
+-- TODO: lines_var loswerden
+-- TODO: updateFunction sollte nur state mutieren
+-- TODO: (MonotonicTime, ZonedTime) in display clock
+-- TODO: bluefin vergleich?
 
 type Stream = Stream.Stream IO
 
@@ -38,35 +41,33 @@ type Finalizer state = forall m. (UpdateMonad m) => StateT state m ()
 
 type Window = Terminal.Size.Window Int
 
-runUpdate ::
-  forall update state.
-  TMVar state ->
-  TVar Bool ->
-  UpdateFunc update state ->
-  update ->
-  IO [ByteString]
-runUpdate state_var refresh_display_var updater input = do
-  -- Since we are taking the state_var here we prevent any other state update
-  -- to happen simultaneously.
-  old_state <- atomically $ takeTMVar state_var
-  ((errors, log_output, display_changed), !newState) <- runStateT (updater input) old_state
-  atomically $ do
-    putTMVar state_var newState
-    modifyTVar' refresh_display_var (|| display_changed)
-  return $ (errors <&> \err -> nomError <> show err) <> filter (not . ByteString.null) [log_output]
+-- runUpdate ::
+--   forall update state.
+--   TMVar state ->
+--   TVar Bool ->
+--   UpdateFunc update state ->
+--   update ->
+--   IO [ByteString]
+-- runUpdate state_var refresh_display_var updater input = do
+--   -- Since we are taking the state_var here we prevent any other state update
+--   -- to happen simultaneously.
+--   old_state <- atomically $ takeTMVar state_var
+--   ((errors, log_output, display_changed), !newState) <- runStateT (updater input) old_state
+--   atomically $ do
+--     putTMVar state_var newState
+--     modifyTVar' refresh_display_var (|| display_changed)
+--   return $ (errors <&> \err -> nomError <> show err) <> filter (not . ByteString.null) [log_output]
 
 writeStateToScreen ::
   forall state.
   Bool ->
   TVar Int ->
-  TMVar state ->
-  TVar Bool ->
-  (Double -> state -> state) ->
   OutputFunc state ->
   Handle ->
+  state ->
   [ByteString] ->
   IO ()
-writeStateToScreen pad printed_lines_var nom_state_var refresh_display_var maintenance printer output_handle nix_output_raw = do
+writeStateToScreen pad printed_lines_var printer output_handle nom_state nix_output_raw = do
   nowClock <- getZonedTime
   now <- getNow
   terminalSize <-
@@ -76,17 +77,6 @@ writeStateToScreen pad printed_lines_var nom_state_var refresh_display_var maint
       val@(Just window) | window.width > 0, window.height > 0 -> val
       _ -> Nothing
 
-  nom_state <- atomically do
-    -- ==== Time Critical Segment - calculating to much in atomically can lead
-    -- to recalculations.  In this section we are racing with the input parsing
-    -- thread to update the state.
-    -- we bind those lazily to not calculate them during the STM transaction
-    nom_state <- maintenance now <$> takeTMVar nom_state_var
-    putTMVar nom_state_var nom_state
-
-    writeTVar refresh_display_var False
-
-    pure nom_state
   -- ====
 
   let nix_output = ByteString.lines $ ByteString.concat $ reverse nix_output_raw
@@ -199,20 +189,20 @@ interact ::
   Handle ->
   state ->
   IO state
-interact config parser updater maintenance printer finalize input_handle output_handle initialState =
-  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize input_handle initialState
+interact config parser updater maintenance printer finalize input_handle output_handle =
+  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize input_handle
 
 -- frame durations are passed to threadDelay and thus are given in microseconds
 
-maxFrameDuration :: Int
-maxFrameDuration = 1_000_000 -- once per second to update timestamps
-
-minFrameDuration :: Int
-minFrameDuration =
-  -- this seems to be a nice compromise to reduce excessive
-  -- flickering, since the movement is not continuous this low frequency doesn‘t
-  -- feel to sluggish for the eye, for me.
-  60_000 -- ~17 times per second
+-- maxFrameDuration :: Int
+-- maxFrameDuration = 1_000_000 -- once per second to update timestamps
+--
+-- minFrameDuration :: Int
+-- minFrameDuration =
+--   -- this seems to be a nice compromise to reduce excessive
+--   -- flickering, since the movement is not continuous this low frequency doesn‘t
+--   -- feel to sluggish for the eye, for me.
+--   60_000 -- ~17 times per second
 
 newtype HandleClock = MkHandleClock Handle
 
@@ -250,26 +240,24 @@ processTextStream ::
   state ->
   IO state
 processTextStream config parser updater maintenance printerMay finalize input_handle initialState = do
-  state_var <- newTMVarIO initialState
-  let finalizer = atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
-  refresh_display_var <- newTVarIO False
-  writeToScreen <-
-    printerMay & maybe (pure (const (pure ()))) \(printer, output_handle) -> do
-      linesVar <- newTVarIO 0
-      pure $ writeStateToScreen (not config.silent) linesVar state_var refresh_display_var maintenance printer output_handle
+  linesVar <- newTVarIO 0
+  let writeToScreen =
+        printerMay
+          & maybe
+            (const (const pass))
+            (\(u, h) s l -> writeStateToScreen (not config.silent) linesVar u h s l)
   fmap (either id absurd) $
     runExceptT $
       flow $
         tagS
-          >-> mapMaybeS (arrMCl (liftIO . runUpdate state_var refresh_display_var updater . parser))
+          >-> mapMaybeS (arr parser)
           @@ mkHandleClock @state input_handle
-          >-- collect
+          >-- resampleState initialState updater maintenance
           --> arrMCl
-            ( \log -> do
-                let last_call = any isNothing log
-                when last_call $ liftIO finalizer
-                liftIO $ writeToScreen $ toListOf (folded % folded % folded) log
-                when last_call $ throwE =<< liftIO (atomically (takeTMVar state_var))
+            ( \(log, s, last_call) -> do
+                s' <- if last_call then lift $ execStateT finalize s else pure s
+                liftIO $ writeToScreen s log
+                when last_call $ throwE s'
             )
           -- --> cache
           -- >-> writeToScreen
@@ -291,27 +279,41 @@ processTextStream config parser updater maintenance printerMay finalize input_ha
 --   writeToScreen
 -- (if isNothing printerMay then (>>= execStateT finalize) else id) $ atomically $ takeTMVar state_var
 
-errorsToBuilderFold :: TVar [ByteString] -> Fold.Fold IO (Either NOMError ByteString) ()
-errorsToBuilderFold builder_var = Fold.drainMapM saveInput
+resampleState :: state -> UpdateFunc update state -> (Double -> state -> state) -> ResamplingBuffer (ExceptT s IO) cl1 cl2 (Maybe update) ([ByteString], state, Bool)
+resampleState initial_state updater maintenance = timelessResamplingBuffer (AsyncMealy{amPut, amGet}) ([], initial_state, False)
  where
-  saveInput :: Either NOMError ByteString -> IO ()
-  saveInput = \case
-    Left nom_error -> atomically $ writeErrorToBuilder builder_var nom_error
-    _ -> pass
+  amPut (log, s, finished) = \case
+    Just i -> liftIO do
+      ((errs, logs, _), s') <- runStateT (updater i) s
+      let log' = log <> (errs <&> \err -> nomError <> show err) <> filter (not . ByteString.null) [logs]
+      pure (log', s', finished)
+    Nothing -> pure (log, s, True)
+  amGet (log, s, finished) = do
+    now <- getNow
+    let s' = maintenance now s
+    pure $ Result ([], s', finished) (log, s', finished)
 
-writeErrorToBuilder :: TVar [ByteString] -> NOMError -> STM ()
-writeErrorToBuilder output_builder_var nom_error = do
-  modifyTVar' output_builder_var (appendError nom_error)
-
-appendError :: NOMError -> [ByteString] -> [ByteString]
-appendError err prev = error_line : prev
- where
-  !error_line = optional_linebreak <> nomError <> show err <> "\n"
-  optional_linebreak
-    | (last_chunk : _) <- prev
-    , not (ByteString.isSuffixOf "\n" last_chunk) =
-        "\n"
-    | otherwise = ""
+-- errorsToBuilderFold :: TVar [ByteString] -> Fold.Fold IO (Either NOMError ByteString) ()
+-- errorsToBuilderFold builder_var = Fold.drainMapM saveInput
+--  where
+--   saveInput :: Either NOMError ByteString -> IO ()
+--   saveInput = \case
+--     Left nom_error -> atomically $ writeErrorToBuilder builder_var nom_error
+--     _ -> pass
+--
+-- writeErrorToBuilder :: TVar [ByteString] -> NOMError -> STM ()
+-- writeErrorToBuilder output_builder_var nom_error = do
+--   modifyTVar' output_builder_var (appendError nom_error)
+--
+-- appendError :: NOMError -> [ByteString] -> [ByteString]
+-- appendError err prev = error_line : prev
+--  where
+--   !error_line = optional_linebreak <> nomError <> show err <> "\n"
+--   optional_linebreak
+--     | (last_chunk : _) <- prev
+--     , not (ByteString.isSuffixOf "\n" last_chunk) =
+--         "\n"
+--     | otherwise = ""
 
 nomError :: ByteString
 nomError = encodeUtf8 (markup (red . bold) "nix-output-monitor error: ")

@@ -33,6 +33,9 @@ instance MonadNow IO where
 instance (MonadNow m) => MonadNow (StateT a m) where
   getNow = lift getNow
 
+instance (MonadNow m) => MonadNow (ExceptT a m) where
+  getNow = lift getNow
+
 instance (MonadNow m) => MonadNow (WriterT a m) where
   getNow = lift getNow
 
