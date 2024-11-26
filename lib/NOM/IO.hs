@@ -14,6 +14,7 @@ import NOM.Error (NOMError)
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
 import NOM.Update.Monad (UpdateMonad, getNow)
+import Optics
 import Relude
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
@@ -39,36 +40,33 @@ type Window = Terminal.Size.Window Int
 
 runUpdate ::
   forall update state.
-  TVar [ByteString] ->
   TMVar state ->
   TVar Bool ->
   UpdateFunc update state ->
   update ->
-  IO ()
-runUpdate output_builder_var state_var refresh_display_var updater input = do
+  IO [ByteString]
+runUpdate state_var refresh_display_var updater input = do
   -- Since we are taking the state_var here we prevent any other state update
   -- to happen simultaneously.
   old_state <- atomically $ takeTMVar state_var
   ((errors, log_output, display_changed), !newState) <- runStateT (updater input) old_state
   atomically $ do
-    forM_ errors (writeErrorToBuilder output_builder_var)
     putTMVar state_var newState
-    unless (ByteString.null log_output) do
-      modifyTVar' output_builder_var (log_output :)
     modifyTVar' refresh_display_var (|| display_changed)
+  return $ (errors <&> \err -> nomError <> show err) <> filter (not . ByteString.null) [log_output]
 
 writeStateToScreen ::
   forall state.
   Bool ->
   TVar Int ->
   TMVar state ->
-  TVar [ByteString] ->
   TVar Bool ->
   (Double -> state -> state) ->
   OutputFunc state ->
   Handle ->
+  [ByteString] ->
   IO ()
-writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var refresh_display_var maintenance printer output_handle = do
+writeStateToScreen pad printed_lines_var nom_state_var refresh_display_var maintenance printer output_handle nix_output_raw = do
   nowClock <- getZonedTime
   now <- getNow
   terminalSize <-
@@ -78,7 +76,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
       val@(Just window) | window.width > 0, window.height > 0 -> val
       _ -> Nothing
 
-  (nom_state, nix_output_raw) <- atomically do
+  nom_state <- atomically do
     -- ==== Time Critical Segment - calculating to much in atomically can lead
     -- to recalculations.  In this section we are racing with the input parsing
     -- thread to update the state.
@@ -88,8 +86,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
 
     writeTVar refresh_display_var False
 
-    nix_output_raw <- swapTVar nix_output_buffer_var []
-    pure (nom_state, nix_output_raw)
+    pure nom_state
   -- ====
 
   let nix_output = ByteString.lines $ ByteString.concat $ reverse nix_output_raw
@@ -235,8 +232,11 @@ instance Clock IO HandleClock where
             Right input -> pure (time, Just input)
     pure (runningClock, startTime)
 
-screenRefreshClock :: Millisecond 60
-screenRefreshClock = waitClock
+screenRefreshClock :: LiftClock IO (ExceptT s) (Millisecond 60)
+screenRefreshClock = liftClock waitClock
+
+mkHandleClock :: Handle -> LiftClock IO (ExceptT s) HandleClock
+mkHandleClock = liftClock . MkHandleClock
 
 processTextStream ::
   forall update state.
@@ -251,23 +251,29 @@ processTextStream ::
   IO state
 processTextStream config parser updater maintenance printerMay finalize input_handle initialState = do
   state_var <- newTMVarIO initialState
-  output_builder_var <- newTVarIO []
+  let finalizer = atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
   refresh_display_var <- newTVarIO False
-  finalState <-
-    fmap (either id absurd) $
-      runExceptT $
-        flow $
-          tagS
-            >-> arr parser
-            >-> arrMCl (liftIO . runUpdate output_builder_var state_var refresh_display_var updater)
-            @@ MkHandleClock input_handle
-            >-- resample
-            --> cache
-            >-> writeToScreen
-            @@ screenRefreshClock
-  -- TODO: Don’t forget to print finalState
-  let _x = 4
-  pure finalState
+  writeToScreen <-
+    printerMay & maybe (pure (const (pure ()))) \(printer, output_handle) -> do
+      linesVar <- newTVarIO 0
+      pure $ writeStateToScreen (not config.silent) linesVar state_var refresh_display_var maintenance printer output_handle
+  fmap (either id absurd) $
+    runExceptT $
+      flow $
+        tagS
+          >-> mapMaybeS (arrMCl (liftIO . runUpdate state_var refresh_display_var updater . parser))
+          @@ mkHandleClock @state input_handle
+          >-- collect
+          --> arrMCl
+            ( \log -> do
+                let last_call = any isNothing log
+                when last_call $ liftIO finalizer
+                liftIO $ writeToScreen $ toListOf (folded % folded % folded) log
+                when last_call $ throwE =<< liftIO (atomically (takeTMVar state_var))
+            )
+          -- --> cache
+          -- >-> writeToScreen
+          @@ screenRefreshClock @state
 
 --     -- & parser
 --     -- & Stream.fold (Fold.drainMapM ())
@@ -282,7 +288,6 @@ processTextStream config parser updater maintenance printerMay finalize input_ha
 --         race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
 --         writeToScreen
 --   race_ keepProcessing keepPrinting
---   atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
 --   writeToScreen
 -- (if isNothing printerMay then (>>= execStateT finalize) else id) $ atomically $ takeTMVar state_var
 
