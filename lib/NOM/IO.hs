@@ -54,6 +54,11 @@ runUpdate output_builder_var state_var refresh_display_var updater input = do
       modifyTVar' output_builder_var (log_output :)
     modifyTVar' refresh_display_var (|| display_changed)
 
+-- https://gitlab.com/gnachman/iterm2/-/wikis/synchronized-updates-spec
+startAtomicUpdate, endAtomicUpdate :: Builder.Builder
+startAtomicUpdate = "\x1b[?2026h"
+endAtomicUpdate = "\x1b[?2026l"
+
 writeStateToScreen ::
   forall state.
   Bool ->
@@ -126,7 +131,8 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
       output =
         toStrict
           . Builder.toLazyByteString
-          $
+          $ startAtomicUpdate
+          <>
           -- when we clear the line, but don‘t use cursorUpLine, the cursor needs to be moved to the start for printing.
           -- we do that before clearing because we can
           memptyIfFalse (last_printed_line_count == 1) (Builder.stringUtf8 $ Terminal.setCursorColumnCode 0)
@@ -154,6 +160,7 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
           )
           -- Corner case: If nom is not outputting anything but we are printing output from nix, then we want to append a newline
           <> memptyIfFalse (nom_output_length == 0 && nix_output_length > 0) Builder.byteString "\n"
+          <> endAtomicUpdate
 
   -- Actually write to the buffer. We do this all in one step and with a strict
   -- ByteString so that everything is precalculated and the actual put is
