@@ -149,8 +149,8 @@ runMonitoredCommand config process_config = do
         Process.setStdout Process.createPipe
           . Process.setStderr Process.createPipe
           $ process_config
-  Exception.handle ((ExitFailure 1 <$) . printIOException) $
-    Process.withProcessWait process_config_with_handles \process -> do
+  Exception.handle ((ExitFailure 1 <$) . printIOException)
+    $ Process.withProcessWait process_config_with_handles \process -> do
       void $ monitorHandle @NixJSONMessage config (Process.getStderr process)
       exitCode <- Process.waitExitCode process
       output <- ByteString.hGetContents (Process.getStdout process)
