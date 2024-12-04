@@ -1,4 +1,4 @@
-module NOM.Print (stateToText, showCode, Config (..)) where
+module NOM.Print (stateToText, showCode, helpString, Config (..)) where
 
 import Data.Foldable qualified as Unsafe
 import Data.IntMap.Strict qualified as IntMap
@@ -184,7 +184,7 @@ stateToText config buildState@MkNOMV1State{..} printState = memo printWithSize .
         horizontal
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState printState hostNums maxHeight now)
+        (if not printState.printHelp then printBuilds buildState printState hostNums maxHeight now else helpString)
     errorDisplay = printErrors nixErrors maxHeight
     traceDisplay = printTraces nixTraces maxHeight
   -- evalMessage = case evaluationState.lastFileName of
@@ -197,6 +197,7 @@ stateToText config buildState@MkNOMV1State{..} printState = memo printWithSize .
   MkDependencySummary{..} = fullSummary
   runningBuilds' = (.host) <$> runningBuilds
   completedBuilds' = (.host) <$> completedBuilds
+
   failedBuilds' = (.host) <$> failedBuilds
   numFailedBuilds = CMap.size failedBuilds
   table time' =
@@ -588,3 +589,12 @@ printDuration diff
 
 timeDiffSeconds :: Int -> Text
 timeDiffSeconds = printDuration . fromIntegral
+
+helpString :: NonEmpty Text
+helpString =
+  fromList
+    [ markup bold " Key Bindings"
+    , "n: toggle derivation name/derivation path print"
+    , "f: toggle screen freeze"
+    , "? or h: toggle help view"
+    ]

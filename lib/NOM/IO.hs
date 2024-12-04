@@ -252,6 +252,10 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   printerMay & maybe keepProcessing \(printer, output_handle) -> do
     linesVar <- newTVarIO 0
     let keepProcessingStdin :: IO ()
+    let toggleHelp :: IO () = atomically $ do
+          print_state <- readTMVar print_state_var
+          writeTMVar print_state_var $ print_state{printHelp = not print_state.printHelp}
+          writeTMVar new_user_input ()
         keepProcessingStdin = forever $ do
           key <- getKey
           case key of
@@ -260,15 +264,21 @@ processTextStream config parser updater maintenance printerMay finalize initialS
                 print_state <- readTMVar print_state_var
                 let print_state_style = if print_state.printName == PrintName then PrintDerivationPath else PrintName
                 writeTMVar print_state_var $ print_state{printName = print_state_style}
-                writeTMVar input_received ()
-            "?" -> do
+                writeTMVar new_user_input ()
+            "?" -> toggleHelp
+            "h" -> toggleHelp
+            "f" -> do
               atomically $ do
-                print_state <- takeTMVar print_state_var
-                putTMVar print_state_var $ print_state{printHelp = True}
-                writeTMVar input_received ()
+                print_state <- readTMVar print_state_var
+                writeTMVar print_state_var $ print_state{freeze = not print_state.freeze}
+                writeTMVar new_user_input ()
             _ -> pure ()
         writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen (not config.silent) linesVar state_var print_state_var output_builder_var refresh_display_var maintenance printer output_handle
+        writeToScreen = do
+          print_state <- atomically $ readTMVar print_state_var
+          case (print_state.freeze, print_state.printHelp) of
+            (True, _) -> pure () -- Freezing the output, do not print anything.
+            _ -> writeStateToScreen (not config.silent) printedLinesVar state_var print_state_var output_builder_var refresh_display_var maintenance printer output_handle
         keepPrinting :: IO ()
         keepPrinting = forever do
           runConcurrently

@@ -202,6 +202,7 @@ data PrintNameStyle = PrintName | PrintDerivationPath deriving stock (Show, Eq, 
 data PrintState = MkPrintState
   { printName :: PrintNameStyle
   , printHelp :: Bool
+  , freeze :: Bool
   }
   deriving stock (Show, Eq, Ord, Generic)
 
@@ -210,6 +211,7 @@ initPrintState =
   MkPrintState
     { printName = PrintName
     , printHelp = False
+    , freeze = False
     }
 
 data NOMV1State = MkNOMV1State
