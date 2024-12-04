@@ -1,4 +1,4 @@
-module NOM.IO (interact, processTextStream, StreamParser, Stream, Window, Output) where
+module NOM.IO (interact, mainIOLoop, StreamParser, Stream, Window, Output) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Concurrently (Concurrently, runConcurrently))
@@ -201,7 +201,7 @@ interact ::
   state ->
   IO state
 interact config parser updater maintenance printer finalize input_stream output_handle initialState =
-  processTextStream config parser updater maintenance (Just (printer, output_handle)) finalize initialState input_stream
+  mainIOLoop config parser updater maintenance (Just (printer, output_handle)) finalize initialState input_stream
 
 -- frame durations are passed to threadDelay and thus are given in microseconds
 
@@ -223,7 +223,7 @@ getKey = reverse <$> getKey' ""
     more <- System.IO.hReady stdin
     (if more then getKey' else return) (char : chars)
 
-processTextStream ::
+mainIOLoop ::
   forall update state.
   Config ->
   StreamParser update ->
@@ -234,14 +234,14 @@ processTextStream ::
   state ->
   Stream (Either NOMError ByteString) ->
   IO state
-processTextStream config parser updater maintenance printerMay finalize initialState inputStream = do
+mainIOLoop config parser updater maintenance printerMay finalize initialState inputStream = do
   state_var <- newTMVarIO initialState
   print_state_var <- newTMVarIO initPrintState
-  input_received <- newEmptyTMVarIO
+  new_user_input <- newEmptyTMVarIO
   output_builder_var <- newTVarIO []
   refresh_display_var <- newTVarIO False
-  let keepProcessing :: IO ()
-      keepProcessing =
+  let keepProcessingNixCmd :: IO ()
+      keepProcessingNixCmd =
         inputStream
           & Stream.tap (errorsToBuilderFold output_builder_var)
           & Stream.mapMaybe rightToMaybe
@@ -249,9 +249,8 @@ processTextStream config parser updater maintenance printerMay finalize initialS
           & Stream.fold (Fold.drainMapM (runUpdate output_builder_var state_var refresh_display_var updater))
       waitForInput :: IO ()
       waitForInput = atomically $ check =<< readTVar refresh_display_var
-  printerMay & maybe keepProcessing \(printer, output_handle) -> do
-    linesVar <- newTVarIO 0
-    let keepProcessingStdin :: IO ()
+  printerMay & maybe keepProcessingNixCmd \(printer, output_handle) -> do
+    printedLinesVar <- newTVarIO 0
     let toggleHelp :: IO () = atomically $ do
           print_state <- readTMVar print_state_var
           writeTMVar print_state_var $ print_state{printHelp = not print_state.printHelp}
@@ -263,14 +262,14 @@ processTextStream config parser updater maintenance printerMay finalize initialS
               atomically $ do
                 print_state <- readTMVar print_state_var
                 let print_state_style = if print_state.printName == PrintName then PrintDerivationPath else PrintName
-                writeTMVar print_state_var $ print_state{printName = print_state_style}
+                writeTMVar print_state_var $ print_state{printName = print_state_style, printHelp = False}
                 writeTMVar new_user_input ()
             "?" -> toggleHelp
             "h" -> toggleHelp
             "f" -> do
               atomically $ do
                 print_state <- readTMVar print_state_var
-                writeTMVar print_state_var $ print_state{freeze = not print_state.freeze}
+                writeTMVar print_state_var $ print_state{freeze = not print_state.freeze, printHelp = False}
                 writeTMVar new_user_input ()
             _ -> pure ()
         writeToScreen :: IO ()
@@ -281,13 +280,15 @@ processTextStream config parser updater maintenance printerMay finalize initialS
             _ -> writeStateToScreen (not config.silent) printedLinesVar state_var print_state_var output_builder_var refresh_display_var maintenance printer output_handle
         keepPrinting :: IO ()
         keepPrinting = forever do
+          -- Wait for either a Nix new input, the max frame duration (to update the timestamp), or a new input from the user.
           runConcurrently
             $ (Concurrently (threadDelay minFrameDuration) *> Concurrently waitForInput)
             <|> Concurrently (threadDelay maxFrameDuration)
-            <|> Concurrently (atomically $ takeTMVar input_received)
+            <|> Concurrently (atomically $ takeTMVar new_user_input)
           writeToScreen
+    -- Actual main loop.
     runConcurrently
-      $ Concurrently keepProcessing
+      $ Concurrently keepProcessingNixCmd
       <|> Concurrently keepProcessingStdin
       <|> Concurrently keepPrinting
     atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
