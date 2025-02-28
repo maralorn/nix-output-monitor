@@ -1,5 +1,10 @@
 # Revision history for nix-output-monitor
 
+## 2.1.5 -- 2025-02-28
+
+* Support new activity type used in nix
+* Use https://gitlab.com/gnachman/iterm2/-/wikis/synchronized-updates-spec to better prevent flickering
+
 ## 2.1.4 -- 2024-10-17
 
 * bash: Add shell completion for `nom` command (thanks to @tomberek and @pdietl).
