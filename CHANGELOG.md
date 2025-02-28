@@ -3,7 +3,8 @@
 ## 2.1.5 -- 2025-02-28
 
 * Support new activity type used in nix
-* Use https://gitlab.com/gnachman/iterm2/-/wikis/synchronized-updates-spec to better prevent flickering
+* Use synchronized rendering to better prevent flickering. See <https://gitlab.com/gnachman/iterm2/-/wikis/synchronized-updates-spec> for more details.
+  Note: For a list of supported Terminals see <https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036#adoption-state>
 
 ## 2.1.4 -- 2024-10-17
 
