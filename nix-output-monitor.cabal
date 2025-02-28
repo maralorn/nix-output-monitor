@@ -60,21 +60,21 @@ common common-config
     , ansi-terminal
     , async
     , attoparsec
-    , base            >=4.10    && <5.0
+    , base             >=4.10    && <5.0
     , bytestring
     , cassava
     , containers
-    , data-default
     , directory
     , extra
+    , filelock
     , filepath
-    , hermes-json     >=0.6.0.0
-    , lock-file
+    , hermes-json      >=0.6.0.0
     , MemoTrie
     , nix-derivation
     , optics
     , relude
     , safe
+    , safe-exceptions
     , stm
     , streamly-core
     , strict

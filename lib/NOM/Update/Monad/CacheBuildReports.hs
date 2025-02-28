@@ -6,28 +6,15 @@ module NOM.Update.Monad.CacheBuildReports (
   BuildReportMap,
 ) where
 
-import Control.Exception (IOException, catch)
+import Control.Exception.Safe (catchAny, catchIO)
 import Control.Monad.Trans.Writer.CPS (WriterT)
--- cassava
 import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
--- data-default
-import Data.Default (def)
 import Data.Map.Strict qualified as Map
--- filepath
-
--- lock-file
-
 import NOM.Builds (Host (..))
 import Relude
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory, removeFile)
-import System.FilePath ((</>))
-import System.IO.LockFile (
-  LockingException (CaughtIOException, UnableToAcquireLockFile),
-  LockingParameters (retryToAcquireLock, sleepBetweenRetries),
-  RetryStrategy (NumberOfTimes),
-  withLockExt,
-  withLockFile,
- )
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory)
+import System.FileLock (SharedExclusive (Exclusive), withFileLock)
+import System.FilePath ((<.>), (</>))
 
 -- Exposed functions
 
@@ -49,7 +36,7 @@ instance MonadCacheBuildReports IO where
   getCachedBuildReports = do
     dir <- buildReportsDir
     loadBuildReports dir
-  updateBuildReports updateFunc = catch (tryUpdateBuildReports updateFunc) memptyOnLockFail
+  updateBuildReports updateFunc = catchAny (tryUpdateBuildReports updateFunc) mempty
 
 instance (MonadCacheBuildReports m) => MonadCacheBuildReports (StateT a m) where
   getCachedBuildReports = lift getCachedBuildReports
@@ -64,21 +51,16 @@ instance (MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) wher
 tryUpdateBuildReports :: (BuildReportMap -> BuildReportMap) -> IO BuildReportMap
 tryUpdateBuildReports updateFunc = do
   dir <- buildReportsDir
-  catch @IOException (createDirectoryIfMissing True dir) (const pass)
-  withLockFile
-    def{retryToAcquireLock = NumberOfTimes 10, sleepBetweenRetries = 500000}
-    (dir </> withLockExt buildReportsFilename)
-    (updateBuildReportsUnlocked updateFunc dir)
+  catchIO (createDirectoryIfMissing True dir) (const pass)
+  withFileLock
+    (dir </> buildReportsFilename <.> "lock")
+    Exclusive
+    (const $ updateBuildReportsUnlocked updateFunc dir)
 
 updateBuildReportsUnlocked :: (BuildReportMap -> BuildReportMap) -> FilePath -> IO BuildReportMap
 updateBuildReportsUnlocked updateFunc dir = do
   reports <- updateFunc <$> loadBuildReports dir
   reports <$ saveBuildReports dir reports
-
-memptyOnLockFail :: (Monoid b) => LockingException -> IO b
-memptyOnLockFail = \case
-  UnableToAcquireLockFile file -> mempty <$ removeFile file
-  CaughtIOException{} -> pure mempty
 
 buildReportsDir :: IO FilePath
 buildReportsDir = getXdgDirectory XdgCache "nix-output-monitor"
@@ -87,19 +69,20 @@ buildReportsFilename :: FilePath
 buildReportsFilename = "build-reports.csv"
 
 saveBuildReports :: FilePath -> BuildReportMap -> IO ()
-saveBuildReports dir reports = catch @IOException trySave (const pass)
+saveBuildReports dir reports = catchIO trySave mempty
  where
   trySave = do
     createDirectoryIfMissing True dir
     writeFileLBS (dir </> buildReportsFilename) (encode . toCSV $ reports)
 
 loadBuildReports :: FilePath -> IO BuildReportMap
-loadBuildReports dir = catch @IOException tryLoad (const (pure mempty))
+loadBuildReports dir = catchIO tryLoad mempty
  where
   tryLoad =
     readFileLBS (dir </> buildReportsFilename)
-      <&> either (const mempty) (fromCSV . toList)
-      . decode NoHeader
+      <&> ( decode NoHeader
+              >>> either mempty (fromCSV . toList)
+          )
 
 toCSV :: BuildReportMap -> [BuildReport]
 toCSV = fmap (\((fromHost -> host, name), seconds) -> BuildReport{..}) . Map.assocs
