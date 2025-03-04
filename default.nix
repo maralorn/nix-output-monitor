@@ -1,7 +1,7 @@
 { mkDerivation, ansi-terminal, async, attoparsec, base, bytestring
-, cassava, containers, data-default, directory, extra, filepath
-, hermes-json, HUnit, lib, lock-file, MemoTrie, nix-derivation
-, optics, random, relude, safe, stm, streamly-core, strict
+, cassava, containers, directory, extra, filelock, filepath
+, hermes-json, HUnit, lib, MemoTrie, nix-derivation, optics, random
+, relude, safe, safe-exceptions, stm, streamly-core, strict
 , strict-types, terminal-size, text, time, transformers
 , typed-process, unix, word8
 }:
@@ -13,23 +13,23 @@ mkDerivation {
   isExecutable = true;
   libraryHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
-    data-default directory extra filepath hermes-json lock-file
-    MemoTrie nix-derivation optics relude safe stm streamly-core strict
-    strict-types terminal-size text time transformers word8
+    directory extra filelock filepath hermes-json MemoTrie
+    nix-derivation optics relude safe safe-exceptions stm streamly-core
+    strict strict-types terminal-size text time transformers word8
   ];
   executableHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
-    data-default directory extra filepath hermes-json lock-file
-    MemoTrie nix-derivation optics relude safe stm streamly-core strict
-    strict-types terminal-size text time transformers typed-process
-    unix word8
+    directory extra filelock filepath hermes-json MemoTrie
+    nix-derivation optics relude safe safe-exceptions stm streamly-core
+    strict strict-types terminal-size text time transformers
+    typed-process unix word8
   ];
   testHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
-    data-default directory extra filepath hermes-json HUnit lock-file
-    MemoTrie nix-derivation optics random relude safe stm streamly-core
-    strict strict-types terminal-size text time transformers
-    typed-process word8
+    directory extra filelock filepath hermes-json HUnit MemoTrie
+    nix-derivation optics random relude safe safe-exceptions stm
+    streamly-core strict strict-types terminal-size text time
+    transformers typed-process word8
   ];
   homepage = "https://code.maralorn.de/maralorn/nix-output-monitor";
   description = "Processes output of Nix commands to show helpful and pretty information";
