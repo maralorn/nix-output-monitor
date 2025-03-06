@@ -248,10 +248,15 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   downloadsRunning = CMap.size runningDownloads
   uploadsRunning = CMap.size runningUploads
   uploadsDone = CMap.size completedUploads
+  finishedWithTraces = mconcat
+    [ markup yellow warning
+    , markup green " Finished "
+    , markup yellow ("with " <> show (length nixTraces) <> " traces reported by nix")
+    ]
   finishMarkup
     | numFailedBuilds > 0 = markup red . ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>)
     | not (null nixErrors) = markup red . ((warning <> " Exited with " <> show (length nixErrors) <> " errors reported by nix") <>)
-    | not (null nixTraces) = markup yellow . ((warning <> " Exited with " <> show (length nixTraces) <> " traces reported by nix") <>)
+    | not (null nixTraces) = (finishedWithTraces <>) . markup green
     | otherwise = markup green . ("Finished" <>)
   printHosts :: [NonEmpty Entry]
   printHosts =
