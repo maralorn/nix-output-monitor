@@ -251,7 +251,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   finishMarkup
     | numFailedBuilds > 0 = markup red . ((warning <> " Exited after " <> show numFailedBuilds <> " build failures") <>)
     | not (null nixErrors) = markup red . ((warning <> " Exited with " <> show (length nixErrors) <> " errors reported by nix") <>)
-    | not (null nixTraces) = markup yellow . ((warning <> " Exited with " <> show (length nixTraces) <> " traces reported by nix") <>)
+    | not (null nixTraces) = markup yellow . ((warning <> " Finished with " <> show (length nixTraces) <> " traces reported by nix") <>)
     | otherwise = markup green . ("Finished" <>)
   printHosts :: [NonEmpty Entry]
   printHosts =
