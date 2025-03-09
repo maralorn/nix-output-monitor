@@ -1,4 +1,4 @@
-module NOM.Print (stateToText, showCode, Config (..)) where
+module NOM.Print (stateToText, showCode, helpString, Config (..)) where
 
 import Data.Foldable qualified as Unsafe
 import Data.IntMap.Strict qualified as IntMap
@@ -29,6 +29,8 @@ import NOM.State (
   InputDerivation (..),
   NOMState,
   NOMV1State (..),
+  PrintNameStyle (..),
+  PrintState (..),
   ProgressState (..),
   StorePathId,
   StorePathInfo (..),
@@ -151,8 +153,8 @@ printErrors errors maxHeight =
 compactError :: Text -> Text
 compactError = fst . Text.breakOn "\n       last 10 log lines:"
 
-stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
-stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
+stateToText :: Config -> NOMV1State -> PrintState -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
+stateToText config buildState@MkNOMV1State{..} printState = memo printWithSize . fmap Window.height
  where
   printWithSize :: Maybe Int -> (ZonedTime, Double) -> Text
   printWithSize maybeWindow = printWithTime
@@ -182,7 +184,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
         horizontal
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState hostNums maxHeight now)
+        (if not printState.printHelp then printBuilds buildState printState hostNums maxHeight now else helpString)
     errorDisplay = printErrors nixErrors maxHeight
     traceDisplay = printTraces nixTraces maxHeight
   -- evalMessage = case evaluationState.lastFileName of
@@ -195,6 +197,7 @@ stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Windo
   MkDependencySummary{..} = fullSummary
   runningBuilds' = (.host) <$> runningBuilds
   completedBuilds' = (.host) <$> completedBuilds
+
   failedBuilds' = (.host) <$> failedBuilds
   numFailedBuilds = CMap.size failedBuilds
   table time' =
@@ -309,11 +312,12 @@ ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration
 
 printBuilds ::
   NOMV1State ->
+  PrintState ->
   [(Host, Int)] ->
   Int ->
   Double ->
   NonEmpty Text
-printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
+printBuilds nomState@MkNOMV1State{..} print_state hostNums maxHeight = printBuildsWithTime
  where
   hostLabel :: Bool -> Host -> Text
   hostLabel color host = (if color then markup magenta else id) $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
@@ -459,8 +463,12 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
         phaseMay activityId' = do
           activityId <- Strict.toLazy activityId'
           activity_status <- IntMap.lookup activityId.value nomState.activities
-          Strict.toLazy $ activity_status.phase
-        drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
+          Strict.toLazy activity_status.phase
+        printStyle = print_state.printName
+        storePathName = case printStyle of
+          PrintName -> drvInfo.name.storePath.name
+          PrintDerivationPath -> "/nix/store/" <> drvInfo.name.storePath.hash <> "-" <> drvInfo.name.storePath.name <> ".drv"
+        drvName = appendDifferingPlatform nomState drvInfo storePathName
         downloadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningDownloads
         uploadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningUploads
         plannedDownloads = store_paths_in drvInfo.dependencySummary.plannedDownloads
@@ -587,3 +595,12 @@ printDuration diff
 
 timeDiffSeconds :: Int -> Text
 timeDiffSeconds = printDuration . fromIntegral
+
+helpString :: NonEmpty Text
+helpString =
+  fromList
+    [ markup bold " Key Bindings"
+    , "n: toggle derivation name/derivation path print"
+    , "f: toggle screen freeze"
+    , "? or h: toggle help view"
+    ]
