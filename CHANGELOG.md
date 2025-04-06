@@ -2,6 +2,8 @@
 
 ## 2.1.6 -- 2025-04-07
 
+* Improve finished message coloring by @Aehmlo
+* Switch from lock-file to filelock library
 * Compatibility with GHC 9.8
 
 ## 2.1.5 -- 2025-02-28
