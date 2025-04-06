@@ -46,7 +46,8 @@
             (haskellPackages.callPackage self)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
-            (hlib.appendConfigureFlag "--ghc-option=-Werror")
+            (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
+
             (hlib.overrideCabal {
               src = cleanSelf;
               doCheck = system == "x86_64-linux";

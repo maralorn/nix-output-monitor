@@ -3,7 +3,7 @@
 module NOM.IO.Input.JSON () where
 
 import Control.Exception qualified as Exception
-import Data.ByteString qualified as ByteString
+import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.Hermes qualified as JSON
 import NOM.Error (NOMError (..))
 import NOM.IO (Stream)
@@ -19,7 +19,7 @@ import System.IO.Error qualified as IOError
 readLines :: Handle -> Stream (Either NOMError ByteString)
 readLines handle =
   statelessUnfoldM
-    $ Exception.try (ByteString.hGetLine handle)
+    $ Exception.try (ByteString.Char8.hGetLine handle)
     <&> \case
       Left err | IOError.isEOFError err -> Nothing
       Left err -> Just (Left (InputError err)) -- Forward Exceptions, when we encounter them

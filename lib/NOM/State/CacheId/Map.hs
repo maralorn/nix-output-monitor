@@ -17,6 +17,7 @@ import NOM.State.CacheId (CacheId (MkCacheId))
 import NOM.State.CacheId.Set qualified as CSet
 import Relude
 
+type CacheIdMap :: Type -> Type -> Type
 newtype CacheIdMap b a = MkCacheIdMap {intMap :: IntMap a}
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving newtype (Semigroup, Monoid, Foldable, Functor)

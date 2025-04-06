@@ -91,9 +91,9 @@ common common-config
     -Wno-missing-local-signatures -Wno-implicit-prelude
     -Wno-monomorphism-restriction -Wno-missed-specialisations
     -Wno-all-missed-specialisations -Wno-missing-kind-signatures
-    -Wno-missing-safe-haskell-mode -Wno-safe -Wno-unsafe
-    -fno-show-valid-hole-fits -fexpose-all-unfoldings
-    -fshow-warning-groups
+    -Wno-missing-role-annotations -Wno-missing-safe-haskell-mode
+    -Wno-safe -Wno-unsafe -fno-show-valid-hole-fits
+    -fexpose-all-unfoldings -fshow-warning-groups
 
 library
   import:          common-config

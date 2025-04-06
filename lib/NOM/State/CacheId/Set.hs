@@ -17,6 +17,7 @@ import Data.IntSet qualified as IntSet
 import NOM.State.CacheId (CacheId (MkCacheId))
 import Relude hiding (head)
 
+type CacheIdSet :: Type -> Type
 newtype CacheIdSet b = MkCacheIdSet {ints :: IntSet}
   deriving stock (Show, Eq, Ord, Read, Generic)
   deriving newtype (Semigroup, Monoid)
