@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## 2.1.6 -- 2025-04-07
+
+* Compatibility with GHC 9.8
+
 ## 2.1.5 -- 2025-02-28
 
 * Support new activity type used in nix
