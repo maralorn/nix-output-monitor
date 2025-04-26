@@ -35,6 +35,7 @@
           "stdout.json"
           ".zsh"
           ".bash"
+          ".fish"
           "LICENSE"
           "CHANGELOG.md"
           "default.nix"
