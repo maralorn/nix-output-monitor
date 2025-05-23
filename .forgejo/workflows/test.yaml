@@ -11,7 +11,7 @@ jobs:
     env:
         HOME: .
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Configuring remote builders
         run: |
           mkdir -p ~/.config/nix
@@ -24,7 +24,7 @@ jobs:
     env:
         HOME: .
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Configuring remote builders
         run: |
           mkdir -p ~/.config/nix
