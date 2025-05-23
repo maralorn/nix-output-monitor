@@ -1,0 +1,16 @@
+name: Pull from GitHub
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: nix
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Pull main if fast-forward
+        run: |
+          git pull --ff-only https://github.com/maralorn/nix-output-monitor.git main:main
+          git push origin main:main
