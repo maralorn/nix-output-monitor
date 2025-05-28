@@ -100,8 +100,8 @@
           buildInputs = [
             pre-commit-hooks.packages.${system}.default
             haskellPackages.haskell-language-server
-            pkgs.haskell.packages.ghc92.weeder
-            pkgs.haskellPackages.cabal-install
+            (lib.getBin pkgs.haskellPackages.weeder)
+            pkgs.cabal-install
             pkgs.pv
           ];
           withHoogle = true;
