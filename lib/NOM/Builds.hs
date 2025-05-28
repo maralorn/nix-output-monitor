@@ -14,7 +14,8 @@ data StorePath = StorePath
 
 storePathByteStringParser :: Parser.Parser StorePath
 storePathByteStringParser =
-  StorePath . decodeUtf8
+  StorePath
+    . decodeUtf8
     <$> (Parser.string storePrefixBS *> Parser.take 32)
     <*> (decodeUtf8 <$> (Parser.Char.char '-' *> Parser.takeWhile (Parser.inClass "a-zA-Z0-9?=_.+-")))
 

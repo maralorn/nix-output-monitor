@@ -2,8 +2,8 @@
   description = "nix-output-monitor";
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-unstable";
-    pre-commit-hooks = {
-      url = "github:cachix/pre-commit-hooks.nix";
+    git-hooks = {
+      url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -12,7 +12,7 @@
       self,
       nixpkgs,
       flake-utils,
-      pre-commit-hooks,
+      git-hooks,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -66,20 +66,26 @@
           ];
         };
         checks = {
-          pre-commit-check = pre-commit-hooks.lib.${system}.run {
+          git-hooks-check = git-hooks.lib.${system}.run {
             src = ./.;
+            tools = {
+              fourmolu = lib.mkForce (lib.getBin pkgs.haskellPackages.fourmolu);
+              cabal-gild = lib.mkForce (lib.getBin pkgs.haskellPackages.cabal-gild);
+            };
             hooks = {
               hlint.enable = true;
-              nixfmt = {
+              nixfmt-rfc-style = {
                 excludes = [ "default.nix" ];
-                package = lib.getBin pkgs.nixfmt-rfc-style;
-              };
-              statix.enable = true;
-              cabal2nix.enable = true;
-              editorconfig-checker = {
                 enable = true;
-                excludes = [ ".*\\.md" ];
               };
+              cabal2nix.enable = true;
+              nil.enable = true;
+              editorconfig-checker = {
+                excludes = [ ".*\\.md" ];
+                enable = true;
+              };
+              deadnix.enable = true;
+              statix.enable = true;
               fourmolu.enable = true;
               ormolu.settings.defaultExtensions = [
                 "TypeApplications"
@@ -87,25 +93,25 @@
                 "ImportQualifiedPost"
                 "BlockArguments"
               ];
-              cabal-fmt.enable = true;
               shellcheck = {
                 enable = true;
                 excludes = [ "\\.zsh" ];
               };
+              cabal-gild.enable = true;
             };
           };
         };
         devShells.default = haskellPackages.shellFor {
           packages = _: [ packages.default ];
           buildInputs = [
-            pre-commit-hooks.packages.${system}.default
-            haskellPackages.haskell-language-server
+            git-hooks.packages.${system}.default
+            pkgs.haskell-language-server
             (lib.getBin pkgs.haskellPackages.weeder)
             pkgs.cabal-install
             pkgs.pv
           ];
           withHoogle = true;
-          inherit (self.checks.${system}.pre-commit-check) shellHook;
+          inherit (self.checks.${system}.git-hooks-check) shellHook;
         };
       }
     );
