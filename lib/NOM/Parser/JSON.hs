@@ -45,7 +45,7 @@ parseActivityType = \case
   110 -> pure PostBuildHookType
   111 -> pure BuildWaitingType
   112 -> pure FetchTreeType
-  other -> fail ("invalid activity result type: " <> show other)
+  other -> fail ("invalid activity type: " <> show other)
 
 parseAction :: JSON.Decoder NixJSONMessage
 parseAction = JSON.object $ do
@@ -120,6 +120,7 @@ parseResultAction = do
       activityType <- parseActivityType typeNum
       pure $ SetExpected activityType number
     107 -> PostBuildLogLine <$> one txt
+    108 -> FetchStatus <$> one txt
     other -> fail ("invalid activity result type: " <> show other)
   pure MkResultAction{id = idField, result}
 
