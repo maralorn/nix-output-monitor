@@ -40,6 +40,7 @@ data ActivityType where
   FetchTreeType :: ActivityType
   deriving stock (Show, Eq)
 
+-- | nix src/libutil/include/nix/util/logging.hh ActivityType
 data Activity where
   Unknown :: Activity
   CopyPath :: StorePath -> Host -> Host -> Activity
@@ -57,6 +58,7 @@ data Activity where
   FetchTree :: Activity
   deriving stock (Show, Eq, Ord, Generic)
 
+-- | nix src/libutil/include/nix/util/logging.hh ResultType
 data ActivityResult where
   FileLinked :: Int -> Int -> ActivityResult
   BuildLogLine :: Text -> ActivityResult
@@ -66,6 +68,7 @@ data ActivityResult where
   Progress :: ActivityProgress -> ActivityResult
   SetExpected :: ActivityType -> Int -> ActivityResult
   PostBuildLogLine :: Text -> ActivityResult
+  FetchStatus :: Text -> ActivityResult
   deriving stock (Show, Eq)
 
 data ActivityProgress = MkActivityProgress

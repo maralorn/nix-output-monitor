@@ -120,6 +120,7 @@ parseResultAction = do
       activityType <- parseActivityType typeNum
       pure $ SetExpected activityType number
     107 -> PostBuildLogLine <$> one txt
+    108 -> FetchStatus <$> one txt
     other -> fail ("invalid activity result type: " <> show other)
   pure MkResultAction{id = idField, result}
 
