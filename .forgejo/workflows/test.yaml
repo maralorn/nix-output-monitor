@@ -18,7 +18,7 @@ jobs:
           cp $(builders-configurator) ~/.config/nix/machines
           echo "builders = @$(pwd)/.config/nix/machines" >> ~/.config/nix/nix.conf
       - run: nix build --log-format bar-with-logs .#${{ matrix.attribute }} -v
-      - run: archive-nix-path
+      - run: archive-nix-path nix-output-monitor
   nix-flake-check:
     runs-on: nix
     env:
