@@ -65,7 +65,7 @@ nix-build --log-format internal-json -v |& nom --json
 
 #### Human readable log parsing
 
-It his highly recommended to always append `--log-format internal-json -v` (or use the above mentioned aliases.) and call `nom` with `--json`. That will give you much more informative output.
+It is highly recommended to always append `--log-format internal-json -v` (or use the above mentioned aliases.) and call `nom` with `--json`. That will give you much more informative output.
 
 If you are in a situation, where you can‘t use the json based nix output you can still use
 ```shell
@@ -74,7 +74,7 @@ nix-build |& nom
 
 **Warning:** Don‘t forget to redirect stderr. That's what the `&`, does.
 
-This has the advantage to also work with other commands like `nixos-rebuild` or `home-manager`, where it is not trivial to pass in the `--log-format internal-json -v` flag. nom will pass everything it reads through, if it does not understand it. This makes it ideal to attach it to scripts which output more then just `nix` output.
+This has the advantage to also work with other commands like `nixos-rebuild` or `home-manager`, where it is not trivial to pass in the `--log-format internal-json -v` flag. nom will pass everything it reads through, if it does not understand it. This makes it ideal to attach it to scripts which output more than just `nix` output.
 
 ### Preserving Colored Text
 
@@ -105,7 +105,7 @@ Nom tries to convey information via symbols and colors
 * `⏱︎`: running time
 * `∑`: a summary over all packages and hosts
 
-If you can‘t see all icons you maybe need another terminal font.
+If you can‘t see all icons you may need another terminal font.
 I recommend any font from `pkgs.nerdfonts` e.g. `"JetBrainsMono Nerd Font"`.
 Also different terminals might work differently well. I recommend: `pkgs.foot`.
 
@@ -114,7 +114,7 @@ Also different terminals might work differently well. I recommend: `pkgs.foot`.
 * Every entry in the nom tree stands for one derivation.
 * Children of a node are direct dependencies.
 * nom will try to show you the most relevant part of the dependency tree, roughly aiming to fill a third of your terminal
-* No build will be printed twice in the tree, it will only be shown for the lower most dependency.
+* No build will be printed twice in the tree, it will only be shown for the lowermost dependency.
 * nom will do it’s best to print all running or failed builds, downloads and uploads, but it does not print every direct child of a node.
 * Use the colors from above to read the summary
 
@@ -144,6 +144,6 @@ Right now nom uses four sources of information:
 * This program also makes assumptions like your nix-store is at "/nix/store".
 
 ### For human-readable log parsing mode:
-* nix-output-monitor receives most it's information from parsing nix-build output. The parser might be too strict or too loose for use cases I didn‘t think of. Then **the numbers displayed will be off**!
-* nix-build does not show info when a download or upload is finished, so we currently cannot differentiate between started and completed downloads.
+* nix-output-monitor receives most its information from parsing nix-build output. The parser might be too strict or too loose for use cases I didn‘t think of. Then **the numbers displayed will be off**!
+* nix-build does not show information when a download or upload is finished, so we currently cannot differentiate between started and completed downloads.
 * For completed build detection we assume that every derivation has an output called "out".
