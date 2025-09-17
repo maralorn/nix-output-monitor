@@ -127,9 +127,10 @@ printTraces traces maxHeight =
     ""
     (vertical <> " ")
     (vertical <> " ")
-    (horizontal <> markup (bold . yellow) (" " <> show (length interesting_traces) <> " Traces: ") :| (lines =<< filtered_traces))
+    (horizontal <> markup (bold . yellow) (" " <> show (length interesting_traces) <> traceLabel <> ": ") :| (lines =<< filtered_traces))
  where
   interesting_traces = toList traces
+  traceLabel = if length interesting_traces == 1 then " Trace" else " Traces"
   compact_traces = sum (length . lines <$> interesting_traces) > maxHeight
   filtered_traces = (if compact_traces then map compactError else id) interesting_traces
 
