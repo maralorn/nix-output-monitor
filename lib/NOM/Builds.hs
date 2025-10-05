@@ -58,10 +58,10 @@ parseIndentedStoreObject :: (MonadFail m) => Text -> m (Either Derivation StoreP
 parseIndentedStoreObject = either fail pure . TextParser.parseOnly indentedStoreObjectTextParser
 
 parseHost :: Text -> Host
-parseHost = \case
-  "" -> Localhost
-  "local" -> Localhost
-  host -> Host host
+parseHost host =
+  if host `elem` ["", "local", "local://", "unix", "unix://"]
+    then Localhost
+    else Host host
 
 newtype Derivation = Derivation {storePath :: StorePath}
   deriving stock (Show, Generic)
