@@ -169,7 +169,7 @@ withChange = (True <$)
 noChange :: (Applicative f) => f Bool
 noChange = pure False
 
-processResult :: (UpdateMonad m) => NixOldStyleMessage -> ProcessingT m Bool
+processResult :: NixOldStyleMessage -> ProcessingT m Bool
 processResult result = do
   now <- getNow
   case result of
@@ -195,7 +195,7 @@ processResult result = do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
 
-processJsonMessage :: (UpdateMonad m) => NixJSONMessage -> ProcessingT m Bool
+processJsonMessage :: NixJSONMessage -> ProcessingT m Bool
 processJsonMessage = \case
   Message MkMessageAction{message, level} | level <= Info && level > Error -> do
     let message' = encodeUtf8 message
