@@ -396,10 +396,10 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
               /= mempty
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
-                    || Set.size sorted_set
-                    < maxHeight
-                    || sort_key
-                    < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
+                     || Set.size sorted_set
+                     < maxHeight
+                     || sort_key
+                     < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
                  )
           new_seen_ids = CSet.insert thisDrv seen_ids
           new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
@@ -552,10 +552,10 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
                 $ markup green (done <> " " <> drvName)
                 <> " "
                 <> ( markup grey
-                      . unwords
-                      $ ( hostMarkup False buildInfo.host
-                            <> ifTimeDiffRelevant buildInfo.end buildInfo.start id
-                        )
+                       . unwords
+                       $ ( hostMarkup False buildInfo.host
+                             <> ifTimeDiffRelevant buildInfo.end buildInfo.start id
+                         )
                    )
             )
 

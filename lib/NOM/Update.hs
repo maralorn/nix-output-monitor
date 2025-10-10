@@ -105,15 +105,15 @@ updateStateNixJSONMessage input inputState =
   do
     ((hasChanged, msgs), outputState) <-
       {-# SCC "run_state" #-}
-        runStateT
-          ( runWriterT
-              ( sequence
-                  [ {-# SCC "input_received" #-} setInputReceived
-                  , {-# SCC "processing" #-} processJsonMessage input
-                  ]
-              )
-          )
-          inputState
+      runStateT
+        ( runWriterT
+            ( sequence
+                [ {-# SCC "input_received" #-} setInputReceived
+                , {-# SCC "processing" #-} processJsonMessage input
+                ]
+            )
+        )
+        inputState
     let retval = if or hasChanged then Just outputState else Nothing
         errors = lefts msgs
     {-# SCC "emitting_new_state" #-} pure ((errors, ByteString.unlines (rights msgs)), retval)
