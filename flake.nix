@@ -48,23 +48,26 @@
             hlib.justStaticExecutables
             (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
 
-            (hlib.overrideCabal ({
-              src = cleanSelf;
-              doCheck = false;
-              buildTools = [ pkgs.installShellFiles ];
-              postInstall = ''
-                ln -s nom "$out/bin/nom-build"
-                ln -s nom "$out/bin/nom-shell"
-                chmod a+x $out/bin/nom-shell
-                installShellCompletion completions/*
-              '';
-            } // lib.optionalAttrs (system == "x86_64-linux") {
-              doCheck = true;
-              preCheck = ''
-                # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
-                export TESTS_FROM_FILE=true;
-              '';
-            }))
+            (hlib.overrideCabal (
+              {
+                src = cleanSelf;
+                doCheck = false;
+                buildTools = [ pkgs.installShellFiles ];
+                postInstall = ''
+                  ln -s nom "$out/bin/nom-build"
+                  ln -s nom "$out/bin/nom-shell"
+                  chmod a+x $out/bin/nom-shell
+                  installShellCompletion completions/*
+                '';
+              }
+              // lib.optionalAttrs (system == "x86_64-linux") {
+                doCheck = true;
+                preCheck = ''
+                  # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
+                  export TESTS_FROM_FILE=true;
+                '';
+              }
+            ))
           ];
         };
         checks = {
