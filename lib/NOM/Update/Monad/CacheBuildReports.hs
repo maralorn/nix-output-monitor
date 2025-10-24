@@ -14,7 +14,7 @@ import NOM.Builds (Host (..))
 import Relude
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory)
 import System.FileLock (SharedExclusive (Exclusive), withFileLock)
-import System.FilePath ((<.>), (</>))
+import System.FilePath ((</>))
 
 -- Exposed functions
 
@@ -53,13 +53,13 @@ tryUpdateBuildReports updateFunc = do
   dir <- buildReportsDir
   catchIO (createDirectoryIfMissing True dir) (const pass)
   withFileLock
-    (dir </> buildReportsFilename <.> "lock")
+    (dir </> buildReportsFilename)
     Exclusive
     (const $ updateBuildReportsUnlocked updateFunc dir)
 
 updateBuildReportsUnlocked :: (BuildReportMap -> BuildReportMap) -> FilePath -> IO BuildReportMap
 updateBuildReportsUnlocked updateFunc dir = do
-  reports <- updateFunc <$> loadBuildReports dir
+  !reports <- updateFunc <$> loadBuildReports dir
   reports <$ saveBuildReports dir reports
 
 buildReportsDir :: IO FilePath
