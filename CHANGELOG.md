@@ -1,5 +1,38 @@
 # Revision history for nix-output-monitor
 
+## 2.1.7 -- 2025-11-08
+
+## Highlights
+
+* Fixed support for build time estimates. The guess is now the median of the last 10 builds (by drv name without hash and build host name).
+* Fixes compatibility with some additions in nix internal-json format.
+* #200 hopefully fixes download reporting for newer nix versions. (Haven’t yet tested on that versions, waiting for user feedback.)
+
+## What's Changed
+* Add missing result type 108 fetchStatus by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/194
+* fix: typographical errors by @sheeeng in https://github.com/maralorn/nix-output-monitor/pull/199
+* Use singular "Trace" when count is 1 by @osbm in https://github.com/maralorn/nix-output-monitor/pull/202
+* fix: Local store URL parsing (#200) by @blackheaven in https://github.com/maralorn/nix-output-monitor/pull/203
+* Fix build on systems other than x86_64-linux by @psentee in https://github.com/maralorn/nix-output-monitor/pull/204
+* Switch csv cache location by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/207
+* Use repeatedly by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/208
+* Use median of last 20 builds for estimate by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/209
+* Move toHost/fromHost by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/210
+* Avoid doing lazy IO on build-reports.csv by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/211
+* Rename field in csv to be clearer by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/213
+* Add fourmolu to shell to fix formatting discrepancies by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/214
+* More reordering by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/215
+* completions: add fish shell support by @considerate in https://github.com/maralorn/nix-output-monitor/pull/188
+* Improve download size parsing by @maralorn in https://github.com/maralorn/nix-output-monitor/pull/216
+
+## New Contributors
+* @sheeeng made their first contribution in https://github.com/maralorn/nix-output-monitor/pull/199
+* @osbm made their first contribution in https://github.com/maralorn/nix-output-monitor/pull/202
+* @psentee made their first contribution in https://github.com/maralorn/nix-output-monitor/pull/204
+* @considerate made their first contribution in https://github.com/maralorn/nix-output-monitor/pull/188
+
+**Full Changelog**: https://github.com/maralorn/nix-output-monitor/compare/v2.1.6...v2.1.7
+
 ## 2.1.6 -- 2025-04-07
 
 * Improve finished message coloring by @Aehmlo
