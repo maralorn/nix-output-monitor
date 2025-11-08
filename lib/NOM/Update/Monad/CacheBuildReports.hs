@@ -60,7 +60,7 @@ tryUpdateBuildReports updateFunc = do
 
 updateBuildReportsUnlocked :: (BuildReportMap -> BuildReportMap) -> FilePath -> IO BuildReportMap
 updateBuildReportsUnlocked updateFunc dir = do
-  !reports <- updateFunc <$> loadBuildReports dir
+  reports <- updateFunc <$> loadBuildReports dir
   reports <$ saveBuildReports dir reports
 
 buildReportsDir :: IO FilePath
