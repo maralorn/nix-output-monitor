@@ -30,7 +30,7 @@ import NOM.State (
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.Util (repeatedly)
-import Optics (gfield, (%~))
+import Optics (gfield, modifying', (%~))
 import Relude
 import Safe.Foldable (minimumMay)
 
@@ -41,7 +41,7 @@ sortDepsOfSet parents = do
       sort_parent drvId = do
         drvInfo <- getDerivationInfos drvId
         let newDrvInfo = (gfield @"inputDerivations" %~ sort_derivations) drvInfo
-        modify' (gfield @"derivationInfos" %~ CMap.insert drvId newDrvInfo)
+        modifying' #derivationInfos $ CMap.insert drvId newDrvInfo
       sort_derivations :: Seq InputDerivation -> Seq InputDerivation
       sort_derivations = Seq.sortOn (sort_key . (.derivation))
 

@@ -47,6 +47,7 @@ common common-config
     LambdaCase
     NoFieldSelectors
     NoImplicitPrelude
+    OverloadedLabels
     OverloadedRecordDot
     OverloadedStrings
     RecordWildCards

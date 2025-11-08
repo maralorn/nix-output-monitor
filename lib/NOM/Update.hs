@@ -68,7 +68,7 @@ import NOM.Update.Monad (
 import NOM.Util (parseOneText, repeatedly)
 import Nix.Derivation qualified as Nix
 import Numeric.Extra (intToDouble)
-import Optics (gconstructor, gfield, has, preview, (%), (%~), (.~))
+import Optics (assign', gconstructor, gfield, has, modifying', preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
@@ -91,10 +91,10 @@ maintainState now = execState $ do
   currentState <- get
   unless (CSet.null currentState.touchedIds) $ do
     sortDepsOfSet currentState.touchedIds
-    modify' (gfield @"forestRoots" %~ Seq.sortOn (sortKey currentState))
-    modify' (gfield @"touchedIds" .~ mempty)
+    modifying' #forestRoots $ Seq.sortOn (sortKey currentState)
+    assign' #touchedIds mempty
   when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
-    modify' (gfield @"evaluationState" %~ \old_state -> old_state{lastFileName = Strict.Nothing})
+    modifying' #evaluationState \old_state -> old_state{lastFileName = Strict.Nothing}
 
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
@@ -220,7 +220,7 @@ processJsonMessage = \case
         withChange do
           errors <- gets (.nixErrors)
           unless (any (Text.isInfixOf (Text.drop 7 stripped) . stripANSICodes) errors) do
-            modify' (gfield @"nixErrors" %~ (<> (message Seq.<| mempty)))
+            modifying' #nixErrors (<> (message Seq.<| mempty))
             tell [Right (encodeUtf8 message)]
           whenJust
             (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
@@ -232,7 +232,7 @@ processJsonMessage = \case
         withChange do
           traces <- gets (.nixTraces)
           unless (any (Text.isInfixOf (Text.drop 7 stripped) . stripANSICodes) traces) do
-            modify' (gfield @"nixTraces" %~ (<> (message Seq.<| mempty)))
+            modifying' #nixTraces (<> (message Seq.<| mempty))
             tell [Right (encodeUtf8 message)]
           whenJust
             (snd <$> parseOneText Parser.oldStyleParser (stripped <> "\n"))
@@ -240,7 +240,7 @@ processJsonMessage = \case
   Message MkMessageAction{message} | Just suffix <- Text.stripPrefix "evaluating file '" message -> withChange do
     let file_name = Text.dropEnd 1 suffix
     now <- getNow
-    modify' (gfield @"evaluationState" %~ \old -> old{count = old.count + 1, lastFileName = Strict.Just file_name, at = now})
+    modifying' #evaluationState \old -> old{count = old.count + 1, lastFileName = Strict.Just file_name, at = now}
   Result MkResultAction{result = BuildLogLine line, id = id'} ->
     {-# SCC "pass_through_build_line" #-}
     do
@@ -249,9 +249,9 @@ processJsonMessage = \case
       tell [Right (encodeUtf8 (prefix <> line))]
       noChange
   Result MkResultAction{result = SetPhase phase, id = id'} ->
-    {-# SCC "updating_phase" #-} withChange $ modify' (gfield @"activities" %~ IntMap.adjust (gfield @"phase" .~ Strict.Just phase) id'.value)
+    {-# SCC "updating_phase" #-} withChange $ modifying' #activities $ IntMap.adjust (gfield @"phase" .~ Strict.Just phase) id'.value
   Result MkResultAction{result = Progress progress, id = id'} ->
-    {-# SCC "updating_progress" #-} withChange $ modify' (gfield @"activities" %~ IntMap.adjust (gfield @"progress" .~ Strict.Just progress) id'.value)
+    {-# SCC "updating_progress" #-} withChange $ modifying' #activities $ IntMap.adjust (gfield @"progress" .~ Strict.Just progress) id'.value
   Start startAction@MkStartAction{id = id'} ->
     {-# SCC "starting_action" #-}
     do
@@ -259,7 +259,7 @@ processJsonMessage = \case
       when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
       let set_interesting = withChange do
             now <- getNow
-            modify' (gfield @"interestingActivities" %~ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now))
+            modifying' #interestingActivities $ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now)
       changed <- case startAction.activity of
         JSON.Build drvName host -> withChange do
           now <- getNow
@@ -275,14 +275,14 @@ processJsonMessage = \case
         JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
         JSON.QueryPathInfo{} -> set_interesting
         _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
-      when changed $ modify' (gfield @"activities" %~ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing))
+      when changed $ modifying' #activities $ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
       pure changed
   Stop MkStopAction{id = id'} ->
     {-# SCC "stoping_action" #-}
     do
       activity <- gets (\s -> IntMap.lookup id'.value s.activities)
       interesting_activity <- gets (\s -> IntMap.lookup id'.value s.interestingActivities)
-      modify' (gfield @"interestingActivities" %~ IntMap.delete id'.value)
+      modifying' #interestingActivities $ IntMap.delete id'.value
       case activity of
         Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
           now <- getNow
@@ -334,7 +334,7 @@ finishBuilds host builds = do
       Nothing -> pass
       Just finishedBuilds -> do
         newBuildReports <- reportFinishingBuilds host finishedBuilds
-        modify' (gfield @"buildReports" .~ newBuildReports)
+        assign' #buildReports newBuildReports
     )
     $ nonEmpty derivationsWithNames
   now <- getNow
@@ -393,14 +393,14 @@ insertDerivation derivation drvId = do
     derivation.outputs & Map.mapKeys (parseOutputName . Text.copy) & Map.traverseMaybeWithKey \_ path ->
       parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
         pathId <- getStorePathId pathName
-        modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId)
+        modifying' #storePathInfos $ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId
         pure pathId
   inputSources <-
     derivation.inputSrcs & flip foldlM mempty \acc path -> do
       pathIdMay <-
         parseStorePath (toText path) & mapM \pathName -> do
           pathId <- getStorePathId pathName
-          modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"inputFor" %~ CSet.insert drvId) pathId)
+          modifying' #storePathInfos $ CMap.adjust (gfield @"inputFor" %~ CSet.insert drvId) pathId
           pure pathId
       pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
@@ -408,8 +408,8 @@ insertDerivation derivation drvId = do
       depIdMay <-
         parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
-          modify' (gfield @"derivationInfos" %~ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId)
-          modify' (gfield @"forestRoots" %~ Seq.filter (/= depId))
+          modifying' #derivationInfos $ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId
+          modifying' #forestRoots $ Seq.filter (/= depId)
           pure depId
       pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = Set.map (parseOutputName . Text.copy) outputs_of_input}) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
@@ -429,7 +429,7 @@ insertDerivation derivation drvId = do
           drvId
     )
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
-  when noParents $ modify' (gfield @"forestRoots" %~ (drvId Seq.<|))
+  when noParents $ modifying' #forestRoots (drvId Seq.<|)
 
 planBuilds :: Set DerivationId -> NOMState ()
 planBuilds drvIds = forM_ drvIds \drvId ->
@@ -495,7 +495,7 @@ updateDerivationState drvId updateStatus = do
   let oldStatus = derivation_infos.buildStatus
       newStatus = updateStatus oldStatus
   when (oldStatus /= newStatus) do
-    modify' (gfield @"derivationInfos" %~ CMap.adjust (gfield @"buildStatus" .~ newStatus) drvId)
+    modifying' #derivationInfos $ CMap.adjust (gfield @"buildStatus" .~ newStatus) drvId
     let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
         clear_summary = clearDerivationIdFromSummary oldStatus drvId
 
@@ -503,7 +503,7 @@ updateDerivationState drvId updateStatus = do
     updateParents False update_summary clear_summary (derivation_infos.derivationParents)
 
     -- Update fullSummary
-    modify' (gfield @"fullSummary" %~ update_summary)
+    modifying' #fullSummary update_summary
 
 updateParents :: Bool -> (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
 updateParents force_direct update_func clear_func direct_parents = do
@@ -514,7 +514,7 @@ updateParents force_direct update_func clear_func direct_parents = do
         %~ apply_to_all_summaries update_func relevant_parents
         . apply_to_all_summaries clear_func (CSet.difference parents relevant_parents)
     )
-  modify' (gfield @"touchedIds" %~ CSet.union parents)
+  modifying' #touchedIds $ CSet.union parents
  where
   apply_to_all_summaries ::
     (DependencySummary -> DependencySummary) ->
@@ -557,7 +557,7 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   store_path_info <- getStorePathInfos storePathId
   let oldStatus = store_path_info.states
       newStatus = updateStorePathStates new_store_path_state update_store_path_state oldStatus
-  modify' (gfield @"storePathInfos" %~ CMap.adjust (gfield @"states" .~ newStatus) storePathId)
+  modifying' #storePathInfos $ CMap.adjust (gfield @"states" .~ newStatus) storePathId
 
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
       clear_summary = clearStorePathsFromSummary oldStatus storePathId
@@ -566,4 +566,4 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   updateParents True update_summary clear_summary (Strict.maybe id CSet.insert store_path_info.producer store_path_info.inputFor)
 
   -- Update fullSummary
-  modify' (gfield @"fullSummary" %~ update_summary)
+  modifying' #fullSummary update_summary

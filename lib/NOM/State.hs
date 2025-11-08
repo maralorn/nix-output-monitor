@@ -62,7 +62,7 @@ import NOM.Update.Monad (
   getNow,
  )
 import NOM.Util (repeatedly)
-import Optics (gfield, (%~))
+import Optics (gfield, modifying', (%~))
 import Relude
 import Type.Strict qualified as StrictType
 
@@ -299,8 +299,8 @@ getStorePathId :: StorePath -> NOMState StorePathId
 getStorePathId path = do
   let newId = do
         key <- gets (CMap.nextKey . (.storePathInfos))
-        modify' (gfield @"storePathInfos" %~ CMap.insert key (emptyStorePathInfo path))
-        modify' (gfield @"storePathIds" %~ Map.insert path key)
+        modifying' #storePathInfos $ CMap.insert key (emptyStorePathInfo path)
+        modifying' #storePathIds $ Map.insert path key
         pure key
   gets (Map.lookup path . (.storePathIds)) >>= maybe newId pure
 
@@ -308,8 +308,8 @@ getDerivationId :: Derivation -> NOMState DerivationId
 getDerivationId drv = do
   let newId = do
         key <- gets (CMap.nextKey . (.derivationInfos))
-        modify' (gfield @"derivationInfos" %~ CMap.insert key (emptyDerivationInfo drv))
-        modify' (gfield @"derivationIds" %~ Map.insert drv key)
+        modifying' #derivationInfos $ CMap.insert key (emptyDerivationInfo drv)
+        modifying' #derivationIds $ Map.insert drv key
         pure key
   gets (Map.lookup drv . (.derivationIds)) >>= maybe newId pure
 
