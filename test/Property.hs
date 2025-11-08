@@ -45,8 +45,8 @@ main = do
             assertEqual
               "result matches"
               ( PlanDownloads
-                  134.19
-                  1863.82
+                  (134.19 * 1024 ** 2)
+                  (1863.82 * 1024 ** 2)
                   (singleton (StorePath "60zb5dndaw1fzir3s69sy3xhy19gll1p" "ghc-8.8.2"))
               )
               result2
