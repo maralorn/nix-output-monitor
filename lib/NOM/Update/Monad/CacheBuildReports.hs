@@ -72,7 +72,7 @@ buildReportsFilename = "build-reports.csv"
 csvHeaderHost, csvHeaderDrvName, csvHeaderEndTime, csvHeaderBuildSecs :: ByteString
 csvHeaderHost = "hostname"
 csvHeaderDrvName = "derivation name"
-csvHeaderEndTime = "end time"
+csvHeaderEndTime = "utc time"
 csvHeaderBuildSecs = "build seconds"
 
 timeFormat :: String
