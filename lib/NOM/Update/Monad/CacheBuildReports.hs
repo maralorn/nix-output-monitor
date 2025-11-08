@@ -126,19 +126,18 @@ loadBuildReports :: FilePath -> IO BuildReportMap
 loadBuildReports dir = catchIO tryLoad mempty
  where
   tryLoad =
-    readFileLBS (dir </> buildReportsFilename)
-      <&> ( decodeByName
-              >>> either mempty snd
-              >>> toList
-              >>> fromCSV
-          )
+    readFileBS (dir </> buildReportsFilename)
+      >>= (toLazy >>> decodeByName >>> either (const $ fail "Could not parse CSV") (pure . snd))
+      <&> (toList >>> fromCSV)
 
 toCSV :: BuildReportMap -> [BuildReport]
-toCSV =
-  fmap
-    (\((host, drvName), (endTime, buildSecs)) -> BuildReport{..})
-    . traverse Map.assocs
-    <=< Map.assocs
+toCSV = fmap toCSVLine . traverse Map.assocs <=< Map.assocs
+
+toCSVLine :: ((Host, Text), (UTCTime, Int)) -> BuildReport
+toCSVLine ((host, drvName), (endTime, buildSecs)) = BuildReport{..}
 
 fromCSV :: [BuildReport] -> BuildReportMap
-fromCSV = Map.fromListWith Map.union . fmap (\BuildReport{..} -> ((host, drvName), Map.singleton endTime buildSecs))
+fromCSV = fmap fromCSVLine >>> Map.fromListWith Map.union
+
+fromCSVLine :: BuildReport -> ((Host, Text), Map UTCTime Int)
+fromCSVLine BuildReport{..} = ((host, drvName), Map.singleton endTime buildSecs)
