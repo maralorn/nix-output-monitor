@@ -340,10 +340,6 @@ finishBuilds host builds = do
   now <- getNow
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
--- | per build
-historyLimit :: Int
-historyLimit = 10
-
 injectBuildReports :: (MonadNow m) => Host -> NonEmpty (DerivationInfo, Int) -> m (BuildReportMap -> BuildReportMap)
 injectBuildReports host builds = do
   timestamp <- getUTC
@@ -353,8 +349,14 @@ injectBuildReports host builds = do
   insertBuildReport now name =
     Map.singleton now
       >>> Map.insertWith (<>) (host, getReportName name)
-      >>> fmap enforce_history_limit
-  enforce_history_limit m = Map.drop (Map.size m - historyLimit) m
+      >>> fmap (fmap enforceHistoryLimit)
+
+enforceHistoryLimit :: Map UTCTime Int -> Map UTCTime Int
+enforceHistoryLimit m = Map.drop (Map.size m - historyLimit) m
+
+-- | per build
+historyLimit :: Int
+historyLimit = 10
 
 failedBuild :: Double -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
