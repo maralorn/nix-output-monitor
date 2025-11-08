@@ -14,7 +14,9 @@ import Data.Attoparsec.ByteString.Char8 (
   double,
   endOfLine,
   isEndOfLine,
+  skipSpace,
   takeTill,
+  try,
  )
 import NOM.Builds (
   Derivation (..),
@@ -80,10 +82,28 @@ planDownloads =
             , string "these " *> (decimal :: Parser Int) *> string " paths"
             ]
             *> string " will be fetched ("
-            *> double
+            *> byteSize
         )
-    <*> (string " MiB download, " *> double)
-    <*> (string " MiB unpacked):" *> endOfLine *> (fromList <$> many planDownloadLine))
+    <*> (" download, " *> byteSize)
+    <*> (" unpacked):" *> endOfLine *> (fromList <$> many planDownloadLine))
+
+byteSize :: Parser Double
+byteSize = do
+  num <- double
+  skipSpace
+  unit <- anyChar
+  _ <- try (string "iB")
+  power <- case unit of
+    'K' -> pure 1
+    'M' -> pure 2
+    'G' -> pure 3
+    'T' -> pure 4
+    'P' -> pure 5
+    'E' -> pure 6
+    'Z' -> pure 7
+    'Y' -> pure 8
+    x -> fail $ "Unknown unit: " <> [x] <> "iB"
+  pure $ num * (1024 ** power)
 
 planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePathByteStringParser <* endOfLine
