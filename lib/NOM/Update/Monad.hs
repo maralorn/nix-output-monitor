@@ -13,6 +13,7 @@ import Control.Monad.Trans.Writer.CPS (WriterT)
 -- attoparsec
 import Data.Attoparsec.Text (eitherResult, parse)
 import Data.Text.IO qualified as TextIO
+import Data.Time (UTCTime, getCurrentTime)
 import GHC.Clock qualified
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))
@@ -26,15 +27,19 @@ type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuil
 
 class (Monad m) => MonadNow m where
   getNow :: m Double
+  getUTC :: m UTCTime
 
 instance MonadNow IO where
   getNow = GHC.Clock.getMonotonicTime
+  getUTC = getCurrentTime
 
 instance (MonadNow m) => MonadNow (StateT a m) where
   getNow = lift getNow
+  getUTC = lift getUTC
 
 instance (MonadNow m) => MonadNow (WriterT a m) where
   getNow = lift getNow
+  getUTC = lift getUTC
 
 class (Monad m) => MonadReadDerivation m where
   getDerivation :: Derivation -> m (Either NOMError (Nix.Derivation FilePath Text))

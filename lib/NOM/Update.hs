@@ -8,7 +8,7 @@ import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
-import Data.Time (NominalDiffTime)
+import Data.Time (NominalDiffTime, UTCTime)
 import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseIndentedStoreObject, parseStorePath)
 import NOM.Error (NOMError)
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
@@ -67,6 +67,7 @@ import NOM.Update.Monad (
  )
 import NOM.Util (parseOneText, repeatedly)
 import Nix.Derivation qualified as Nix
+import Numeric.Extra (intToDouble)
 import Optics (gconstructor, gfield, has, preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
@@ -316,13 +317,10 @@ activityPrefix activities = case activities of
     pure $ toText (setSGRCode [Reset]) <> markup blue (appendDifferingPlatform nomState drvInfo (getReportName drvInfo) <> "> ")
   _ -> pure ""
 
-movingAverage :: Double
-movingAverage = 0.5
-
 reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> NonEmpty (DerivationInfo, Double) -> m BuildReportMap
 reportFinishingBuilds host builds = do
   now <- getNow
-  updateBuildReports (modifyBuildReports host (timeDiffInt now <<$>> builds))
+  updateBuildReports =<< injectBuildReports host (timeDiffInt now <<$>> builds)
 
 -- | time difference in seconds rounded down
 timeDiffInt :: Double -> Double -> Int
@@ -342,13 +340,21 @@ finishBuilds host builds = do
   now <- getNow
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
-modifyBuildReports :: Host -> NonEmpty (DerivationInfo, Int) -> BuildReportMap -> BuildReportMap
-modifyBuildReports host = repeatedly (uncurry insertBuildReport)
+-- | per build
+historyLimit :: Int
+historyLimit = 20
+
+injectBuildReports :: (MonadNow m) => Host -> NonEmpty (DerivationInfo, Int) -> m (BuildReportMap -> BuildReportMap)
+injectBuildReports host builds = do
+  timestamp <- getUTC
+  pure $ repeatedly (uncurry (insertBuildReport timestamp)) builds
  where
-  insertBuildReport name =
-    Map.insertWith
-      (\new old -> floor (movingAverage * fromIntegral new + (1 - movingAverage) * fromIntegral old))
-      (host, getReportName name)
+  insertBuildReport :: UTCTime -> DerivationInfo -> Int -> BuildReportMap -> BuildReportMap
+  insertBuildReport now name =
+    Map.singleton now
+      >>> Map.insertWith (<>) (host, getReportName name)
+      >>> fmap enforce_history_limit
+  enforce_history_limit m = Map.drop (Map.size m - historyLimit) m
 
 failedBuild :: Double -> DerivationId -> FailType -> NOMState ()
 failedBuild now drv code = updateDerivationState drv update
@@ -468,9 +474,17 @@ uploaded host pathId end =
 building :: Host -> Derivation -> Double -> Maybe ActivityId -> ProcessingT m ()
 building host drvName now activityId = do
   reportName <- getReportName <$> lookupDerivationInfos drvName
-  lastNeeded <- Map.lookup (host, reportName) . (.buildReports) <$> get
+  lastNeeded <- (median <=< Map.lookup (host, reportName)) . (.buildReports) <$> get
   drvId <- lookupDerivation drvName
   updateDerivationState drvId (const (Building (MkBuildInfo now host (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ())))
+
+median :: Map a Int -> Maybe Int
+median xs = case drop ((len - 1) `div` 2) $ sort $ toList xs of
+  x : _ | odd len -> Just x
+  low : high : _ -> Just $ floor $ (intToDouble low + intToDouble high) / 2
+  _ -> Nothing
+ where
+  len = Map.size xs
 
 updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus) -> NOMState ()
 updateDerivationState drvId updateStatus = do
