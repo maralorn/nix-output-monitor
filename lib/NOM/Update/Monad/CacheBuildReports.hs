@@ -23,8 +23,7 @@ class (Monad m) => MonadCacheBuildReports m where
   getCachedBuildReports :: m BuildReportMap
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
 
-timeFormat :: String
-timeFormat = "%F %T"
+type BuildReportMap = Map (Host, Text) (Map UTCTime Int)
 
 data BuildReport = BuildReport
   { host :: Host
@@ -34,11 +33,50 @@ data BuildReport = BuildReport
   }
   deriving stock (Generic, Show, Eq)
 
+instance MonadCacheBuildReports IO where
+  getCachedBuildReports = do
+    dir <- buildReportsDir
+    loadBuildReports dir
+  updateBuildReports updateFunc = catchAny (tryUpdateBuildReports updateFunc) mempty
+
+instance (MonadCacheBuildReports m) => MonadCacheBuildReports (StateT a m) where
+  getCachedBuildReports = lift getCachedBuildReports
+  updateBuildReports = lift . updateBuildReports
+
+instance (MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
+  getCachedBuildReports = lift getCachedBuildReports
+  updateBuildReports = lift . updateBuildReports
+
+-- Implementation
+
+tryUpdateBuildReports :: (BuildReportMap -> BuildReportMap) -> IO BuildReportMap
+tryUpdateBuildReports updateFunc = do
+  dir <- buildReportsDir
+  catchIO (createDirectoryIfMissing True dir) (const pass)
+  withFileLock
+    (dir </> buildReportsFilename <.> "lock")
+    Exclusive
+    (const $ updateBuildReportsUnlocked updateFunc dir)
+
+updateBuildReportsUnlocked :: (BuildReportMap -> BuildReportMap) -> FilePath -> IO BuildReportMap
+updateBuildReportsUnlocked updateFunc dir = do
+  !reports <- updateFunc <$> loadBuildReports dir
+  reports <$ saveBuildReports dir reports
+
+buildReportsDir :: IO FilePath
+buildReportsDir = getXdgDirectory XdgState "nix-output-monitor"
+
+buildReportsFilename :: FilePath
+buildReportsFilename = "build-reports.csv"
+
 csvHeaderHost, csvHeaderDrvName, csvHeaderEndTime, csvHeaderBuildSecs :: ByteString
 csvHeaderHost = "hostname"
 csvHeaderDrvName = "derivation name"
 csvHeaderEndTime = "end time"
 csvHeaderBuildSecs = "build seconds"
+
+timeFormat :: String
+timeFormat = "%F %T"
 
 instance FromNamedRecord BuildReport where
   parseNamedRecord m =
@@ -76,44 +114,6 @@ instance DefaultOrdered BuildReport where
       , csvHeaderEndTime
       , csvHeaderBuildSecs
       ]
-
-type BuildReportMap = Map (Host, Text) (Map UTCTime Int)
-
-instance MonadCacheBuildReports IO where
-  getCachedBuildReports = do
-    dir <- buildReportsDir
-    loadBuildReports dir
-  updateBuildReports updateFunc = catchAny (tryUpdateBuildReports updateFunc) mempty
-
-instance (MonadCacheBuildReports m) => MonadCacheBuildReports (StateT a m) where
-  getCachedBuildReports = lift getCachedBuildReports
-  updateBuildReports = lift . updateBuildReports
-
-instance (MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) where
-  getCachedBuildReports = lift getCachedBuildReports
-  updateBuildReports = lift . updateBuildReports
-
--- Implementation
-
-tryUpdateBuildReports :: (BuildReportMap -> BuildReportMap) -> IO BuildReportMap
-tryUpdateBuildReports updateFunc = do
-  dir <- buildReportsDir
-  catchIO (createDirectoryIfMissing True dir) (const pass)
-  withFileLock
-    (dir </> buildReportsFilename <.> "lock")
-    Exclusive
-    (const $ updateBuildReportsUnlocked updateFunc dir)
-
-updateBuildReportsUnlocked :: (BuildReportMap -> BuildReportMap) -> FilePath -> IO BuildReportMap
-updateBuildReportsUnlocked updateFunc dir = do
-  reports <- updateFunc <$> loadBuildReports dir
-  reports <$ saveBuildReports dir reports
-
-buildReportsDir :: IO FilePath
-buildReportsDir = getXdgDirectory XdgState "nix-output-monitor"
-
-buildReportsFilename :: FilePath
-buildReportsFilename = "build-reports.csv"
 
 saveBuildReports :: FilePath -> BuildReportMap -> IO ()
 saveBuildReports dir reports = catchIO trySave mempty
