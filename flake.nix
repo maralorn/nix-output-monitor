@@ -109,6 +109,7 @@
         devShells.default = haskellPackages.shellFor {
           packages = _: [ packages.default ];
           buildInputs = [
+            (lib.getBin pkgs.haskellPackages.fourmolu)
             git-hooks.packages.${system}.default
             pkgs.haskell-language-server
             (lib.getBin pkgs.haskellPackages.weeder)
