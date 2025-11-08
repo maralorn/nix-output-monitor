@@ -1,6 +1,6 @@
 cabal-version: 2.2
 name: nix-output-monitor
-version: 2.1.7
+version: 2.1.8
 synopsis:
   Processes output of Nix commands to show helpful and pretty information
 

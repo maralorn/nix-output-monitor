@@ -1,5 +1,9 @@
 # Revision history for nix-output-monitor
 
+## 2.1.8 -- 2025-11-08
+
+* Fix bug in history limit enforcement
+
 ## 2.1.7 -- 2025-11-08
 
 ## Highlights
