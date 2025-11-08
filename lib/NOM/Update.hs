@@ -342,7 +342,7 @@ finishBuilds host builds = do
 
 -- | per build
 historyLimit :: Int
-historyLimit = 20
+historyLimit = 10
 
 injectBuildReports :: (MonadNow m) => Host -> NonEmpty (DerivationInfo, Int) -> m (BuildReportMap -> BuildReportMap)
 injectBuildReports host builds = do
