@@ -122,6 +122,12 @@ saveBuildReports dir reports = catchIO trySave mempty
     createDirectoryIfMissing True dir
     writeFileLBS (dir </> buildReportsFilename) (encodeDefaultOrderedByName . toCSV $ reports)
 
+toCSV :: BuildReportMap -> [BuildReport]
+toCSV = fmap toCSVLine . traverse Map.assocs <=< Map.assocs
+
+toCSVLine :: ((Host, Text), (UTCTime, Int)) -> BuildReport
+toCSVLine ((host, drvName), (endTime, buildSecs)) = BuildReport{..}
+
 loadBuildReports :: FilePath -> IO BuildReportMap
 loadBuildReports dir = catchIO tryLoad mempty
  where
@@ -129,12 +135,6 @@ loadBuildReports dir = catchIO tryLoad mempty
     readFileBS (dir </> buildReportsFilename)
       >>= (toLazy >>> decodeByName >>> either (const $ fail "Could not parse CSV") (pure . snd))
       <&> (toList >>> fromCSV)
-
-toCSV :: BuildReportMap -> [BuildReport]
-toCSV = fmap toCSVLine . traverse Map.assocs <=< Map.assocs
-
-toCSVLine :: ((Host, Text), (UTCTime, Int)) -> BuildReport
-toCSVLine ((host, drvName), (endTime, buildSecs)) = BuildReport{..}
 
 fromCSV :: [BuildReport] -> BuildReportMap
 fromCSV = fmap fromCSVLine >>> Map.fromListWith Map.union
