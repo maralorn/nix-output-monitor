@@ -12,7 +12,7 @@ import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
 import Data.Map.Strict qualified as Map
 import NOM.Builds (Host (..))
 import Relude
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
 import System.FileLock (SharedExclusive (Exclusive), withFileLock)
 import System.FilePath ((<.>), (</>))
 
@@ -63,7 +63,7 @@ updateBuildReportsUnlocked updateFunc dir = do
   reports <$ saveBuildReports dir reports
 
 buildReportsDir :: IO FilePath
-buildReportsDir = getXdgDirectory XdgCache "nix-output-monitor"
+buildReportsDir = getXdgDirectory XdgState "nix-output-monitor"
 
 buildReportsFilename :: FilePath
 buildReportsFilename = "build-reports.csv"
