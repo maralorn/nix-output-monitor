@@ -1,10 +1,10 @@
-module NOM.Util (foldMapEndo, forMaybeM, parseOne, parseOneText) where
+module NOM.Util (repeatedly, forMaybeM, parseOne, parseOneText) where
 
 import Data.Attoparsec.ByteString qualified as Parser
 import Relude
 
-foldMapEndo :: (Foldable f) => (b -> a -> a) -> f b -> a -> a
-foldMapEndo f = appEndo . foldMap (Endo . f)
+repeatedly :: (Foldable f) => (b -> a -> a) -> f b -> a -> a
+repeatedly = flip . foldl' . flip
 
 forMaybeM :: (Monad m) => [a] -> (a -> m (Maybe b)) -> m [b]
 forMaybeM = flip mapMaybeM

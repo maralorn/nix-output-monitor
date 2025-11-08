@@ -61,7 +61,7 @@ import NOM.Update.Monad (
   MonadNow,
   getNow,
  )
-import NOM.Util (foldMapEndo)
+import NOM.Util (repeatedly)
 import Optics (gfield, (%~))
 import Relude
 import Type.Strict qualified as StrictType
@@ -363,7 +363,7 @@ updateSummaryForDerivation oldStatus newStatus drvId =
 
 clearStorePathsFromSummary :: Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 clearStorePathsFromSummary deleted_states path_id =
-  foldMapEndo remove_deleted deleted_states
+  repeatedly remove_deleted deleted_states
  where
   remove_deleted :: StorePathState -> DependencySummary -> DependencySummary
   remove_deleted = \case
@@ -375,7 +375,7 @@ clearStorePathsFromSummary deleted_states path_id =
 
 updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 updateSummaryForStorePath old_states new_states path_id =
-  foldMapEndo insert_added added_states . clearStorePathsFromSummary deleted_states path_id
+  repeatedly insert_added added_states . clearStorePathsFromSummary deleted_states path_id
  where
   insert_added :: StorePathState -> DependencySummary -> DependencySummary
   insert_added = \case

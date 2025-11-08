@@ -29,7 +29,7 @@ import NOM.State (
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
-import NOM.Util (foldMapEndo)
+import NOM.Util (repeatedly)
 import Optics (gfield, (%~))
 import Relude
 import Safe.Foldable (minimumMay)
@@ -89,7 +89,7 @@ summaryOnlyThisNode drvId = do
   MkDerivationInfo{outputs, buildStatus} <- getDerivationInfos drvId
   output_infos <- mapM (\x -> (x,) <$> getStorePathInfos x) (toList outputs)
   pure
-    $ foldMapEndo
+    $ repeatedly
       ( \(output_id, output_info) ->
           updateSummaryForStorePath mempty output_info.states output_id
       )
