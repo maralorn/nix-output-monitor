@@ -48,6 +48,11 @@ instance FromNamedRecord BuildReport where
       <*> (parseTimeM True defaultTimeLocale timeFormat =<< m .: csvHeaderEndTime)
       <*> m .: csvHeaderBuildSecs
 
+toHost :: Text -> Host
+toHost = \case
+  "" -> Localhost
+  x -> Host x
+
 instance ToNamedRecord BuildReport where
   toNamedRecord m =
     namedRecord
@@ -56,6 +61,11 @@ instance ToNamedRecord BuildReport where
       , csvHeaderEndTime .= formatTime defaultTimeLocale timeFormat m.endTime
       , csvHeaderBuildSecs .= m.buildSecs
       ]
+
+fromHost :: Host -> Text
+fromHost = \case
+  Localhost -> ""
+  Host x -> x
 
 instance DefaultOrdered BuildReport where
   headerOrder _ =
@@ -129,15 +139,5 @@ toCSV =
     . traverse Map.assocs
     <=< Map.assocs
 
-fromHost :: Host -> Text
-fromHost = \case
-  Localhost -> ""
-  Host x -> x
-
 fromCSV :: [BuildReport] -> BuildReportMap
 fromCSV = Map.fromListWith Map.union . fmap (\BuildReport{..} -> ((host, drvName), Map.singleton endTime buildSecs))
-
-toHost :: Text -> Host
-toHost = \case
-  "" -> Localhost
-  x -> Host x
