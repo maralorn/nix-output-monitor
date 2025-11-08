@@ -65,7 +65,7 @@ import NOM.Update.Monad (
   MonadReadDerivation (..),
   UpdateMonad,
  )
-import NOM.Util (foldMapEndo, parseOneText)
+import NOM.Util (parseOneText, repeatedly)
 import Nix.Derivation qualified as Nix
 import Optics (gconstructor, gfield, has, preview, (%), (%~), (.~))
 import Relude
@@ -343,7 +343,7 @@ finishBuilds host builds = do
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
 modifyBuildReports :: Host -> NonEmpty (DerivationInfo, Int) -> BuildReportMap -> BuildReportMap
-modifyBuildReports host = foldMapEndo (uncurry insertBuildReport)
+modifyBuildReports host = repeatedly (uncurry insertBuildReport)
  where
   insertBuildReport name =
     Map.insertWith
@@ -505,7 +505,7 @@ updateParents force_direct update_func clear_func direct_parents = do
     DerivationSet ->
     DerivationMap DerivationInfo ->
     DerivationMap DerivationInfo
-  apply_to_all_summaries func = foldMapEndo (CMap.adjust (gfield @"dependencySummary" %~ func)) . CSet.toList
+  apply_to_all_summaries func = repeatedly (CMap.adjust (gfield @"dependencySummary" %~ func)) . CSet.toList
   collect_parents :: Bool -> DerivationSet -> DerivationSet -> NOMState DerivationSet
   collect_parents no_irrelevant collected_parents parents_to_scan = case CSet.maxView parents_to_scan of
     Nothing -> pure collected_parents
