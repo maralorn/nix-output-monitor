@@ -8,8 +8,9 @@ module NOM.Update.Monad.CacheBuildReports (
 
 import Control.Exception.Safe (catchAny, catchIO)
 import Control.Monad.Trans.Writer.CPS (WriterT)
-import Data.Csv (FromRecord, HasHeader (NoHeader), ToRecord, decode, encode)
+import Data.Csv (DefaultOrdered (..), FromNamedRecord (..), ToNamedRecord (..), decodeByName, encodeDefaultOrderedByName, header, namedRecord, (.:), (.=))
 import Data.Map.Strict qualified as Map
+import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
 import NOM.Builds (Host (..))
 import Relude
 import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
@@ -22,15 +23,50 @@ class (Monad m) => MonadCacheBuildReports m where
   getCachedBuildReports :: m BuildReportMap
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
 
+timeFormat :: String
+timeFormat = "%F %T"
+
 data BuildReport = BuildReport
-  { host :: Text
-  , name :: Text
-  , seconds :: Int
+  { host :: Host
+  , drvName :: Text
+  , endTime :: UTCTime
+  , buildSecs :: Int
   }
   deriving stock (Generic, Show, Eq)
-  deriving anyclass (FromRecord, ToRecord)
 
-type BuildReportMap = Map (Host, Text) Int
+csvHeaderHost, csvHeaderDrvName, csvHeaderEndTime, csvHeaderBuildSecs :: ByteString
+csvHeaderHost = "hostname"
+csvHeaderDrvName = "derivation name"
+csvHeaderEndTime = "end time"
+csvHeaderBuildSecs = "build seconds"
+
+instance FromNamedRecord BuildReport where
+  parseNamedRecord m =
+    BuildReport
+      <$> (toHost <$> m .: csvHeaderHost)
+      <*> m .: csvHeaderDrvName
+      <*> (parseTimeM True defaultTimeLocale timeFormat =<< m .: csvHeaderEndTime)
+      <*> m .: csvHeaderBuildSecs
+
+instance ToNamedRecord BuildReport where
+  toNamedRecord m =
+    namedRecord
+      [ csvHeaderHost .= fromHost m.host
+      , csvHeaderDrvName .= m.drvName
+      , csvHeaderEndTime .= formatTime defaultTimeLocale timeFormat m.endTime
+      , csvHeaderBuildSecs .= m.buildSecs
+      ]
+
+instance DefaultOrdered BuildReport where
+  headerOrder _ =
+    header
+      [ csvHeaderHost
+      , csvHeaderDrvName
+      , csvHeaderEndTime
+      , csvHeaderBuildSecs
+      ]
+
+type BuildReportMap = Map (Host, Text) (Map UTCTime Int)
 
 instance MonadCacheBuildReports IO where
   getCachedBuildReports = do
@@ -73,19 +109,25 @@ saveBuildReports dir reports = catchIO trySave mempty
  where
   trySave = do
     createDirectoryIfMissing True dir
-    writeFileLBS (dir </> buildReportsFilename) (encode . toCSV $ reports)
+    writeFileLBS (dir </> buildReportsFilename) (encodeDefaultOrderedByName . toCSV $ reports)
 
 loadBuildReports :: FilePath -> IO BuildReportMap
 loadBuildReports dir = catchIO tryLoad mempty
  where
   tryLoad =
     readFileLBS (dir </> buildReportsFilename)
-      <&> ( decode NoHeader
-              >>> either mempty (fromCSV . toList)
+      <&> ( decodeByName
+              >>> either mempty snd
+              >>> toList
+              >>> fromCSV
           )
 
 toCSV :: BuildReportMap -> [BuildReport]
-toCSV = fmap (\((fromHost -> host, name), seconds) -> BuildReport{..}) . Map.assocs
+toCSV =
+  fmap
+    (\((host, drvName), (endTime, buildSecs)) -> BuildReport{..})
+    . traverse Map.assocs
+    <=< Map.assocs
 
 fromHost :: Host -> Text
 fromHost = \case
@@ -93,7 +135,7 @@ fromHost = \case
   Host x -> x
 
 fromCSV :: [BuildReport] -> BuildReportMap
-fromCSV = fromList . fmap (\BuildReport{..} -> ((toHost host, name), seconds))
+fromCSV = Map.fromListWith Map.union . fmap (\BuildReport{..} -> ((host, drvName), Map.singleton endTime buildSecs))
 
 toHost :: Text -> Host
 toHost = \case
