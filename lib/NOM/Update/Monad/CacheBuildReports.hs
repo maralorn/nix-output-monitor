@@ -123,7 +123,7 @@ saveBuildReports dir reports = catchIO trySave mempty
     writeFileLBS (dir </> buildReportsFilename) (encodeDefaultOrderedByName . toCSV $ reports)
 
 toCSV :: BuildReportMap -> [BuildReport]
-toCSV = fmap toCSVLine . traverse Map.assocs <=< Map.assocs
+toCSV = Map.assocs >=> traverse Map.assocs >>> fmap toCSVLine
 
 toCSVLine :: ((Host, Text), (UTCTime, Int)) -> BuildReport
 toCSVLine ((host, drvName), (endTime, buildSecs)) = BuildReport{..}
