@@ -24,7 +24,6 @@ data UpdateResult a = MkUpdateResult
   , newStateToPrint :: Maybe NOMV1State
   , newState :: UpdaterState a
   }
-  deriving stock (Generic)
 
 class NOMInput a where
   type UpdaterState a

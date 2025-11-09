@@ -12,6 +12,7 @@ import Data.Csv (DefaultOrdered (..), FromNamedRecord (..), ToNamedRecord (..), 
 import Data.Map.Strict qualified as Map
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
 import NOM.Builds (Host (..))
+import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
 import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
 import System.FileLock (SharedExclusive (Exclusive), withFileLock)
@@ -31,7 +32,9 @@ data BuildReport = BuildReport
   , endTime :: UTCTime
   , buildSecs :: Int
   }
-  deriving stock (Generic, Show, Eq)
+  deriving stock (Show, Eq)
+
+makeFieldLabelsNoPrefix ''BuildReport
 
 instance MonadCacheBuildReports IO where
   getCachedBuildReports = do

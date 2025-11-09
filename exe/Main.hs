@@ -21,7 +21,8 @@ import NOM.State (DependencySummary (..), NOMV1State (..), ProgressState (..), i
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState)
 import NOM.Update.Monad (UpdateMonad)
-import Optics (gfield, (%), (%~), (.~), (^.))
+import Optics ((%), (%~), (.~), (^.))
+import Optics.TH (makeFieldLabelsNoPrefix)
 import Paths_nix_output_monitor (version)
 import Relude
 import System.Console.ANSI qualified as Terminal
@@ -33,6 +34,13 @@ import System.Process.Typed (proc, runProcess)
 import System.Process.Typed qualified as Process
 
 type MainThreadId = ThreadId
+
+data ProcessState a = MkProcessState
+  { updaterState :: UpdaterState a
+  , printFunction :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
+  }
+
+makeFieldLabelsNoPrefix ''ProcessState
 
 outputHandle :: Handle
 outputHandle = stderr
@@ -156,12 +164,6 @@ runMonitoredCommand config process_config = do
       unless (ByteString.null output) $ ByteString.hPut stdout output
       pure exitCode
 
-data ProcessState a = MkProcessState
-  { updaterState :: UpdaterState a
-  , printFunction :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
-  }
-  deriving stock (Generic)
-
 monitorHandle :: forall a. (NOMInput a) => Config -> Handle -> IO NOMV1State
 monitorHandle config input_handle = withParser @a \streamParser -> do
   finalState <-
@@ -208,7 +210,7 @@ finalizer ::
   StateT (ProcessState a) m ()
 finalizer config = do
   old_state <- get
-  newState <- (gfield @"progressState" .~ Finished) <$> execStateT (runWriterT detectLocalFinishedBuilds) (old_state.updaterState ^. nomState @a)
+  newState <- (#progressState .~ Finished) <$> execStateT (runWriterT detectLocalFinishedBuilds) (old_state.updaterState ^. nomState @a)
   put
     MkProcessState
       { updaterState = nomState @a .~ newState $ old_state.updaterState

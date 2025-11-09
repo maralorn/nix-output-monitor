@@ -170,7 +170,6 @@ writeStateToScreen pad printed_lines_var nom_state_var nix_output_buffer_var ref
   System.IO.hFlush output_handle
 
 data ToNextLine = StayInLine | MoveToNextLine | PrintNewLine
-  deriving stock (Generic)
 
 -- Depending on the current line of the output we are printing we need to decide
 -- how to move to a new line before printing.

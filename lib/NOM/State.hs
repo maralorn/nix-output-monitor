@@ -63,11 +63,21 @@ import NOM.Update.Monad (
  )
 import NOM.Util (repeatedly)
 import Optics (modifying', (%~))
+import Optics.TH (makeFieldLabelsNoPrefix, makePrismLabels)
 import Relude
 
+data TransferInfo a = MkTransferInfo
+  { host :: Host
+  , start :: Double
+  , end :: a
+  }
+  deriving stock (Show, Eq, Ord, Functor)
 
+makeFieldLabelsNoPrefix ''TransferInfo
 
+type RunningTransferInfo = TransferInfo ()
 
+type CompletedTransferInfo = TransferInfo (Strict.Maybe Double)
 
 data StorePathState
   = DownloadPlanned
@@ -75,7 +85,9 @@ data StorePathState
   | Uploading RunningTransferInfo
   | Downloaded CompletedTransferInfo
   | Uploaded CompletedTransferInfo
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
+
+makePrismLabels ''StorePathState
 
 data OutputName
   = Out
@@ -87,7 +99,7 @@ data OutputName
   | Man
   | Dist
   | Other Text
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
 
 outputNames :: Map Text OutputName
 outputNames =
@@ -106,25 +118,40 @@ outputNames =
 parseOutputName :: Text -> OutputName
 parseOutputName name = fromMaybe (Other name) $ Map.lookup name outputNames
 
-data InputDerivation = MkInputDerivation
-  { derivation :: DerivationId
-  , outputs :: Set OutputName
+data BuildFail = MkBuildFail
+  { at :: Double
+  , failType :: FailType
   }
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
 
-data DerivationInfo = MkDerivationInfo
-  { name :: Derivation
-  , outputs :: Map OutputName StorePathId
-  , inputDerivations :: Seq InputDerivation
-  , inputSources :: StorePathSet
-  , buildStatus :: BuildStatus
-  , dependencySummary :: DependencySummary
-  , cached :: Bool
-  , derivationParents :: DerivationSet
-  , pname :: Strict.Maybe Text
-  , platform :: Strict.Maybe Text
+makeFieldLabelsNoPrefix ''BuildFail
+
+data BuildInfo a = MkBuildInfo
+  { start :: Double
+  , host :: Host
+  , estimate :: Strict.Maybe Int
+  , activityId :: Strict.Maybe ActivityId
+  , end :: a
   }
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord, Functor)
+
+makeFieldLabelsNoPrefix ''BuildInfo
+
+data BuildStatus
+  = Unknown
+  | Planned
+  | Building (BuildInfo ())
+  | Failed (BuildInfo BuildFail) -- End
+  | Built (BuildInfo Double) -- End
+  deriving stock (Show, Eq, Ord)
+
+makePrismLabels ''BuildStatus
+
+type RunningBuildInfo = BuildInfo ()
+
+type CompletedBuildInfo = BuildInfo Double
+
+type FailedBuildInfo = BuildInfo BuildFail
 
 type StorePathId = CacheId StorePath
 
@@ -138,24 +165,6 @@ type StorePathSet = CacheIdSet StorePath
 
 type DerivationSet = CacheIdSet Derivation
 
-data StorePathInfo = MkStorePathInfo
-  { name :: StorePath
-  , states :: Set StorePathState
-  , producer :: Strict.Maybe DerivationId
-  , inputFor :: DerivationSet
-  }
-  deriving stock (Show, Eq, Ord, Generic)
-
-type RunningBuildInfo = BuildInfo ()
-
-type CompletedBuildInfo = BuildInfo Double
-
-type RunningTransferInfo = TransferInfo ()
-
-type CompletedTransferInfo = TransferInfo (Strict.Maybe Double)
-
-type FailedBuildInfo = BuildInfo BuildFail
-
 data DependencySummary = MkDependencySummary
   { plannedBuilds :: DerivationSet
   , runningBuilds :: DerivationMap RunningBuildInfo
@@ -167,27 +176,72 @@ data DependencySummary = MkDependencySummary
   , runningDownloads :: StorePathMap RunningTransferInfo
   , runningUploads :: StorePathMap RunningTransferInfo
   }
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
+
+makeFieldLabelsNoPrefix ''DependencySummary
+
+data InputDerivation = MkInputDerivation
+  { derivation :: DerivationId
+  , outputs :: Set OutputName
+  }
+  deriving stock (Show, Eq, Ord)
+
+makeFieldLabelsNoPrefix ''InputDerivation
+
+data DerivationInfo = MkDerivationInfo
+  { name :: Derivation
+  , outputs :: Map OutputName StorePathId
+  , inputDerivations :: Seq InputDerivation
+  , inputSources :: StorePathSet
+  , buildStatus :: BuildStatus
+  , dependencySummary :: DependencySummary
+  , cached :: Bool
+  , derivationParents :: DerivationSet
+  , pname :: Strict.Maybe Text
+  , platform :: Strict.Maybe Text
+  }
+  deriving stock (Show, Eq, Ord)
+
+makeFieldLabelsNoPrefix ''DerivationInfo
+
+data StorePathInfo = MkStorePathInfo
+  { name :: StorePath
+  , states :: Set StorePathState
+  , producer :: Strict.Maybe DerivationId
+  , inputFor :: DerivationSet
+  }
+  deriving stock (Show, Eq, Ord)
+
+makeFieldLabelsNoPrefix ''StorePathInfo
 
 data ActivityStatus = MkActivityStatus
   { activity :: Activity
   , phase :: Strict.Maybe Text
   , progress :: Strict.Maybe ActivityProgress
   }
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
+
+makeFieldLabelsNoPrefix ''ActivityStatus
 
 data InterestingActivity = MkInterestingUnknownActivity
   { text :: Text
   , start :: Double
   }
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
+
+makeFieldLabelsNoPrefix ''InterestingActivity
 
 data EvalInfo = MkEvalInfo
   { lastFileName :: Strict.Maybe Text
   , count :: Int
   , at :: Double
   }
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
+
+makeFieldLabelsNoPrefix ''EvalInfo
+
+data ProgressState = JustStarted | InputReceived | Finished
+  deriving stock (Show, Eq, Ord)
 
 data NOMV1State = MkNOMV1State
   { derivationInfos :: DerivationMap DerivationInfo
@@ -207,40 +261,9 @@ data NOMV1State = MkNOMV1State
   , interestingActivities :: IntMap InterestingActivity
   , evaluationState :: EvalInfo
   }
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)
 
-data ProgressState = JustStarted | InputReceived | Finished
-  deriving stock (Show, Eq, Ord, Generic)
-
-data BuildFail = MkBuildFail
-  { at :: Double
-  , failType :: FailType
-  }
-  deriving stock (Show, Eq, Ord, Generic)
-
-data BuildStatus
-  = Unknown
-  | Planned
-  | Building (BuildInfo ())
-  | Failed (BuildInfo BuildFail) -- End
-  | Built (BuildInfo Double) -- End
-  deriving stock (Show, Eq, Ord, Generic)
-
-data BuildInfo a = MkBuildInfo
-  { start :: Double
-  , host :: Host
-  , estimate :: Strict.Maybe Int
-  , activityId :: Strict.Maybe ActivityId
-  , end :: a
-  }
-  deriving stock (Show, Eq, Ord, Generic, Functor)
-
-data TransferInfo a = MkTransferInfo
-  { host :: Host
-  , start :: Double
-  , end :: a
-  }
-  deriving stock (Show, Eq, Ord, Generic, Functor)
+makeFieldLabelsNoPrefix ''NOMV1State
 
 initalStateFromBuildPlatform :: (MonadCacheBuildReports m, MonadNow m) => Maybe Text -> m NOMV1State
 initalStateFromBuildPlatform platform = do

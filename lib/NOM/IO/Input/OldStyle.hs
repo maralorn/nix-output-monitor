@@ -11,6 +11,7 @@ import NOM.Parser (parser)
 import NOM.State (NOMV1State)
 import NOM.StreamParser (parseStreamAttoparsec)
 import NOM.Update (updateStateNixOldStyleMessage)
+import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
@@ -27,13 +28,14 @@ readTextChunks handle =
 
 data OldStyleState = MkOldStyleState
   { state :: NOMV1State
-  , -- Because old style human nix logs don’t include information for when a
+  , -- Because old style human nix logs don't include information for when a
     -- build finishes we monitor the existence of the output paths.
     --  This variable saves when we last polled the disc for
     -- output paths of currently running builds.
     lastRead :: Strict.Maybe Double
   }
-  deriving stock (Generic)
+
+makeFieldLabelsNoPrefix ''OldStyleState
 
 data OldStyleInput = MkOldStyleInput
   { parseResult :: Maybe NixOldStyleMessage

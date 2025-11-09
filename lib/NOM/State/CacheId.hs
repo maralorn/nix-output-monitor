@@ -5,7 +5,7 @@ import Relude
 
 type CacheId :: Type -> Type
 newtype CacheId b = MkCacheId {unCacheId :: Int}
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Read)
 
 instance HasTrie (CacheId b) where
   newtype CacheId b :->: c = CacheIdTrie (Int :->: c)

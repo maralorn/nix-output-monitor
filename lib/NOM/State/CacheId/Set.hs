@@ -19,7 +19,7 @@ import Relude hiding (head)
 
 type CacheIdSet :: Type -> Type
 newtype CacheIdSet b = MkCacheIdSet {ints :: IntSet}
-  deriving stock (Show, Eq, Ord, Read, Generic)
+  deriving stock (Show, Eq, Ord, Read)
   deriving newtype (Semigroup, Monoid)
 
 insert :: CacheId b -> CacheIdSet b -> CacheIdSet b

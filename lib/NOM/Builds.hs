@@ -4,13 +4,16 @@ import Data.Attoparsec.ByteString qualified as Parser
 import Data.Attoparsec.ByteString.Char8 qualified as Parser.Char
 import Data.Attoparsec.Text qualified as TextParser
 import Data.Text qualified as Text
+import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
 
 data StorePath = StorePath
   { hash :: Text
   , name :: Text
   }
-  deriving stock (Show, Ord, Eq, Generic)
+  deriving stock (Show, Ord, Eq)
+
+makeFieldLabelsNoPrefix ''StorePath
 
 storePathByteStringParser :: Parser.Parser StorePath
 storePathByteStringParser =
@@ -64,7 +67,7 @@ parseHost host =
     else Host host
 
 newtype Derivation = Derivation {storePath :: StorePath}
-  deriving stock (Show, Generic)
+  deriving stock (Show)
   deriving newtype (Eq, Ord)
 
 instance ToText Derivation where
@@ -86,7 +89,7 @@ instance ToString StorePath where
   toString = toString . toText
 
 data Host = Localhost | Host Text
-  deriving stock (Ord, Eq, Show, Generic)
+  deriving stock (Ord, Eq, Show)
 
 instance ToText Host where
   toText (Host name) = name
@@ -96,4 +99,4 @@ instance ToString Host where
   toString = toString . toText
 
 data FailType = ExitCode Int | HashMismatch
-  deriving stock (Show, Eq, Ord, Generic)
+  deriving stock (Show, Eq, Ord)

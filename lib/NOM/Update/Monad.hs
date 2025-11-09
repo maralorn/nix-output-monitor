@@ -1,5 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
-
 module NOM.Update.Monad (
   UpdateMonad,
   MonadNow (..),
