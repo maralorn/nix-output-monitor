@@ -11,7 +11,6 @@ import NOM.Parser (parser)
 import NOM.State (NOMV1State)
 import NOM.StreamParser (parseStreamAttoparsec)
 import NOM.Update (updateStateNixOldStyleMessage)
-import Optics (gfield)
 import Relude
 
 readTextChunks :: Handle -> Stream (Either NOMError ByteString)
@@ -45,7 +44,7 @@ instance NOMInput OldStyleInput where
   withParser body = body (fmap (uncurry MkOldStyleInput . first join) <$> parseStreamAttoparsec parser)
   type UpdaterState OldStyleInput = OldStyleState
   inputStream = readTextChunks
-  nomState = gfield @"state"
+  nomState = #state
   firstState state' = MkOldStyleState{state = state', lastRead = Strict.Nothing}
   {-# INLINE updateState #-}
   updateState input old_state = mkUpdateResult <$> updateStateNixOldStyleMessage (input.parseResult, input.parsedInput) (Strict.toLazy old_state.lastRead, old_state.state)

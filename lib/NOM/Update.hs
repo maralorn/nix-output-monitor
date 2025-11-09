@@ -68,7 +68,7 @@ import NOM.Update.Monad (
 import NOM.Util (parseOneText, repeatedly)
 import Nix.Derivation qualified as Nix
 import Numeric.Extra (intToDouble)
-import Optics (assign', gconstructor, gfield, has, modifying', preview, (%), (%~), (.~))
+import Optics (assign', gconstructor, has, modifying', preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
@@ -94,7 +94,7 @@ maintainState now = execState $ do
     modifying' #forestRoots $ Seq.sortOn (sortKey currentState)
     assign' #touchedIds mempty
   when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
-    modifying' #evaluationState \old_state -> old_state{lastFileName = Strict.Nothing}
+    assign' (#evaluationState % #lastFileName) Strict.Nothing
 
 minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
@@ -249,9 +249,9 @@ processJsonMessage = \case
       tell [Right (encodeUtf8 (prefix <> line))]
       noChange
   Result MkResultAction{result = SetPhase phase, id = id'} ->
-    {-# SCC "updating_phase" #-} withChange $ modifying' #activities $ IntMap.adjust (gfield @"phase" .~ Strict.Just phase) id'.value
+    {-# SCC "updating_phase" #-} withChange $ modifying' #activities $ IntMap.adjust (#phase .~ Strict.Just phase) id'.value
   Result MkResultAction{result = Progress progress, id = id'} ->
-    {-# SCC "updating_progress" #-} withChange $ modifying' #activities $ IntMap.adjust (gfield @"progress" .~ Strict.Just progress) id'.value
+    {-# SCC "updating_progress" #-} withChange $ modifying' #activities $ IntMap.adjust (#progress .~ Strict.Just progress) id'.value
   Start startAction@MkStartAction{id = id'} ->
     {-# SCC "starting_action" #-}
     do
@@ -393,14 +393,14 @@ insertDerivation derivation drvId = do
     derivation.outputs & Map.mapKeys (parseOutputName . Text.copy) & Map.traverseMaybeWithKey \_ path ->
       parseStorePath (toText (Nix.path path)) & mapM \pathName -> do
         pathId <- getStorePathId pathName
-        modifying' #storePathInfos $ CMap.adjust (gfield @"producer" .~ Strict.Just drvId) pathId
+        modifying' #storePathInfos $ CMap.adjust (#producer .~ Strict.Just drvId) pathId
         pure pathId
   inputSources <-
     derivation.inputSrcs & flip foldlM mempty \acc path -> do
       pathIdMay <-
         parseStorePath (toText path) & mapM \pathName -> do
           pathId <- getStorePathId pathName
-          modifying' #storePathInfos $ CMap.adjust (gfield @"inputFor" %~ CSet.insert drvId) pathId
+          modifying' #storePathInfos $ CMap.adjust (#inputFor %~ CSet.insert drvId) pathId
           pure pathId
       pure $ maybe id CSet.insert pathIdMay acc
   inputDerivationsList <-
@@ -408,13 +408,13 @@ insertDerivation derivation drvId = do
       depIdMay <-
         parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
-          modifying' #derivationInfos $ CMap.adjust (gfield @"derivationParents" %~ CSet.insert drvId) depId
+          modifying' #derivationInfos $ CMap.adjust (#derivationParents %~ CSet.insert drvId) depId
           modifying' #forestRoots $ Seq.filter (/= depId)
           pure depId
       pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = Set.map (parseOutputName . Text.copy) outputs_of_input}) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
   modify
-    ( gfield @"derivationInfos"
+    ( #derivationInfos
         %~ CMap.adjust
           ( \derivation_info ->
               derivation_info
@@ -456,7 +456,7 @@ getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
   runMaybeT $ do
     drvInfos <- MaybeT (gets (CMap.lookup drvId . (.derivationInfos)))
-    MaybeT (pure ((() <$) <$> preview (gfield @"buildStatus" % gconstructor @"Building") drvInfos))
+    MaybeT (pure ((() <$) <$> preview (#buildStatus % gconstructor @"Building") drvInfos))
 
 downloaded :: Host -> StorePathId -> Double -> NOMState ()
 downloaded host pathId end = insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
@@ -495,7 +495,7 @@ updateDerivationState drvId updateStatus = do
   let oldStatus = derivation_infos.buildStatus
       newStatus = updateStatus oldStatus
   when (oldStatus /= newStatus) do
-    modifying' #derivationInfos $ CMap.adjust (gfield @"buildStatus" .~ newStatus) drvId
+    modifying' #derivationInfos $ CMap.adjust (#buildStatus .~ newStatus) drvId
     let update_summary = updateSummaryForDerivation oldStatus newStatus drvId
         clear_summary = clearDerivationIdFromSummary oldStatus drvId
 
@@ -510,7 +510,7 @@ updateParents force_direct update_func clear_func direct_parents = do
   relevant_parents <- (if force_direct then CSet.union direct_parents else id) <$> collect_parents True mempty direct_parents
   parents <- collect_parents False mempty direct_parents
   modify
-    ( gfield @"derivationInfos"
+    ( #derivationInfos
         %~ apply_to_all_summaries update_func relevant_parents
         . apply_to_all_summaries clear_func (CSet.difference parents relevant_parents)
     )
@@ -521,7 +521,7 @@ updateParents force_direct update_func clear_func direct_parents = do
     DerivationSet ->
     DerivationMap DerivationInfo ->
     DerivationMap DerivationInfo
-  apply_to_all_summaries func = repeatedly (CMap.adjust (gfield @"dependencySummary" %~ func)) . CSet.toList
+  apply_to_all_summaries func = repeatedly (CMap.adjust (#dependencySummary %~ func)) . CSet.toList
   collect_parents :: Bool -> DerivationSet -> DerivationSet -> NOMState DerivationSet
   collect_parents no_irrelevant collected_parents parents_to_scan = case CSet.maxView parents_to_scan of
     Nothing -> pure collected_parents
@@ -557,7 +557,7 @@ insertStorePathState storePathId new_store_path_state update_store_path_state = 
   store_path_info <- getStorePathInfos storePathId
   let oldStatus = store_path_info.states
       newStatus = updateStorePathStates new_store_path_state update_store_path_state oldStatus
-  modifying' #storePathInfos $ CMap.adjust (gfield @"states" .~ newStatus) storePathId
+  modifying' #storePathInfos $ CMap.adjust (#states .~ newStatus) storePathId
 
   let update_summary = updateSummaryForStorePath oldStatus newStatus storePathId
       clear_summary = clearStorePathsFromSummary oldStatus storePathId
