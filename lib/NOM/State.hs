@@ -68,6 +68,7 @@ import Relude
 data TransferInfo a = MkTransferInfo
   { host :: Host
   , start :: Double
+  , activityId :: Strict.Maybe ActivityId
   , end :: a
   }
   deriving stock (Show, Eq, Ord, Functor)
