@@ -1,5 +1,6 @@
 module NOM.IO.Input (
   NOMInput (..),
+  inputStream,
   UpdateResult (..),
   statelessUnfoldM,
 ) where
@@ -30,5 +31,8 @@ class NOMInput a where
   firstState :: NOMV1State -> UpdaterState a
   updateState :: (UpdateMonad m) => a -> UpdaterState a -> m (UpdateResult a)
   nomState :: Lens' (UpdaterState a) NOMV1State
-  inputStream :: Handle -> Stream (Either NOMError ByteString)
+  inputStreamImpl :: Handle -> Stream (Either NOMError ByteString)
   withParser :: (StreamParser a -> IO t) -> IO t
+
+inputStream :: forall a -> (NOMInput a) => Handle -> Stream (Either NOMError ByteString)
+inputStream a = inputStreamImpl @a

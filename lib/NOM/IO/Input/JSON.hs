@@ -28,7 +28,7 @@ readLines handle =
 instance NOMInput NixJSONMessage where
   withParser body = JSON.withHermesEnv_ (body . fmap . parseJSONLine)
   type UpdaterState NixJSONMessage = NOMV1State
-  inputStream = readLines
+  inputStreamImpl = readLines
   nomState = Optics.equality'
   firstState = id
   {-# INLINE updateState #-}

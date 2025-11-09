@@ -11,7 +11,7 @@ import Data.Version (showVersion)
 import GHC.IO.Exception (ExitCode (ExitFailure))
 import NOM.Error (NOMError)
 import NOM.IO (interact)
-import NOM.IO.Input (NOMInput (..), UpdateResult (..))
+import NOM.IO.Input (NOMInput (..), UpdateResult (..), inputStream)
 import NOM.IO.Input.JSON ()
 import NOM.IO.Input.OldStyle (OldStyleInput)
 import NOM.NixMessage.JSON (NixJSONMessage)
@@ -92,12 +92,12 @@ runApp = \cases
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix" ("develop" : withJSON (replaceCommandWithExit args)))
     exitWith =<< runProcess (proc "nix" ("develop" : args))
   "nom" [] -> do
-    finalState <- monitorHandle @OldStyleInput defaultConfig{piping = True} stdin
+    finalState <- monitorHandle OldStyleInput defaultConfig{piping = True} stdin
     if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
       then exitSuccess
       else exitFailure
   "nom" ["--json"] -> do
-    finalState <- monitorHandle @NixJSONMessage defaultConfig{piping = True} stdin
+    finalState <- monitorHandle NixJSONMessage defaultConfig{piping = True} stdin
     if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
       then exitSuccess
       else exitFailure
@@ -156,16 +156,16 @@ runMonitoredCommand config process_config = do
         Process.setStdout Process.createPipe
           . Process.setStderr Process.createPipe
           $ process_config
-  Exception.handle ((ExitFailure 1 <$) . printIOException)
-    $ Process.withProcessWait process_config_with_handles \process -> do
-      void $ monitorHandle @NixJSONMessage config (Process.getStderr process)
+  Exception.handle ((ExitFailure 1 <$) . printIOException) $
+    Process.withProcessWait process_config_with_handles \process -> do
+      void $ monitorHandle NixJSONMessage config (Process.getStderr process)
       exitCode <- Process.waitExitCode process
       output <- ByteString.hGetContents (Process.getStdout process)
       unless (ByteString.null output) $ ByteString.hPut stdout output
       pure exitCode
 
-monitorHandle :: forall a. (NOMInput a) => Config -> Handle -> IO NOMV1State
-monitorHandle config input_handle = withParser @a \streamParser -> do
+monitorHandle :: forall a -> (NOMInput a) => Config -> Handle -> IO NOMV1State
+monitorHandle update config input_handle = withParser \streamParser -> do
   finalState <-
     do
       Terminal.hHideCursor outputHandle
@@ -173,12 +173,12 @@ monitorHandle config input_handle = withParser @a \streamParser -> do
 
       current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--extra-experimental-features", "nix-command", "--impure", "--raw", "--expr", "builtins.currentSystem"])
       first_state <- initalStateFromBuildPlatform current_system
-      let first_process_state = MkProcessState (firstState @a first_state) (stateToText config first_state)
-      interact config streamParser (processStateUpdater @a config) (\now -> #updaterState % nomState @a %~ maintainState now) (.printFunction) (finalizer config) (inputStream @a input_handle) outputHandle first_process_state
+      let first_process_state = MkProcessState (firstState @update first_state) (stateToText config first_state)
+      interact @update config streamParser (processStateUpdater config) (\now -> #updaterState % nomState @update %~ maintainState now) (.printFunction) (finalizer config) (inputStream update input_handle) outputHandle first_process_state
       `Exception.finally` do
         Terminal.hShowCursor outputHandle
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.
-  pure (finalState.updaterState ^. nomState @a)
+  pure (finalState.updaterState ^. nomState @update)
 
 {-# INLINE processStateUpdater #-}
 processStateUpdater ::

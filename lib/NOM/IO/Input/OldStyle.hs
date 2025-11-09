@@ -45,7 +45,7 @@ data OldStyleInput = MkOldStyleInput
 instance NOMInput OldStyleInput where
   withParser body = body (fmap (uncurry MkOldStyleInput . first join) <$> parseStreamAttoparsec parser)
   type UpdaterState OldStyleInput = OldStyleState
-  inputStream = readTextChunks
+  inputStreamImpl = readTextChunks
   nomState = #state
   firstState state' = MkOldStyleState{state = state', lastRead = Strict.Nothing}
   {-# INLINE updateState #-}

@@ -51,6 +51,7 @@ common common-config
     OverloadedRecordDot
     OverloadedStrings
     RecordWildCards
+    RequiredTypeArguments
     StrictData
     TemplateHaskell
     TypeFamilies
