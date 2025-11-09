@@ -242,46 +242,46 @@ processJsonMessage = \case
   Result MkResultAction{result = Progress progress, id = id'} ->
     withChange $ modifying' #activities $ IntMap.adjust (#progress .~ Strict.Just progress) id'.value
   Start startAction@MkStartAction{id = id'} -> do
-      prefix <- activityPrefix $ Just startAction.activity
-      when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
-      let set_interesting = withChange do
-            now <- getNow
-            modifying' #interestingActivities $ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now)
-      changed <- case startAction.activity of
-        JSON.Build drvName host -> withChange do
+    prefix <- activityPrefix $ Just startAction.activity
+    when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
+    let set_interesting = withChange do
           now <- getNow
-          building host drvName now (Just id')
-        JSON.CopyPath path from Localhost -> withChange do
-          now <- getNow
-          pathId <- getStorePathId path
-          downloading from pathId now
-        JSON.CopyPath path Localhost to -> withChange do
-          now <- getNow
-          pathId <- getStorePathId path
-          uploading to pathId now
-        JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
-        JSON.QueryPathInfo{} -> set_interesting
-        _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
-      when changed $ modifying' #activities $ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
-      pure changed
+          modifying' #interestingActivities $ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now)
+    changed <- case startAction.activity of
+      JSON.Build drvName host -> withChange do
+        now <- getNow
+        building host drvName now (Just id')
+      JSON.CopyPath path from Localhost -> withChange do
+        now <- getNow
+        pathId <- getStorePathId path
+        downloading from pathId now
+      JSON.CopyPath path Localhost to -> withChange do
+        now <- getNow
+        pathId <- getStorePathId path
+        uploading to pathId now
+      JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
+      JSON.QueryPathInfo{} -> set_interesting
+      _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
+    when changed $ modifying' #activities $ IntMap.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
+    pure changed
   Stop MkStopAction{id = id'} -> do
     activity <- gets (\s -> IntMap.lookup id'.value s.activities)
     interesting_activity <- gets (\s -> IntMap.lookup id'.value s.interestingActivities)
     modifying' #interestingActivities $ IntMap.delete id'.value
     case activity of
-        Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
-          now <- getNow
-          pathId <- getStorePathId path
-          downloaded from pathId now
-        Just (MkActivityStatus{activity = JSON.CopyPath path Localhost to}) -> withChange do
-          now <- getNow
-          pathId <- getStorePathId path
-          uploaded to pathId now
-        Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
-          drvId <- lookupDerivation drv
-          isCompleted <- derivationIsCompleted drvId
-          if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
-        _ -> pure (isJust interesting_activity)
+      Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
+        now <- getNow
+        pathId <- getStorePathId path
+        downloaded from pathId now
+      Just (MkActivityStatus{activity = JSON.CopyPath path Localhost to}) -> withChange do
+        now <- getNow
+        pathId <- getStorePathId path
+        uploaded to pathId now
+      Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
+        drvId <- lookupDerivation drv
+        isCompleted <- derivationIsCompleted drvId
+        if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
+      _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange
   ParseError err -> tell [Left err] >> noChange
   Result _other_result -> noChange

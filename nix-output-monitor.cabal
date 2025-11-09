@@ -40,7 +40,6 @@ common common-config
     AllowAmbiguousTypes
     BlockArguments
     DataKinds
-    DeriveAnyClass
     DerivingStrategies
     DuplicateRecordFields
     ImportQualifiedPost
