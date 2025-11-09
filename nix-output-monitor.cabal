@@ -78,7 +78,6 @@ common common-config
     stm,
     streamly-core,
     strict,
-    strict-types,
     terminal-size,
     text,
     time,

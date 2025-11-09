@@ -64,15 +64,10 @@ import NOM.Update.Monad (
 import NOM.Util (repeatedly)
 import Optics (modifying', (%~))
 import Relude
-import Type.Strict qualified as StrictType
 
-instance (StrictType.StrictType seen v) => StrictType.StrictType seen (IntMap v)
 
-instance (StrictType.StrictType seen v) => StrictType.StrictType seen (Map k v)
 
-instance StrictType.StrictType seen IntSet
 
-instance (StrictType.StrictType seen v) => StrictType.StrictType seen (Seq v)
 
 data StorePathState
   = DownloadPlanned

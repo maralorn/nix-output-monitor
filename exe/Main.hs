@@ -31,7 +31,6 @@ import System.IO.Error qualified as IOError
 import System.Posix.Signals qualified as Signals
 import System.Process.Typed (proc, runProcess)
 import System.Process.Typed qualified as Process
-import Type.Strict qualified as StrictType
 
 type MainThreadId = ThreadId
 
@@ -163,7 +162,7 @@ data ProcessState a = MkProcessState
   }
   deriving stock (Generic)
 
-monitorHandle :: forall a. (StrictType.Strict (UpdaterState a), NOMInput a) => Config -> Handle -> IO NOMV1State
+monitorHandle :: forall a. (NOMInput a) => Config -> Handle -> IO NOMV1State
 monitorHandle config input_handle = withParser @a \streamParser -> do
   finalState <-
     do
@@ -172,9 +171,8 @@ monitorHandle config input_handle = withParser @a \streamParser -> do
 
       current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--extra-experimental-features", "nix-command", "--impure", "--raw", "--expr", "builtins.currentSystem"])
       first_state <- initalStateFromBuildPlatform current_system
-      -- We enforce here, that the state type is completely strict so that we don‘t accumulate thunks while running the program.
-      let first_process_state = MkProcessState (StrictType.Strict $ firstState @a first_state) (stateToText config first_state)
-      interact config streamParser (processStateUpdater @a config) (\now -> gfield @"updaterState" % nomState @a %~ maintainState now) (.printFunction) (finalizer config) (inputStream @a input_handle) outputHandle first_process_state
+      let first_process_state = MkProcessState (firstState @a first_state) (stateToText config first_state)
+      interact config streamParser (processStateUpdater @a config) (\now -> #updaterState % nomState @a %~ maintainState now) (.printFunction) (finalizer config) (inputStream @a input_handle) outputHandle first_process_state
       `Exception.finally` do
         Terminal.hShowCursor outputHandle
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.
