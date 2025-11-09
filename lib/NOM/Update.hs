@@ -68,7 +68,7 @@ import NOM.Update.Monad (
 import NOM.Util (parseOneText, repeatedly)
 import Nix.Derivation qualified as Nix
 import Numeric.Extra (intToDouble)
-import Optics (assign', gconstructor, has, modifying', preview, (%), (%~), (.~))
+import Optics (assign', has, modifying', preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
@@ -456,7 +456,7 @@ getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
   runMaybeT $ do
     drvInfos <- MaybeT (gets (CMap.lookup drvId . (.derivationInfos)))
-    MaybeT (pure ((() <$) <$> preview (#buildStatus % gconstructor @"Building") drvInfos))
+    MaybeT (pure ((() <$) <$> preview (#buildStatus % #_Building) drvInfos))
 
 downloaded :: Host -> StorePathId -> Double -> NOMState ()
 downloaded host pathId end = insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
@@ -528,8 +528,8 @@ updateParents force_direct update_func clear_func direct_parents = do
     Just (current_parent, rest_to_scan) -> do
       drv_infos <- getDerivationInfos current_parent
       transfer_states <- fold <$> forM (Map.lookup Out drv_infos.outputs) (fmap (.states) . \x -> getStorePathInfos x)
-      let all_transfers_completed = all (\x -> has (gconstructor @"Downloaded") x || has (gconstructor @"Uploaded") x) transfer_states
-          is_irrelevant = all_transfers_completed && has (gconstructor @"Unknown") drv_infos.buildStatus || has (gconstructor @"Built") drv_infos.buildStatus
+      let all_transfers_completed = all (\x -> has #_Downloaded x || has #_Uploaded x) transfer_states
+          is_irrelevant = all_transfers_completed && has #_Unknown drv_infos.buildStatus || has #_Built drv_infos.buildStatus
           proceed = collect_parents no_irrelevant
       if is_irrelevant && no_irrelevant
         then proceed collected_parents rest_to_scan
