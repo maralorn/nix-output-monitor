@@ -19,7 +19,7 @@ module NOM.State (
   TransferInfo (..),
   BuildFail (..),
   MonadNOMState,
-  NOMV1State (..),
+  NOMState (..),
   ActivityStatus (..),
   InterestingActivity (..),
   InputDerivation (..),
@@ -242,7 +242,7 @@ makeFieldLabelsNoPrefix ''EvalInfo
 data ProgressState = JustStarted | InputReceived | Finished
   deriving stock (Show, Eq, Ord)
 
-data NOMV1State = MkNOMV1State
+data NOMState = MkNOMState
   { derivationInfos :: DerivationMap DerivationInfo
   , storePathInfos :: StorePathMap StorePathInfo
   , fullSummary :: DependencySummary
@@ -262,14 +262,14 @@ data NOMV1State = MkNOMV1State
   }
   deriving stock (Show, Eq, Ord)
 
-makeFieldLabelsNoPrefix ''NOMV1State
+makeFieldLabelsNoPrefix ''NOMState
 
-initalStateFromBuildPlatform :: (MonadCacheBuildReports m, MonadNow m) => Maybe Text -> m NOMV1State
+initalStateFromBuildPlatform :: (MonadCacheBuildReports m, MonadNow m) => Maybe Text -> m NOMState
 initalStateFromBuildPlatform platform = do
   now <- getNow
   buildReports <- getCachedBuildReports
   pure
-    $ MkNOMV1State
+    $ MkNOMState
       mempty
       mempty
       mempty
@@ -302,7 +302,7 @@ getRunningBuildsByHost host = CMap.filter (\x -> x.host == host) <$> getRunningB
 lookupStorePathId :: (MonadNOMState m) => StorePathId -> m StorePath
 lookupStorePathId pathId = (.name) <$> getStorePathInfos pathId
 
-type MonadNOMState m = MonadState NOMV1State m
+type MonadNOMState m = MonadState NOMState m
 
 emptyStorePathInfo :: StorePath -> StorePathInfo
 emptyStorePathInfo path = MkStorePathInfo path mempty Strict.Nothing mempty

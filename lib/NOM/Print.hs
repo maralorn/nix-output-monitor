@@ -28,7 +28,7 @@ import NOM.State (
   DerivationSet,
   InputDerivation (..),
   MonadNOMState,
-  NOMV1State (..),
+  NOMState (..),
   ProgressState (..),
   StorePathId,
   StorePathInfo (..),
@@ -152,8 +152,8 @@ printErrors errors maxHeight =
 compactError :: Text -> Text
 compactError = fst . Text.breakOn "\n       last 10 log lines:"
 
-stateToText :: Config -> NOMV1State -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
-stateToText config buildState@MkNOMV1State{..} = memo printWithSize . fmap Window.height
+stateToText :: Config -> NOMState -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
+stateToText config buildState@MkNOMState{..} = memo printWithSize . fmap Window.height
  where
   printWithSize :: Maybe Int -> (ZonedTime, Double) -> Text
   printWithSize maybeWindow = printWithTime
@@ -309,12 +309,12 @@ ifTimeDurRelevant :: NominalDiffTime -> ([Text] -> [Text]) -> [Text]
 ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration dur])
 
 printBuilds ::
-  NOMV1State ->
+  NOMState ->
   [(Host, Int)] ->
   Int ->
   Double ->
   NonEmpty Text
-printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
+printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
  where
   hostLabel :: Bool -> Host -> Text
   hostLabel color host = (if color then markup magenta else id) $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)

@@ -14,7 +14,7 @@ import NOM.Print (Config (..))
 import NOM.State (
   DependencySummary (..),
   DerivationId,
-  NOMV1State (..),
+  NOMState (..),
   getStorePathId,
   initalStateFromBuildPlatform,
   outPathToDerivation,
@@ -74,7 +74,7 @@ main = do
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
 
-testBuild :: String -> TestConfig -> (Text -> NOMV1State -> IO ()) -> Test
+testBuild :: String -> TestConfig -> (Text -> NOMState -> IO ()) -> Test
 testBuild name config asserts =
   label config name ~: do
     let suffix = if config.oldStyle then "" else ".json"
@@ -97,7 +97,7 @@ testBuild name config asserts =
     end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
     asserts output end_state
 
-testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMV1State
+testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
 testProcess input = withParser @input \streamParser -> do
   first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
   end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)
@@ -117,7 +117,7 @@ finalizer = do
   put (nomState @input .~ new_state $ old_state)
 
 goldenStandard :: TestConfig -> Test
-goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMV1State{fullSummary = MkDependencySummary{..}} -> do
+goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMState{fullSummary = MkDependencySummary{..}} -> do
   let noOfBuilds :: Int
       noOfBuilds = 4
   assertBool "Everything built" (CSet.null plannedBuilds)
@@ -134,7 +134,7 @@ goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMV1
     assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
 
 goldenFail :: TestConfig -> Test
-goldenFail config = testBuild "fail" config \_ MkNOMV1State{fullSummary = d@MkDependencySummary{..}} -> do
+goldenFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
   assertEqual ("There should be one waiting build in " <> show d) 1 (CSet.size plannedBuilds)
   assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
   assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)

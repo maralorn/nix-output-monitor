@@ -31,7 +31,7 @@ import NOM.State (
   InputDerivation (..),
   InterestingActivity (..),
   MonadNOMState,
-  NOMV1State (..),
+  NOMState (..),
   OutputName (Out),
   ProgressState (..),
   RunningBuildInfo,
@@ -85,7 +85,7 @@ setInputReceived = do
   when change (put s{progressState = InputReceived})
   pure change
 
-maintainState :: Double -> NOMV1State -> NOMV1State
+maintainState :: Double -> NOMState -> NOMState
 maintainState now = execState $ do
   currentState <- get
   unless (CSet.null currentState.touchedIds) $ do
@@ -99,7 +99,7 @@ minTimeBetweenPollingNixStore :: NominalDiffTime
 minTimeBetweenPollingNixStore = 0.2 -- in seconds
 
 {-# INLINE updateStateNixJSONMessage #-}
-updateStateNixJSONMessage :: forall m. (UpdateMonad m) => NixJSONMessage -> NOMV1State -> m (([NOMError], ByteString), Maybe NOMV1State)
+updateStateNixJSONMessage :: forall m. (UpdateMonad m) => NixJSONMessage -> NOMState -> m (([NOMError], ByteString), Maybe NOMState)
 updateStateNixJSONMessage input inputState = do
   ((hasChanged, msgs), outputState) <-
     runStateT
@@ -115,7 +115,7 @@ updateStateNixJSONMessage input inputState = do
       errors = lefts msgs
   pure ((errors, ByteString.unlines (rights msgs)), retval)
 
-updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> (Maybe Double, NOMV1State) -> m (([NOMError], ByteString), (Maybe Double, Maybe NOMV1State))
+updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> (Maybe Double, NOMState) -> m (([NOMError], ByteString), (Maybe Double, Maybe NOMState))
 updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
   now <- getNow
 
@@ -288,7 +288,7 @@ processJsonMessage = \case
 
 -- tell [Right (encodeUtf8 (markup yellow "unused message: " <> show _other))]
 
-appendDifferingPlatform :: NOMV1State -> DerivationInfo -> Text -> Text
+appendDifferingPlatform :: NOMState -> DerivationInfo -> Text -> Text
 appendDifferingPlatform nomState drvInfo = case (nomState.buildPlatform, drvInfo.platform) of
   (Strict.Just p1, Strict.Just p2) | p1 /= p2 -> (<> "-" <> p2)
   _ -> id

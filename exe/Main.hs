@@ -17,7 +17,7 @@ import NOM.IO.Input.OldStyle (OldStyleInput)
 import NOM.NixMessage.JSON (NixJSONMessage)
 import NOM.Print (Config (..), stateToText)
 import NOM.Print.Table (markup, red)
-import NOM.State (DependencySummary (..), NOMV1State (..), ProgressState (..), initalStateFromBuildPlatform)
+import NOM.State (DependencySummary (..), NOMState (..), ProgressState (..), initalStateFromBuildPlatform)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState)
 import NOM.Update.Monad (UpdateMonad)
@@ -164,7 +164,7 @@ runMonitoredCommand config process_config = do
       unless (ByteString.null output) $ ByteString.hPut stdout output
       pure exitCode
 
-monitorHandle :: forall a -> (NOMInput a) => Config -> Handle -> IO NOMV1State
+monitorHandle :: forall a -> (NOMInput a) => Config -> Handle -> IO NOMState
 monitorHandle update config input_handle = withParser \streamParser -> do
   finalState <-
     do

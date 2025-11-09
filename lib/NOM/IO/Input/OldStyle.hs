@@ -8,7 +8,7 @@ import NOM.IO (Stream)
 import NOM.IO.Input (NOMInput (..), UpdateResult (..), statelessUnfoldM)
 import NOM.NixMessage.OldStyle (NixOldStyleMessage)
 import NOM.Parser (parser)
-import NOM.State (NOMV1State)
+import NOM.State (NOMState)
 import NOM.StreamParser (parseStreamAttoparsec)
 import NOM.Update (updateStateNixOldStyleMessage)
 import Optics.TH (makeFieldLabelsNoPrefix)
@@ -27,7 +27,7 @@ readTextChunks handle =
   bufferSize = 4096 * 16
 
 data OldStyleState = MkOldStyleState
-  { state :: NOMV1State
+  { state :: NOMState
   , -- Because old style human nix logs don't include information for when a
     -- build finishes we monitor the existence of the output paths.
     --  This variable saves when we last polled the disc for

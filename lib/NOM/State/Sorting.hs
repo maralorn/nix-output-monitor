@@ -19,7 +19,7 @@ import NOM.State (
   DerivationSet,
   InputDerivation (..),
   MonadNOMState,
-  NOMV1State (..),
+  NOMState (..),
   StorePathInfo (..),
   TransferInfo (..),
   getDerivationInfos,
@@ -112,7 +112,7 @@ sortOrder MkDependencySummary{..} = fromMaybe SUnknown (firstJust id sort_entrie
     , SUploaded <$> minimumMay (Down . (.start) <$> completedUploads)
     ]
 
-sortKey :: NOMV1State -> DerivationId -> SortKey
+sortKey :: NOMState -> DerivationId -> SortKey
 sortKey nom_state drvId =
   let (only_this_summary, summary@MkDependencySummary{..}) = evalState ((,) <$> summaryOnlyThisNode drvId <*> summaryIncludingRoot drvId) nom_state
    in (sortOrder only_this_summary, sortOrder summary, Down (CMap.size runningBuilds), Down (CMap.size runningDownloads), CSet.size plannedBuilds + CSet.size plannedDownloads)
