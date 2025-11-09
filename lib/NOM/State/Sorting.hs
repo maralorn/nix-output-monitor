@@ -18,7 +18,7 @@ import NOM.State (
   DerivationInfo (..),
   DerivationSet,
   InputDerivation (..),
-  NOMState,
+  MonadNOMState,
   NOMV1State (..),
   StorePathInfo (..),
   TransferInfo (..),
@@ -34,10 +34,10 @@ import Optics (modifying', (%~))
 import Relude
 import Safe.Foldable (minimumMay)
 
-sortDepsOfSet :: DerivationSet -> NOMState ()
+sortDepsOfSet :: (MonadNOMState m) => DerivationSet -> m ()
 sortDepsOfSet parents = do
   currentState <- get
-  let sort_parent :: DerivationId -> NOMState ()
+  let sort_parent :: (MonadNOMState m) => DerivationId -> m ()
       sort_parent drvId = do
         drvInfo <- getDerivationInfos drvId
         let newDrvInfo = (#inputDerivations %~ sort_derivations) drvInfo
@@ -79,12 +79,12 @@ data SortOrder
   | SUnknown
   deriving stock (Eq, Show, Ord)
 
-summaryIncludingRoot :: DerivationId -> NOMState DependencySummary
+summaryIncludingRoot :: (MonadNOMState m) => DerivationId -> m DependencySummary
 summaryIncludingRoot drvId = do
   MkDerivationInfo{dependencySummary, buildStatus} <- getDerivationInfos drvId
   pure (updateSummaryForDerivation Unknown buildStatus drvId dependencySummary)
 
-summaryOnlyThisNode :: DerivationId -> NOMState DependencySummary
+summaryOnlyThisNode :: (MonadNOMState m) => DerivationId -> m DependencySummary
 summaryOnlyThisNode drvId = do
   MkDerivationInfo{outputs, buildStatus} <- getDerivationInfos drvId
   output_infos <- mapM (\x -> (x,) <$> getStorePathInfos x) (toList outputs)

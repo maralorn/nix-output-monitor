@@ -18,7 +18,7 @@ module NOM.State (
   DerivationMap,
   TransferInfo (..),
   BuildFail (..),
-  NOMState,
+  MonadNOMState,
   NOMV1State (..),
   ActivityStatus (..),
   InterestingActivity (..),
@@ -30,7 +30,6 @@ module NOM.State (
   clearDerivationIdFromSummary,
   clearStorePathsFromSummary,
   getStorePathInfos,
-  NOMStateT,
   getRunningBuilds,
   getRunningBuildsByHost,
   lookupStorePathId,
@@ -294,18 +293,16 @@ instance Semigroup DependencySummary where
 instance Monoid DependencySummary where
   mempty = MkDependencySummary mempty mempty mempty mempty mempty mempty mempty mempty mempty
 
-getRunningBuilds :: NOMState (DerivationMap RunningBuildInfo)
+getRunningBuilds :: (MonadNOMState m) => m (DerivationMap RunningBuildInfo)
 getRunningBuilds = gets (.fullSummary.runningBuilds)
 
-getRunningBuildsByHost :: Host -> NOMState (DerivationMap RunningBuildInfo)
+getRunningBuildsByHost :: (MonadNOMState m) => Host -> m (DerivationMap RunningBuildInfo)
 getRunningBuildsByHost host = CMap.filter (\x -> x.host == host) <$> getRunningBuilds
 
-lookupStorePathId :: StorePathId -> NOMState StorePath
+lookupStorePathId :: (MonadNOMState m) => StorePathId -> m StorePath
 lookupStorePathId pathId = (.name) <$> getStorePathInfos pathId
 
-type NOMState a = forall m. (MonadState NOMV1State m) => m a
-
-type NOMStateT m a = (MonadState NOMV1State m) => m a
+type MonadNOMState m = MonadState NOMV1State m
 
 emptyStorePathInfo :: StorePath -> StorePathInfo
 emptyStorePathInfo path = MkStorePathInfo path mempty Strict.Nothing mempty
@@ -313,7 +310,7 @@ emptyStorePathInfo path = MkStorePathInfo path mempty Strict.Nothing mempty
 emptyDerivationInfo :: Derivation -> DerivationInfo
 emptyDerivationInfo drv = MkDerivationInfo drv mempty mempty mempty Unknown mempty False mempty Strict.Nothing Strict.Nothing
 
-getStorePathId :: StorePath -> NOMState StorePathId
+getStorePathId :: (MonadNOMState m) => StorePath -> m StorePathId
 getStorePathId path = do
   let newId = do
         key <- gets (CMap.nextKey . (.storePathInfos))
@@ -322,7 +319,7 @@ getStorePathId path = do
         pure key
   gets (Map.lookup path . (.storePathIds)) >>= maybe newId pure
 
-getDerivationId :: Derivation -> NOMState DerivationId
+getDerivationId :: (MonadNOMState m) => Derivation -> m DerivationId
 getDerivationId drv = do
   let newId = do
         key <- gets (CMap.nextKey . (.derivationInfos))
@@ -331,23 +328,23 @@ getDerivationId drv = do
         pure key
   gets (Map.lookup drv . (.derivationIds)) >>= maybe newId pure
 
-inputStorePaths :: DerivationInfo -> NOMState (Map Text StorePathId)
+inputStorePaths :: (MonadNOMState m) => DerivationInfo -> m (Map Text StorePathId)
 inputStorePaths drv_info = do
   inputs <- forM (CSet.toList drv_info.inputSources) \source -> do
     store_path_infos <- getStorePathInfos source
     pure (store_path_infos.name.name, source)
   pure $ Map.fromList inputs
 
-derivationToAnyOutPath :: DerivationId -> NOMState (Maybe StorePath)
+derivationToAnyOutPath :: (MonadNOMState m) => DerivationId -> m (Maybe StorePath)
 derivationToAnyOutPath drv =
   gets (CMap.lookup drv . (.derivationInfos) >=> listToMaybe . Map.elems . (.outputs))
     >>= mapM (\pathId -> lookupStorePathId pathId)
 
-outPathToDerivation :: StorePathId -> NOMState (Maybe DerivationId)
+outPathToDerivation :: (MonadNOMState m) => StorePathId -> m (Maybe DerivationId)
 outPathToDerivation path = gets (CMap.lookup path . (.storePathInfos) >=> Strict.toLazy . (.producer))
 
 -- Only do this with derivationIds that you got via lookupDerivation
-getDerivationInfos :: DerivationId -> NOMState DerivationInfo
+getDerivationInfos :: (MonadNOMState m) => DerivationId -> m DerivationInfo
 getDerivationInfos drvId =
   fromMaybe (error "BUG: drvId is no key in derivationInfos")
     . CMap.lookup drvId
@@ -355,7 +352,7 @@ getDerivationInfos drvId =
     <$> get
 
 -- Only do this with derivationIds that you got via lookupDerivation
-getStorePathInfos :: StorePathId -> NOMState StorePathInfo
+getStorePathInfos :: (MonadNOMState m) => StorePathId -> m StorePathInfo
 getStorePathInfos storePathId =
   fromMaybe (error "BUG: storePathId is no key in storePathInfos")
     . CMap.lookup storePathId

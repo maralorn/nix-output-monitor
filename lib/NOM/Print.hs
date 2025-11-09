@@ -27,7 +27,7 @@ import NOM.State (
   DerivationInfo (..),
   DerivationSet,
   InputDerivation (..),
-  NOMState,
+  MonadNOMState,
   NOMV1State (..),
   ProgressState (..),
   StorePathId,
@@ -407,7 +407,7 @@ printBuilds nomState@MkNOMV1State{..} hostNums maxHeight = printBuildsWithTime
       goDerivationsToShow restDrvs
     _ -> pass
 
-  get' :: NOMState b -> b
+  get' :: (forall m. (MonadNOMState m) => m b) -> b
   get' procedure = evalState procedure nomState
 
   showSummary :: DependencySummary -> Text

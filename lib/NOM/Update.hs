@@ -30,8 +30,7 @@ import NOM.State (
   EvalInfo (..),
   InputDerivation (..),
   InterestingActivity (..),
-  NOMState,
-  NOMStateT,
+  MonadNOMState,
   NOMV1State (..),
   OutputName (Out),
   ProgressState (..),
@@ -72,14 +71,14 @@ import Optics (assign', has, modifying', preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
-type ProcessingT m a = (UpdateMonad m) => NOMStateT (WriterT [Either NOMError ByteString] m) a
+type ProcessingT m a = (UpdateMonad m, MonadNOMState m) => WriterT [Either NOMError ByteString] m a
 
 getReportName :: DerivationInfo -> Text
 getReportName drv = case drv.pname of
   Strict.Just pname -> pname
   Strict.Nothing -> Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.name.storePath.name
 
-setInputReceived :: NOMState Bool
+setInputReceived :: (MonadNOMState m) => m Bool
 setInputReceived = do
   s <- get
   let change = s.progressState == JustStarted
@@ -147,7 +146,7 @@ updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
       errors = lefts msgs
   pure ((errors, input <> ByteString.unlines (rights msgs)), retval)
 
-derivationIsCompleted :: (UpdateMonad m) => DerivationId -> NOMStateT m Bool
+derivationIsCompleted :: (UpdateMonad m, MonadNOMState m) => DerivationId -> m Bool
 derivationIsCompleted drvId =
   derivationToAnyOutPath drvId >>= \case
     Nothing -> pure False -- Derivation has no "out" output.
@@ -343,7 +342,7 @@ enforceHistoryLimit m = Map.drop (Map.size m - historyLimit) m
 historyLimit :: Int
 historyLimit = 10
 
-failedBuild :: Double -> DerivationId -> FailType -> NOMState ()
+failedBuild :: (MonadNOMState m) => Double -> DerivationId -> FailType -> m ()
 failedBuild now drv code = updateDerivationState drv update
  where
   update = \case
@@ -416,11 +415,11 @@ insertDerivation derivation drvId = do
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
   when noParents $ modifying' #forestRoots (drvId Seq.<|)
 
-planBuilds :: Set DerivationId -> NOMState ()
+planBuilds :: (MonadNOMState m) => Set DerivationId -> m ()
 planBuilds drvIds = forM_ drvIds \drvId ->
   updateDerivationState drvId (const Planned)
 
-planDownloads :: Set StorePathId -> NOMState ()
+planDownloads :: (MonadNOMState m) => Set StorePathId -> m ()
 planDownloads pathIds = forM_ pathIds \pathId ->
   insertStorePathState pathId DownloadPlanned Nothing
 
@@ -434,25 +433,25 @@ finishBuildByPathId host pathId = do
   drvIdMay <- outPathToDerivation pathId
   whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
-downloading :: Host -> StorePathId -> Double -> NOMState ()
+downloading :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
 downloading host pathId start = insertStorePathState pathId (State.Downloading MkTransferInfo{host, start, end = ()}) Nothing
 
-getBuildInfoIfRunning :: DerivationId -> NOMState (Maybe RunningBuildInfo)
+getBuildInfoIfRunning :: (MonadNOMState m) => DerivationId -> m (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
   runMaybeT $ do
     drvInfos <- MaybeT (gets (CMap.lookup drvId . (.derivationInfos)))
     MaybeT (pure ((() <$) <$> preview (#buildStatus % #_Building) drvInfos))
 
-downloaded :: Host -> StorePathId -> Double -> NOMState ()
+downloaded :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
 downloaded host pathId end = insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
   State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Strict.Just end)
   other -> other
 
-uploading :: Host -> StorePathId -> Double -> NOMState ()
+uploading :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
 uploading host pathId start =
   insertStorePathState pathId (State.Uploading MkTransferInfo{host, start, end = ()}) Nothing
 
-uploaded :: Host -> StorePathId -> Double -> NOMState ()
+uploaded :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
 uploaded host pathId end =
   insertStorePathState pathId (Uploaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
     State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info $> Strict.Just end)
@@ -473,7 +472,7 @@ median xs = case drop ((len - 1) `div` 2) $ sort $ toList xs of
  where
   len = Map.size xs
 
-updateDerivationState :: DerivationId -> (BuildStatus -> BuildStatus) -> NOMState ()
+updateDerivationState :: (MonadNOMState m) => DerivationId -> (BuildStatus -> BuildStatus) -> m ()
 updateDerivationState drvId updateStatus = do
   -- Update derivationInfo for this Derivation
   derivation_infos <- getDerivationInfos drvId
@@ -490,7 +489,7 @@ updateDerivationState drvId updateStatus = do
     -- Update fullSummary
     modifying' #fullSummary update_summary
 
-updateParents :: Bool -> (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> NOMState ()
+updateParents :: (MonadNOMState m) => Bool -> (DependencySummary -> DependencySummary) -> (DependencySummary -> DependencySummary) -> DerivationSet -> m ()
 updateParents force_direct update_func clear_func direct_parents = do
   relevant_parents <- (if force_direct then CSet.union direct_parents else id) <$> collect_parents True mempty direct_parents
   parents <- collect_parents False mempty direct_parents
@@ -507,7 +506,7 @@ updateParents force_direct update_func clear_func direct_parents = do
     DerivationMap DerivationInfo ->
     DerivationMap DerivationInfo
   apply_to_all_summaries func = repeatedly (CMap.adjust (#dependencySummary %~ func)) . CSet.toList
-  collect_parents :: Bool -> DerivationSet -> DerivationSet -> NOMState DerivationSet
+  collect_parents :: (MonadNOMState m) => Bool -> DerivationSet -> DerivationSet -> m DerivationSet
   collect_parents no_irrelevant collected_parents parents_to_scan = case CSet.maxView parents_to_scan of
     Nothing -> pure collected_parents
     Just (current_parent, rest_to_scan) -> do
@@ -536,7 +535,7 @@ updateStorePathStates new_state update_state =
     State.Uploading _ -> id
     Uploaded _ -> id -- Analogous to downloaded
 
-insertStorePathState :: StorePathId -> StorePathState -> Maybe (StorePathState -> StorePathState) -> NOMState ()
+insertStorePathState :: (MonadNOMState m) => StorePathId -> StorePathState -> Maybe (StorePathState -> StorePathState) -> m ()
 insertStorePathState storePathId new_store_path_state update_store_path_state = do
   -- Update storePathInfos for this Storepath
   store_path_info <- getStorePathInfos storePathId
