@@ -68,6 +68,7 @@ import Relude
 data TransferInfo a = MkTransferInfo
   { host :: Host
   , start :: Double
+  , activityId :: Strict.Maybe ActivityId
   , end :: a
   }
   deriving stock (Show, Eq, Ord, Functor)
@@ -369,7 +370,7 @@ clearDerivationIdFromSummary oldStatus drvId = case oldStatus of
 
 updateSummaryForDerivation :: BuildStatus -> BuildStatus -> DerivationId -> DependencySummary -> DependencySummary
 updateSummaryForDerivation oldStatus newStatus drvId =
-  clearDerivationIdFromSummary oldStatus drvId . case newStatus of
+  clearDerivationIdFromSummary oldStatus drvId >>> case newStatus of
     Unknown -> id
     Planned -> #plannedBuilds %~ CSet.insert drvId
     Building bi -> #runningBuilds %~ CMap.insert drvId (void bi)
@@ -390,7 +391,7 @@ clearStorePathsFromSummary deleted_states path_id =
 
 updateSummaryForStorePath :: Set StorePathState -> Set StorePathState -> StorePathId -> DependencySummary -> DependencySummary
 updateSummaryForStorePath old_states new_states path_id =
-  repeatedly insert_added added_states . clearStorePathsFromSummary deleted_states path_id
+  clearStorePathsFromSummary deleted_states path_id >>> repeatedly insert_added added_states
  where
   insert_added :: StorePathState -> DependencySummary -> DependencySummary
   insert_added = \case

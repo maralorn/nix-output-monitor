@@ -253,11 +253,11 @@ processJsonMessage = \case
       JSON.CopyPath path from Localhost -> withChange do
         now <- getNow
         pathId <- getStorePathId path
-        downloading from pathId now
+        downloading from pathId now (Just id')
       JSON.CopyPath path Localhost to -> withChange do
         now <- getNow
         pathId <- getStorePathId path
-        uploading to pathId now
+        uploading to pathId now (Just id')
       JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
       JSON.QueryPathInfo{} -> set_interesting
       _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
@@ -433,8 +433,12 @@ finishBuildByPathId host pathId = do
   drvIdMay <- outPathToDerivation pathId
   whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
-downloading :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
-downloading host pathId start = insertStorePathState pathId (State.Downloading MkTransferInfo{host, start, end = ()}) Nothing
+downloading :: (MonadNOMState m) => Host -> StorePathId -> Double -> Maybe ActivityId -> m ()
+downloading host pathId start activityId =
+  insertStorePathState
+    pathId
+    (State.Downloading MkTransferInfo{host, start, activityId = Strict.toStrict activityId, end = ()})
+    Nothing
 
 getBuildInfoIfRunning :: (MonadNOMState m) => DerivationId -> m (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
@@ -443,17 +447,23 @@ getBuildInfoIfRunning drvId =
     MaybeT (pure ((() <$) <$> preview (#buildStatus % #_Building) drvInfos))
 
 downloaded :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
-downloaded host pathId end = insertStorePathState pathId (Downloaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
-  State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Strict.Just end)
-  other -> other
+downloaded host pathId end = insertStorePathState
+  pathId
+  (Downloaded MkTransferInfo{host, start = end, activityId = Strict.Nothing, end = Strict.Nothing})
+  $ Just \case
+    State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Strict.Just end)
+    other -> other
 
-uploading :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
-uploading host pathId start =
-  insertStorePathState pathId (State.Uploading MkTransferInfo{host, start, end = ()}) Nothing
+uploading :: (MonadNOMState m) => Host -> StorePathId -> Double -> Maybe ActivityId -> m ()
+uploading host pathId start activityId =
+  insertStorePathState
+    pathId
+    (State.Uploading MkTransferInfo{host, start, activityId = Strict.toStrict activityId, end = ()})
+    Nothing
 
 uploaded :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
 uploaded host pathId end =
-  insertStorePathState pathId (Uploaded MkTransferInfo{host, start = end, end = Strict.Nothing}) $ Just \case
+  insertStorePathState pathId (Uploaded MkTransferInfo{host, activityId = Strict.Nothing, start = end, end = Strict.Nothing}) $ Just \case
     State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info $> Strict.Just end)
     other -> other
 
@@ -465,7 +475,7 @@ building host drvName now activityId = do
   updateDerivationState drvId
     $ Building
     . \case
-      Building bi -> bi -- This happens with ssh-ng. After we already registered this build as started we get a second activity start event. No frome the remote host. Sadly we can not see whether a message is from the local or the remote daemon.
+      Building bi -> bi & #activityId .~ Strict.toStrict activityId -- This happens with ssh-ng. After we already registered this build as started we get a second activity start event. No frome the remote host. Sadly we can not see whether a message is from the local or the remote daemon.
       -- It would probably be better to only mark the build running on the second start message, but that probably does not work with all remote build protocols other than ssh-ng.
       _ -> MkBuildInfo now host (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ()
 

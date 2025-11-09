@@ -14,7 +14,7 @@ import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
 import Data.Tree (Forest, Tree (Node))
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
-import NOM.NixMessage.JSON (ActivityId (..))
+import NOM.NixMessage.JSON (ActivityId (..), ActivityProgress (..))
 import NOM.Print.Table (Entry, blue, bold, cells, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (
@@ -44,7 +44,8 @@ import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
-import Optics (itoList, view, _2)
+import Numeric.Extra (intToDouble)
+import Optics (Lens', folded, itoList, to, toListOf, view, (%), _2, _Just)
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.Terminal.Size (Window)
@@ -303,7 +304,7 @@ nonZeroBold label' num = label label' $ text (markup (if num > 0 then bold else 
 data TreeLocation = Root | Twig | Leaf deriving stock (Eq)
 
 ifTimeDiffRelevant :: Double -> Double -> ([Text] -> [Text]) -> [Text]
-ifTimeDiffRelevant to from = ifTimeDurRelevant $ realToFrac (to - from)
+ifTimeDiffRelevant to' from = ifTimeDurRelevant $ realToFrac (to' - from)
 
 ifTimeDurRelevant :: NominalDiffTime -> ([Text] -> [Text]) -> [Text]
 ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration dur])
@@ -457,10 +458,13 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
         earliest_start = Unsafe.minimum . fmap (.start)
         build_sum :: [TransferInfo (Strict.Maybe Double)] -> NominalDiffTime
         build_sum = sum . fmap (\transfer_info -> realToFrac $ Strict.maybe 0 (transfer_info.start -) transfer_info.end)
-        phaseMay activityId' = do
+        activityField :: Lens' ActivityStatus (Strict.Maybe a) -> Strict.Maybe ActivityId -> Maybe a
+        activityField field activityId' = do
           activityId <- Strict.toLazy activityId'
           activity_status <- IntMap.lookup activityId.value nomState.activities
-          Strict.toLazy $ activity_status.phase
+          Strict.toLazy $ view field activity_status
+        progressMay = activityField #progress
+        phaseMay = activityField #phase
         drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
         downloadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningDownloads
         uploadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningUploads
@@ -485,6 +489,7 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                       $ markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
                       : ( print_hosts_down True (hosts downloadingOutputs)
                             <> ifTimeDiffRelevant now (earliest_start downloadingOutputs) id
+                            <> printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningDownloads)
                         )
                 )
             | not $ null uploadingOutputs ->
@@ -494,6 +499,7 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                       $ markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
                       : ( print_hosts_up True (hosts uploadingOutputs)
                             <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
+                            <> printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningDownloads)
                         )
                 )
           Unknown
@@ -558,6 +564,49 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                          )
                    )
             )
+
+-- Original implementation of this bar was shamelessly stolen from @ners at https://github.com/ners/rhine-nix/blob/main/app/Main.hs (Apache License)
+printBar :: Double -> Double -> Text
+printBar len part = toText bar
+ where
+  pct :: Double
+  pct = part * len
+  bar :: String
+  bar =
+    [1, 2 .. len] <&> \case
+      ((< pct + 0.0) -> True) -> '⣿'
+      ((< pct + 0.2) -> True) -> '⣷'
+      ((< pct + 0.4) -> True) -> '⣶'
+      ((< pct + 0.6) -> True) -> '⣦'
+      ((< pct + 0.8) -> True) -> '⣤'
+      ((< pct + 1.0) -> True) -> '⣄'
+      _ -> '⣀'
+
+printTransferProgress :: [ActivityProgress] -> [Text]
+printTransferProgress = \case
+  [] -> []
+  ap ->
+    [ markup bold
+        $ fromString
+        $ printf
+          "%.u%% %s/%s [%s]"
+          (100 * done' `div` expected)
+          (printBytes done')
+          (printBytes expected)
+          (printBar 50 $ intToDouble done' / intToDouble expected)
+    ]
+   where
+    (done', expected) = ap & (fmap (\(MkActivityProgress d e _ _) -> (d, e)) >>> unzip >>> bimap sum sum)
+
+printBytes :: Int -> Text
+printBytes bytes = fromString $ printf "%.1f%s" res unit
+ where
+  (res, unit) = fromMaybe (start, "") $ find ((< 3000) . fst) (zip scaled sizes)
+  start = intToDouble bytes
+  scaled = start : ((/ 1024) <$> scaled)
+
+sizes :: [Text]
+sizes = ["", "K", "M", "G", "T", "P"]
 
 printFailType :: FailType -> Text
 printFailType = \case
