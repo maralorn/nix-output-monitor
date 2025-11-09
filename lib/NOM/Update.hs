@@ -462,7 +462,12 @@ building host drvName now activityId = do
   reportName <- getReportName <$> lookupDerivationInfos drvName
   lastNeeded <- (median <=< Map.lookup (host, reportName)) . (.buildReports) <$> get
   drvId <- lookupDerivation drvName
-  updateDerivationState drvId (const (Building (MkBuildInfo now host (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ())))
+  updateDerivationState drvId
+    $ Building
+    . \case
+      Building bi -> bi -- This happens with ssh-ng. After we already registered this build as started we get a second activity start event. No frome the remote host. Sadly we can not see whether a message is from the local or the remote daemon.
+      -- It would probably be better to only mark the build running on the second start message, but that probably does not work with all remote build protocols other than ssh-ng.
+      _ -> MkBuildInfo now host (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ()
 
 median :: Map a Int -> Maybe Int
 median xs = case drop ((len - 1) `div` 2) $ sort $ toList xs of
