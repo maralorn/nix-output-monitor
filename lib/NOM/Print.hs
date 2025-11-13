@@ -606,7 +606,7 @@ printBytes bytes = fromString $ printf "%.1f%s" res unit
   scaled = start : ((/ 1024) <$> scaled)
 
 sizes :: [Text]
-sizes = ["", "K", "M", "G", "T", "P"]
+sizes = "" : ((<> "iB") <$> ["K", "M", "G", "T", "P"])
 
 printFailType :: FailType -> Text
 printFailType = \case
