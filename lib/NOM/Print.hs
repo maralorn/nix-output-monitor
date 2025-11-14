@@ -574,13 +574,9 @@ printBar len part = toText bar
   bar :: String
   bar =
     [1, 2 .. len] <&> \case
-      ((< pct + 0.0) -> True) -> '⣿'
-      ((< pct + 0.2) -> True) -> '⣷'
-      ((< pct + 0.4) -> True) -> '⣶'
-      ((< pct + 0.6) -> True) -> '⣦'
-      ((< pct + 0.8) -> True) -> '⣤'
-      ((< pct + 1.0) -> True) -> '⣄'
-      _ -> '⣀'
+      ((<= pct + 0 / 2) -> True) -> '■'
+      ((<= pct + 1 / 2) -> True) -> '◧'
+      _ -> '□'
 
 printTransferProgress :: [ActivityProgress] -> [Text]
 printTransferProgress = \case
@@ -589,7 +585,7 @@ printTransferProgress = \case
     [ markup bold
         $ fromString
         $ printf
-          "%.u%% %s/%s [%s]"
+          "%.u%% %s/%s %s"
           (100 * done' `div` expected)
           (printBytes done')
           (printBytes expected)
