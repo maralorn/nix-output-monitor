@@ -45,16 +45,16 @@ data ActivityType where
 -- | nix src/libutil/include/nix/util/logging.hh ActivityType
 data Activity where
   Unknown :: Activity
-  CopyPath :: StorePath -> Host -> Host -> Activity
+  CopyPath :: StorePath -> Host True -> Host True -> Activity
   FileTransfer :: Text -> Activity
   Realise :: Activity
   CopyPaths :: Activity
   Builds :: Activity
-  Build :: Derivation -> Host -> Activity
+  Build :: Derivation -> Host True -> Activity
   OptimiseStore :: Activity
   VerifyPaths :: Activity
-  Substitute :: StorePath -> Host -> Activity
-  QueryPathInfo :: StorePath -> Host -> Activity
+  Substitute :: StorePath -> Host True -> Activity
+  QueryPathInfo :: StorePath -> Host True -> Activity
   PostBuildHook :: Derivation -> Activity
   BuildWaiting :: Activity
   FetchTree :: Activity

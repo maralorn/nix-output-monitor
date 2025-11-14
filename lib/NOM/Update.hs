@@ -9,7 +9,7 @@ import Data.Set qualified as Set
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime)
-import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), parseDerivation, parseIndentedStoreObject, parseStorePath)
+import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..), forgetProto, parseDerivation, parseIndentedStoreObject, parseStorePath)
 import NOM.Error (NOMError)
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 import NOM.NixMessage.JSON qualified as JSON
@@ -301,7 +301,7 @@ activityPrefix activities = case activities of
     pure $ toText (setSGRCode [Reset]) <> markup blue (appendDifferingPlatform nomState drvInfo (getReportName drvInfo) <> "> ")
   _ -> pure ""
 
-reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host -> NonEmpty (DerivationInfo, Double) -> m BuildReportMap
+reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host False -> NonEmpty (DerivationInfo, Double) -> m BuildReportMap
 reportFinishingBuilds host builds = do
   now <- getNow
   updateBuildReports =<< injectBuildReports host (timeDiffInt now <<$>> builds)
@@ -310,21 +310,21 @@ reportFinishingBuilds host builds = do
 timeDiffInt :: Double -> Double -> Int
 timeDiffInt = fmap floor . (-)
 
-finishBuilds :: Host -> [(DerivationId, BuildInfo ())] -> ProcessingT m ()
+finishBuilds :: Host True -> [(DerivationId, BuildInfo ())] -> ProcessingT m ()
 finishBuilds host builds = do
   derivationsWithNames <- forM builds \(drvId, buildInfo) ->
     (,buildInfo.start) <$> getDerivationInfos drvId
   ( \case
       Nothing -> pass
       Just finishedBuilds -> do
-        newBuildReports <- reportFinishingBuilds host finishedBuilds
+        newBuildReports <- reportFinishingBuilds (forgetProto host) finishedBuilds
         assign' #buildReports newBuildReports
     )
     $ nonEmpty derivationsWithNames
   now <- getNow
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
-injectBuildReports :: (MonadNow m) => Host -> NonEmpty (DerivationInfo, Int) -> m (BuildReportMap -> BuildReportMap)
+injectBuildReports :: (MonadNow m) => Host False -> NonEmpty (DerivationInfo, Int) -> m (BuildReportMap -> BuildReportMap)
 injectBuildReports host builds = do
   timestamp <- getUTC
   pure $ repeatedly (uncurry (insertBuildReport timestamp)) builds
@@ -423,17 +423,17 @@ planDownloads :: (MonadNOMState m) => Set StorePathId -> m ()
 planDownloads pathIds = forM_ pathIds \pathId ->
   insertStorePathState pathId DownloadPlanned Nothing
 
-finishBuildByDrvId :: Host -> DerivationId -> ProcessingT m ()
+finishBuildByDrvId :: Host True -> DerivationId -> ProcessingT m ()
 finishBuildByDrvId host drvId = do
   buildInfoMay <- getBuildInfoIfRunning drvId
   whenJust buildInfoMay \buildInfo -> finishBuilds host [(drvId, buildInfo)]
 
-finishBuildByPathId :: Host -> StorePathId -> ProcessingT m ()
+finishBuildByPathId :: Host True -> StorePathId -> ProcessingT m ()
 finishBuildByPathId host pathId = do
   drvIdMay <- outPathToDerivation pathId
   whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
-downloading :: (MonadNOMState m) => Host -> StorePathId -> Double -> Maybe ActivityId -> m ()
+downloading :: (MonadNOMState m) => Host True -> StorePathId -> Double -> Maybe ActivityId -> m ()
 downloading host pathId start activityId =
   insertStorePathState
     pathId
@@ -446,7 +446,7 @@ getBuildInfoIfRunning drvId =
     drvInfos <- MaybeT (gets (CMap.lookup drvId . (.derivationInfos)))
     MaybeT (pure ((() <$) <$> preview (#buildStatus % #_Building) drvInfos))
 
-downloaded :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
+downloaded :: (MonadNOMState m) => Host True -> StorePathId -> Double -> m ()
 downloaded host pathId end = insertStorePathState
   pathId
   (Downloaded MkTransferInfo{host, start = end, activityId = Strict.Nothing, end = Strict.Nothing})
@@ -454,23 +454,23 @@ downloaded host pathId end = insertStorePathState
     State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Strict.Just end)
     other -> other
 
-uploading :: (MonadNOMState m) => Host -> StorePathId -> Double -> Maybe ActivityId -> m ()
+uploading :: (MonadNOMState m) => Host True -> StorePathId -> Double -> Maybe ActivityId -> m ()
 uploading host pathId start activityId =
   insertStorePathState
     pathId
     (State.Uploading MkTransferInfo{host, start, activityId = Strict.toStrict activityId, end = ()})
     Nothing
 
-uploaded :: (MonadNOMState m) => Host -> StorePathId -> Double -> m ()
+uploaded :: (MonadNOMState m) => Host True -> StorePathId -> Double -> m ()
 uploaded host pathId end =
   insertStorePathState pathId (Uploaded MkTransferInfo{host, activityId = Strict.Nothing, start = end, end = Strict.Nothing}) $ Just \case
     State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info $> Strict.Just end)
     other -> other
 
-building :: Host -> Derivation -> Double -> Maybe ActivityId -> ProcessingT m ()
+building :: Host True -> Derivation -> Double -> Maybe ActivityId -> ProcessingT m ()
 building host drvName now activityId = do
   reportName <- getReportName <$> lookupDerivationInfos drvName
-  lastNeeded <- (median <=< Map.lookup (host, reportName)) . (.buildReports) <$> get
+  lastNeeded <- (median <=< Map.lookup (forgetProto host, reportName)) . (.buildReports) <$> get
   drvId <- lookupDerivation drvName
   updateDerivationState drvId
     $ Building

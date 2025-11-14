@@ -24,6 +24,7 @@ import NOM.Builds (
   Host (..),
   StorePath (..),
   derivationByteStringParser,
+  parseHost,
   storePathByteStringParser,
  )
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
@@ -47,8 +48,8 @@ tick = void $ char '\''
 noTicks :: Parser ByteString
 noTicks = takeTill (== '\'')
 
-host :: Parser Host
-host = Host . decodeUtf8 <$> inTicks noTicks
+host :: Parser (Host True)
+host = parseHost . decodeUtf8 <$> inTicks noTicks
 
 ellipsisEnd :: Parser ()
 ellipsisEnd = string "..." >> endOfLine
@@ -145,13 +146,13 @@ transmission = do
   p <- string "path " *> inTicks storePathByteStringParser
   (Uploading p <$> toHost <|> Downloading p <$> fromHost) <* ellipsisEnd
 
-fromHost :: Parser Host
+fromHost :: Parser (Host True)
 fromHost = string " from " *> host
 
-toHost :: Parser Host
+toHost :: Parser (Host True)
 toHost = string " to " *> host
 
-onHost :: Parser Host
+onHost :: Parser (Host True)
 onHost = string " on " *> host
 
 -- building '/nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv' on 'ssh://maralorn@example.org'...

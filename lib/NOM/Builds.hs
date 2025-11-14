@@ -1,4 +1,16 @@
-module NOM.Builds (parseHost, Derivation (..), StorePath (..), Host (..), FailType (..), parseStorePath, parseDerivation, storePathByteStringParser, derivationByteStringParser, parseIndentedStoreObject) where
+module NOM.Builds (
+  forgetProto,
+  parseHost,
+  Derivation (..),
+  StorePath (..),
+  Host (..),
+  FailType (..),
+  parseStorePath,
+  parseDerivation,
+  storePathByteStringParser,
+  derivationByteStringParser,
+  parseIndentedStoreObject,
+) where
 
 import Data.Attoparsec.ByteString qualified as Parser
 import Data.Attoparsec.ByteString.Char8 qualified as Parser.Char
@@ -60,11 +72,15 @@ parseStorePath = either fail pure . TextParser.parseOnly (storePathTextParser <*
 parseIndentedStoreObject :: (MonadFail m) => Text -> m (Either Derivation StorePath)
 parseIndentedStoreObject = either fail pure . TextParser.parseOnly indentedStoreObjectTextParser
 
-parseHost :: Text -> Host
-parseHost host =
-  if host `elem` ["", "local", "local://", "unix", "unix://"]
-    then Localhost
-    else Host host
+parseHost :: Text -> Host True
+parseHost host
+  | host `elem` ["", "local", "local://", "unix", "unix://"] = Localhost
+  | otherwise = uncurry Host $ second (Text.drop 3) $ Text.breakOn "://" host
+
+forgetProto :: Host True -> Host False
+forgetProto = \case
+  Localhost -> Localhost
+  Host _ x -> Hostname x
 
 newtype Derivation = Derivation {storePath :: StorePath}
   deriving stock (Show)
@@ -88,14 +104,23 @@ instance ToText StorePath where
 instance ToString StorePath where
   toString = toString . toText
 
-data Host = Localhost | Host Text
-  deriving stock (Ord, Eq, Show)
+data Host (a :: Bool) where
+  Localhost :: Host a
+  Host :: Text -> Text -> Host True
+  Hostname :: Text -> Host False
 
-instance ToText Host where
-  toText (Host name) = name
+deriving stock instance Ord (Host a)
+
+deriving stock instance Eq (Host a)
+
+deriving stock instance Show (Host a)
+
+instance ToText (Host a) where
+  toText (Host prot name) = prot <> "://" <> name
+  toText (Hostname name) = name
   toText Localhost = "localhost"
 
-instance ToString Host where
+instance ToString (Host a) where
   toString = toString . toText
 
 data FailType = ExitCode Int | HashMismatch

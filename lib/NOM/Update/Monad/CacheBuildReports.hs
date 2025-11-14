@@ -24,10 +24,10 @@ class (Monad m) => MonadCacheBuildReports m where
   getCachedBuildReports :: m BuildReportMap
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
 
-type BuildReportMap = Map (Host, Text) (Map UTCTime Int)
+type BuildReportMap = Map (Host False, Text) (Map UTCTime Int)
 
 data BuildReport = BuildReport
-  { host :: Host
+  { host :: Host False
   , drvName :: Text
   , endTime :: UTCTime
   , buildSecs :: Int
@@ -90,10 +90,10 @@ instance FromNamedRecord BuildReport where
       <*> (parseTimeM True defaultTimeLocale timeFormat =<< m .: csvHeaderEndTime)
       <*> (m .: csvHeaderBuildSecs)
 
-toHost :: Text -> Host
+toHost :: Text -> Host False
 toHost = \case
   "" -> Localhost
-  x -> Host x
+  x -> Hostname x
 
 instance ToNamedRecord BuildReport where
   toNamedRecord m =
@@ -104,10 +104,10 @@ instance ToNamedRecord BuildReport where
       , csvHeaderBuildSecs .= m.buildSecs
       ]
 
-fromHost :: Host -> Text
+fromHost :: Host False -> Text
 fromHost = \case
   Localhost -> ""
-  Host x -> x
+  Hostname x -> x
 
 instance DefaultOrdered BuildReport where
   headerOrder _ =
@@ -128,7 +128,7 @@ saveBuildReports dir reports = catchIO trySave mempty
 toCSV :: BuildReportMap -> [BuildReport]
 toCSV = Map.assocs >=> traverse Map.assocs >>> fmap toCSVLine
 
-toCSVLine :: ((Host, Text), (UTCTime, Int)) -> BuildReport
+toCSVLine :: ((Host False, Text), (UTCTime, Int)) -> BuildReport
 toCSVLine ((host, drvName), (endTime, buildSecs)) = BuildReport{..}
 
 loadBuildReports :: FilePath -> IO BuildReportMap
@@ -142,5 +142,5 @@ loadBuildReports dir = catchIO tryLoad mempty
 fromCSV :: [BuildReport] -> BuildReportMap
 fromCSV = fmap fromCSVLine >>> Map.fromListWith Map.union
 
-fromCSVLine :: BuildReport -> ((Host, Text), Map UTCTime Int)
+fromCSVLine :: BuildReport -> ((Host False, Text), Map UTCTime Int)
 fromCSVLine BuildReport{..} = ((host, drvName), Map.singleton endTime buildSecs)

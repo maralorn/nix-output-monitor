@@ -99,6 +99,7 @@ common common-config
     -Wno-missing-kind-signatures
     -Wno-missing-role-annotations
     -Wno-missing-safe-haskell-mode
+    -Wno-unticked-promoted-constructors
     -Wno-safe
     -Wno-unsafe
     -fno-show-valid-hole-fits

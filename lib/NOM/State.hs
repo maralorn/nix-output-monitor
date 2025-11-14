@@ -66,7 +66,7 @@ import Optics.TH (makeFieldLabelsNoPrefix, makePrismLabels)
 import Relude
 
 data TransferInfo a = MkTransferInfo
-  { host :: Host
+  { host :: Host True
   , start :: Double
   , activityId :: Strict.Maybe ActivityId
   , end :: a
@@ -128,7 +128,7 @@ makeFieldLabelsNoPrefix ''BuildFail
 
 data BuildInfo a = MkBuildInfo
   { start :: Double
-  , host :: Host
+  , host :: Host True
   , estimate :: Strict.Maybe Int
   , activityId :: Strict.Maybe ActivityId
   , end :: a
@@ -297,7 +297,7 @@ instance Monoid DependencySummary where
 getRunningBuilds :: (MonadNOMState m) => m (DerivationMap RunningBuildInfo)
 getRunningBuilds = gets (.fullSummary.runningBuilds)
 
-getRunningBuildsByHost :: (MonadNOMState m) => Host -> m (DerivationMap RunningBuildInfo)
+getRunningBuildsByHost :: (MonadNOMState m) => Host True -> m (DerivationMap RunningBuildInfo)
 getRunningBuildsByHost host = CMap.filter (\x -> x.host == host) <$> getRunningBuilds
 
 lookupStorePathId :: (MonadNOMState m) => StorePathId -> m StorePath
