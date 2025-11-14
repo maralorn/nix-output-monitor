@@ -7,7 +7,6 @@ module NOM.State.Sorting (
 
 import Control.Monad.Extra (pureIf)
 import Data.List.Extra (firstJust)
-import Data.MemoTrie (memo)
 import Data.Sequence.Strict qualified as Seq
 import NOM.State (
   BuildFail (..),
@@ -46,7 +45,7 @@ sortDepsOfSet parents = do
       sort_derivations = Seq.sortOn (sort_key . (.derivation))
 
       sort_key :: DerivationId -> SortKey
-      sort_key = memo (sortKey currentState)
+      sort_key = sortKey currentState
   mapM_ (\drvId -> sort_parent drvId) $ CSet.toList parents
 
 type SortKey =

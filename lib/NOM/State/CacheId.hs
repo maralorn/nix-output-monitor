@@ -1,14 +1,7 @@
 module NOM.State.CacheId (CacheId (..)) where
 
-import Data.MemoTrie (HasTrie (..))
 import Relude
 
 type CacheId :: Type -> Type
 newtype CacheId b = MkCacheId {unCacheId :: Int}
   deriving stock (Show, Eq, Ord, Read)
-
-instance HasTrie (CacheId b) where
-  newtype CacheId b :->: c = CacheIdTrie (Int :->: c)
-  trie = coerce (trie @Int)
-  untrie = coerce (untrie @Int)
-  enumerate = coerce (enumerate @Int)

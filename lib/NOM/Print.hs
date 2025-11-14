@@ -5,7 +5,6 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.List qualified as List
 import Data.List.NonEmpty.Extra (appendr)
 import Data.Map.Strict qualified as Map
-import Data.MemoTrie (memo)
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
@@ -154,7 +153,7 @@ compactError :: Text -> Text
 compactError = fst . Text.breakOn "\n       last 10 log lines:"
 
 stateToText :: Config -> NOMState -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
-stateToText config buildState@MkNOMState{..} = memo printWithSize . fmap Window.height
+stateToText config buildState@MkNOMState{..} = printWithSize . fmap Window.height
  where
   printWithSize :: Maybe Int -> (ZonedTime, Double) -> Text
   printWithSize maybeWindow = printWithTime

@@ -61,7 +61,6 @@ common common-config
     ViewPatterns
 
   build-depends:
-    MemoTrie,
     ansi-terminal,
     async,
     attoparsec,
