@@ -329,7 +329,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
   hostLabel :: Bool -> Host True -> Text
   hostLabel color host = (if color then markup magenta else id) $ fromMaybe (toText host) (Map.lookup host hostNums)
   printBuildsWithTime :: Double -> NonEmpty Text
-  printBuildsWithTime now = (graphHeader :|) $ with_progress $ showForest $ (fmap (fmap ($ now))) preparedPrintForest
+  printBuildsWithTime now = (graphHeader :|) $ with_progress $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   with_progress :: [(Text, Maybe Double)] -> [Text]
   with_progress rows =
     rows <&> \(l, r) ->
@@ -353,7 +353,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
     let summary = showSummary drvInfo.dependencySummary
         (planned, display_drv, progress) = printDerivation drvInfo (get' (inputStorePaths drvInfo))
         display_summary = location == Leaf && planned && not (Text.null summary)
-     in \now -> ((display_drv now <> showCond display_summary (markup grey " waiting for " <> summary)), progress now)
+     in \now -> (display_drv now <> showCond display_summary (markup grey " waiting for " <> summary), progress now)
 
   buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
@@ -506,7 +506,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
                 , \now ->
                     unwords
                       $ markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
-                      : (print_hosts_down True (hosts downloadingOutputs))
+                      : print_hosts_down True (hosts downloadingOutputs)
                         <> ifTimeDiffRelevant now (earliest_start downloadingOutputs) id
                         <> prog
                 , const prct
@@ -518,7 +518,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
                 , \now ->
                     unwords
                       $ markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
-                      : (print_hosts_down True (hosts uploadingOutputs))
+                      : print_hosts_down True (hosts uploadingOutputs)
                         <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
                         <> prog
                 , const prct
