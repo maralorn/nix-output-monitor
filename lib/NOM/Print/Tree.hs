@@ -4,12 +4,21 @@ import Data.Tree (Forest, Tree (..))
 import NOM.Print.Table (blue, markup)
 import Relude
 
-showForest :: Forest Text -> [Text]
+showForest :: Forest (Text, a) -> [(Text, a)]
 showForest = reverse . go False
  where
-  go :: Bool -> Forest Text -> [Text]
-  go indent = join . (if indent then onLastAndRest (onFirstAndRest (markup blue "┌─ " <>) ("   " <>)) (onFirstAndRest (markup blue "├─ " <>) (markup blue "│  " <>)) else id) . fmap showTree
-  showTree :: Tree Text -> [Text]
+  go :: Bool -> Forest (Text, a) -> [(Text, a)]
+  go indent =
+    join
+      . ( if indent
+            then
+              onLastAndRest
+                (onFirstAndRest (first (markup blue "┌─ " <>)) (first ("   " <>)))
+                (onFirstAndRest (first (markup blue "├─ " <>)) (first (markup blue "│  " <>)))
+            else id
+        )
+      . fmap showTree
+  showTree :: Tree (Text, a) -> [(Text, a)]
   showTree (Node label' content) = label' : go True content
   onFirstAndRest :: (a -> b) -> (a -> b) -> [a] -> [b]
   onFirstAndRest _ _ [] = []

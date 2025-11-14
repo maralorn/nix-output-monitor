@@ -8,13 +8,14 @@ import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
+import Data.Strict.Classes qualified as S
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
 import Data.Tree (Forest, Tree (Node))
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..))
 import NOM.NixMessage.JSON (ActivityId (..), ActivityProgress (..))
-import NOM.Print.Table (Entry, blue, bold, cells, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
+import NOM.Print.Table (Entry, blue, bold, cells, displayWidth, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
 import NOM.State (
   ActivityStatus (..),
@@ -46,8 +47,9 @@ import NOM.Update (appendDifferingPlatform)
 import Numeric.Extra (intToDouble)
 import Optics (Lens', folded, itoList, to, toListOf, view, (%), _2, _Just)
 import Relude
+import Relude.Extra (maximum1)
 import System.Console.ANSI (SGR (Reset), setSGRCode)
-import System.Console.Terminal.Size (Window)
+import System.Console.Terminal.Size (Window (..))
 import System.Console.Terminal.Size qualified as Window
 import Text.Printf (printf)
 
@@ -101,9 +103,10 @@ bigsum = "∑"
 showCond :: (Monoid m) => Bool -> m -> m
 showCond = memptyIfFalse
 
-targetRatio, defaultTreeMax :: Int
+targetRatio, defaultTreeMax, defaultTreeWidth :: Int
 targetRatio = 3 -- We divide by this, don‘t set this to zero.
 defaultTreeMax = 20
+defaultTreeWidth = 60
 
 data Config = MkConfig
   { silent :: Bool
@@ -153,9 +156,9 @@ compactError :: Text -> Text
 compactError = fst . Text.breakOn "\n       last 10 log lines:"
 
 stateToText :: Config -> NOMState -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
-stateToText config buildState@MkNOMState{..} = printWithSize . fmap Window.height
+stateToText config buildState@MkNOMState{..} = printWithSize
  where
-  printWithSize :: Maybe Int -> (ZonedTime, Double) -> Text
+  printWithSize :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
   printWithSize maybeWindow = printWithTime
    where
     printWithTime :: (ZonedTime, Double) -> Text
@@ -175,17 +178,17 @@ stateToText config buildState@MkNOMState{..} = printWithSize . fmap Window.heigh
           , (not (Seq.null nixTraces), const traceDisplay)
           , (not (Seq.null forestRoots), buildsDisplay . snd)
           ]
-    maxHeight = case maybeWindow of
-      Just limit -> limit `div` targetRatio -- targetRatio is hardcoded to be bigger than zero.
-      Nothing -> defaultTreeMax
+    maxWindow = case maybeWindow of
+      Just (Window height width) -> Window (height `div` targetRatio) (width - 2) -- targetRatio is hardcoded to be bigger than zero.
+      Nothing -> Window.Window defaultTreeMax (defaultTreeWidth - 2)
     buildsDisplay now =
       prependLines
         horizontal
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState hostNums maxHeight now)
-    errorDisplay = printErrors nixErrors maxHeight
-    traceDisplay = printTraces nixTraces maxHeight
+        (printBuilds buildState hostNums maxWindow now)
+    errorDisplay = printErrors nixErrors maxWindow.height
+    traceDisplay = printTraces nixTraces maxWindow.height
   -- evalMessage = case evaluationState.lastFileName of
   --   Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
   --   Strict.Nothing -> Nothing
@@ -311,15 +314,23 @@ ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration
 printBuilds ::
   NOMState ->
   [(Host, Int)] ->
-  Int ->
+  Window Int ->
   Double ->
   NonEmpty Text
-printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
+printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
  where
   hostLabel :: Bool -> Host -> Text
   hostLabel color host = (if color then markup magenta else id) $ maybe (toText host) (("[" <>) . (<> "]") . show) (List.lookup host hostNums)
   printBuildsWithTime :: Double -> NonEmpty Text
-  printBuildsWithTime now = (graphHeader :|) $ showForest $ fmap (fmap ($ now)) preparedPrintForest
+  printBuildsWithTime now = (graphHeader :|) $ with_progress $ showForest $ (fmap (fmap ($ now))) preparedPrintForest
+  with_progress :: [(Text, Maybe Double)] -> [Text]
+  with_progress rows =
+    rows <&> \(l, r) ->
+      l
+        <> stimes (max 0 $ left_width - displayWidth l) " "
+        <> maybe "" (\p -> printBar (limits.width - left_width - 6) p <> printPercent p) r
+   where
+    left_width = max 60 (1 + maximum1 (0 :| (displayWidth . fst <$> rows)))
   num_raw_roots = length forestRoots
   num_roots = length preparedPrintForest
   graphTitle = markup bold "Dependency Graph"
@@ -328,14 +339,14 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
     | num_raw_roots <= 1 = graphTitle
     | num_raw_roots == num_roots = unwords [graphTitle, "with", show num_roots, "roots"]
     | otherwise = unwords [graphTitle, "showing", show num_roots, "of", show num_raw_roots, "roots"]
-  preparedPrintForest :: Forest (Double -> Text)
+  preparedPrintForest :: Forest (Double -> (Text, Maybe Double))
   preparedPrintForest = mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf) <$> buildForest
-  printTreeNode :: TreeLocation -> DerivationInfo -> Double -> Text
+  printTreeNode :: TreeLocation -> DerivationInfo -> Double -> (Text, Maybe Double)
   printTreeNode location drvInfo =
     let summary = showSummary drvInfo.dependencySummary
-        (planned, display_drv) = printDerivation drvInfo (get' (inputStorePaths drvInfo))
-        displayed_summary = showCond (location == Leaf && planned && not (Text.null summary)) (markup grey " waiting for " <> summary)
-     in \now -> display_drv now <> displayed_summary
+        (planned, display_drv, progress) = printDerivation drvInfo (get' (inputStorePaths drvInfo))
+        display_summary = location == Leaf && planned && not (Text.null summary)
+     in \now -> ((display_drv now <> showCond display_summary (markup grey " waiting for " <> summary)), progress now)
 
   buildForest :: Forest DerivationInfo
   buildForest = evalState (goBuildForest forestRoots) mempty
@@ -357,7 +368,7 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
     _ -> pure []
   derivationsToShow :: DerivationSet
   derivationsToShow =
-    let should_be_shown (index, (can_be_hidden, _, _)) = not can_be_hidden || index < maxHeight
+    let should_be_shown (index, (can_be_hidden, _, _)) = not can_be_hidden || index < limits.height
         (_, sorted_set) = execState (goDerivationsToShow forestRoots) mempty
      in CSet.fromFoldable
           $ fmap (\(_, (_, _, drvId)) -> drvId)
@@ -390,16 +401,16 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
              in infos.inputFor <> CSet.fromFoldable infos.producer
           may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           show_this_node =
-            maxHeight
+            limits.height
               > 0
               && summary
               /= mempty
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
                      || Set.size sorted_set
-                     < maxHeight
+                     < limits.height
                      || sort_key
-                     < view _2 (Set.elemAt (maxHeight - 1) sorted_set)
+                     < view _2 (Set.elemAt (limits.height - 1) sorted_set)
                  )
           new_seen_ids = CSet.insert thisDrv seen_ids
           new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
@@ -445,7 +456,7 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
   print_hosts_down color = print_hosts color "from"
   print_hosts_up color = print_hosts color "to"
 
-  printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, Double -> Text)
+  printDerivation :: DerivationInfo -> Map Text StorePathId -> (Bool, Double -> Text, Double -> Maybe Double)
   printDerivation drvInfo _input_store_paths = do
     let store_paths_in :: StorePathSet -> Bool
         store_paths_in some_set = not $ Map.null $ Map.filter (`CSet.member` some_set) drvInfo.outputs
@@ -481,28 +492,32 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
 
         case drvInfo.buildStatus of
           _
-            | not $ null downloadingOutputs ->
+            | not $ null downloadingOutputs
+            , (prct, prog) <-
+                printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningDownloads) ->
                 ( False
                 , \now ->
                     unwords
                       $ markups [bold, yellow] (down <> " " <> running <> " " <> drvName)
-                      : ( print_hosts_down True (hosts downloadingOutputs)
-                            <> ifTimeDiffRelevant now (earliest_start downloadingOutputs) id
-                            <> printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningDownloads)
-                        )
+                      : (print_hosts_down True (hosts downloadingOutputs))
+                        <> ifTimeDiffRelevant now (earliest_start downloadingOutputs) id
+                        <> prog
+                , const prct
                 )
-            | not $ null uploadingOutputs ->
+            | not $ null uploadingOutputs
+            , (prct, prog) <-
+                printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningUploads) ->
                 ( False
                 , \now ->
                     unwords
                       $ markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
-                      : ( print_hosts_up True (hosts uploadingOutputs)
-                            <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
-                            <> printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningDownloads)
-                        )
+                      : (print_hosts_down True (hosts uploadingOutputs))
+                        <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
+                        <> prog
+                , const prct
                 )
           Unknown
-            | plannedDownloads -> (True, const $ markup blue (down <> " " <> todo <> " " <> drvName))
+            | plannedDownloads -> (True, const $ markup blue (down <> " " <> todo <> " " <> drvName), const Nothing)
             | not $ null downloadedOutputs ->
                 ( False
                 , const
@@ -513,6 +528,7 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                       ( print_hosts_down False (hosts downloadedOutputs)
                           <> ifTimeDurRelevant (build_sum downloadedOutputs) id
                       )
+                , const Nothing
                 )
             | not $ null uploadedOutputs ->
                 ( False
@@ -524,9 +540,10 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                       ( print_hosts_up False (hosts uploadedOutputs)
                           <> ifTimeDurRelevant (build_sum uploadedOutputs) id
                       )
+                , const Nothing
                 )
-            | otherwise -> (False, const drvName)
-          Planned -> (True, const $ markup blue (todo <> " " <> drvName))
+            | otherwise -> (False, const drvName, const Nothing)
+          Planned -> (True, const $ markup blue (todo <> " " <> drvName), const Nothing)
           Building buildInfo ->
             let phaseList = case phaseMay buildInfo.activityId of
                   Nothing -> []
@@ -536,7 +553,12 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                     <> hostMarkup True buildInfo.host
                     <> phaseList
                 after_time = Strict.maybe [] (\x -> ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
-             in (False, \now -> unwords $ before_time <> ifTimeDiffRelevant now buildInfo.start (<> after_time))
+             in ( False
+                , \now -> unwords $ before_time <> ifTimeDiffRelevant now buildInfo.start (<> after_time)
+                , \now ->
+                    S.toLazy buildInfo.estimate
+                      >>= (\e -> if e > 0 then Just $ (now - buildInfo.start) / intToDouble e else Nothing)
+                )
           Failed buildInfo ->
             let MkBuildFail endTime failType = buildInfo.end
                 phaseInfo = case phaseMay buildInfo.activityId of
@@ -544,12 +566,13 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                   Just phase -> ["in", phase]
              in ( False
                 , const
-                    . markups [red, bold]
+                    $ markups [red, bold]
                     . unwords
                     $ [warning, drvName]
                     <> hostMarkup False buildInfo.host
                     <> ["failed with", printFailType failType, "after", clock, timeDiff endTime buildInfo.start]
                     <> phaseInfo
+                , const Nothing
                 )
           Built buildInfo ->
             ( False
@@ -558,45 +581,42 @@ printBuilds nomState@MkNOMState{..} hostNums maxHeight = printBuildsWithTime
                 <> " "
                 <> ( markup grey
                        . unwords
-                       $ ( hostMarkup False buildInfo.host
-                             <> ifTimeDiffRelevant buildInfo.end buildInfo.start id
-                         )
+                       $ hostMarkup False buildInfo.host
+                       <> ifTimeDiffRelevant buildInfo.end buildInfo.start id
                    )
+            , const Nothing
             )
 
 -- Original implementation of this bar was shamelessly stolen from @ners at https://github.com/ners/rhine-nix/blob/main/app/Main.hs (Apache License)
-printBar :: Double -> Double -> Text
+printBar :: Int -> Double -> Text
 printBar len part = toText bar
  where
   pct :: Double
-  pct = part * len
+  pct = part * intToDouble len
   bar :: String
   bar =
-    [1, 2 .. len] <&> \case
+    [1, 2 .. intToDouble len] <&> \case
       ((<= pct + 0 / 2) -> True) -> '■'
       ((<= pct + 1 / 2) -> True) -> '◧'
       _ -> '□'
 
-printTransferProgress :: [ActivityProgress] -> [Text]
+printPercent :: Double -> Text
+printPercent = markup bold . fromString . printf "%5.1f%%" . (* 100)
+
+printTransferProgress :: [ActivityProgress] -> (Maybe Double, [Text])
 printTransferProgress = \case
-  [] -> []
+  [] -> (Nothing, [])
   ap ->
-    [ markup bold
-        $ fromString
-        $ printf
-          "%.u%% %s/%s %s"
-          (100 * done' `div` expected)
-          (printBytes done')
-          (printBytes expected)
-          (printBar 50 $ intToDouble done' / intToDouble expected)
-    ]
+    ( Just $ intToDouble done' / intToDouble expected
+    , [printBytes done' <> "/" <> printBytes expected]
+    )
    where
     (done', expected) = ap & (fmap (\(MkActivityProgress d e _ _) -> (d, e)) >>> unzip >>> bimap sum sum)
 
 printBytes :: Int -> Text
 printBytes bytes = fromString $ printf "%.1f%s" res unit
  where
-  (res, unit) = fromMaybe (start, "") $ find ((< 3000) . fst) (zip scaled sizes)
+  (res, unit) = fromMaybe (start, "") $ find ((< 1000) . fst) (zip scaled sizes)
   start = intToDouble bytes
   scaled = start : ((/ 1024) <$> scaled)
 
