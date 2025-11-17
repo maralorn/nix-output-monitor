@@ -7,7 +7,6 @@ import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
-import Data.Strict.Classes qualified as S
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
 import Data.Tree (Forest, Tree (Node))
@@ -562,9 +561,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
                 after_time = Strict.maybe [] (\x -> ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
              in ( False
                 , \now -> unwords $ before_time <> ifTimeDiffRelevant now buildInfo.start (<> after_time)
-                , \now ->
-                    S.toLazy buildInfo.estimate
-                      >>= (\e -> if e > 0 then Just $ (now - buildInfo.start) / intToDouble e else Nothing)
+                , const Nothing
                 )
           Failed buildInfo ->
             let MkBuildFail endTime failType = buildInfo.end
