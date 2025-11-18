@@ -2,6 +2,7 @@ module NOM.Print (stateToText, showCode, Config (..)) where
 
 import Data.Foldable qualified as Unsafe
 import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet qualified as IntSet
 import Data.List.NonEmpty.Extra (appendr)
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
@@ -43,6 +44,7 @@ import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
+import NOM.Util (repeatedly)
 import Numeric.Extra (intToDouble)
 import Optics (Lens', folded, itoList, to, toListOf, view, (%), _1, _2, _Just)
 import Relude
@@ -236,11 +238,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
 
   showHosts = Set.size hosts > 1
   manyHosts = Set.size buildHosts > 1 || Set.size hosts > 2 -- We only need number labels on hosts if we are using remote builders or more then one transfer peer (normally a substitution cache).
-  hostNums = Map.fromSet mkHostHandle (Set.map forgetProto hosts)
-  mkHostHandle :: Host WithoutContext -> Text
-  mkHostHandle = \case
-    Localhost -> ""
-    Hostname name -> toText $ fmap fst $ mapMaybe Text.uncons $ Text.splitOn "." name
+  hostNums = collisionFreeHandles (Set.map forgetProto hosts)
   showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + downloadsRunning + numPlannedDownloads > 0
   showUploads = uploadsDone + uploadsRunning > 0
@@ -305,6 +303,41 @@ stateToText config buildState@MkNOMState{..} = printWithSize
       doneBuilds = action_count_for_host host completedBuilds
     action_count_for_host :: (HasField "host" a (Host WithContext)) => Host WithoutContext -> CMap.CacheIdMap b a -> Int
     action_count_for_host host = CMap.size . CMap.filter (\x -> host == forgetProto x.host)
+
+-- >>> collisionFreeHandles (Set.fromList [Hostname "build.example.com", Hostname "build2.example.com"])
+-- fromList [(Hostname "build.example.com","ec"),(Hostname "build2.example.com","2ec")]
+collisionFreeHandles :: Set (Host WithoutContext) -> Map (Host WithoutContext) Text
+collisionFreeHandles hosts = Map.mapWithKey mkHandle improvedMap
+ where
+  defaultMap = Map.fromSet (const indexOfTwoLastDots) hosts
+  improvedMap = Map.mapWithKey disambig defaultMap
+
+  indexOfTwoLastDots :: [IntSet]
+  indexOfTwoLastDots = [IntSet.singleton 0, IntSet.singleton 0] <> repeat IntSet.empty
+
+  mkHandle :: Host WithoutContext -> [IntSet] -> Text
+  mkHandle host = fmap (toText . catMaybes) $ toList <=< reverse . zipWith IntMap.restrictKeys (indexMaps (toText host))
+
+  indexMaps :: Text -> [IntMap (Maybe Char)]
+  indexMaps = map (IntMap.fromList . zip [0 ..] . (<> [Nothing]) . fmap Just . toString) . reverse . Text.splitOn "."
+  disambig :: Host WithoutContext -> [IntSet] -> [IntSet]
+  disambig host poss = repeatedly (zipWith IntSet.union) (firstDiff (toText host) . toText <$> colls) poss
+   where
+    colls = Map.keys $ Map.filterWithKey (\i k -> mkHandle i k == mkHandle host poss) $ Map.delete host defaultMap
+
+  firstDiff :: Text -> Text -> [IntSet]
+  firstDiff t1 t2 =
+    uncurry (<>)
+      $ second (mapTail (const mempty))
+      $ break (/= mempty)
+      $ maybe mempty (IntSet.singleton . fst)
+      . IntMap.lookupMin
+      . IntMap.filter id
+      <$> zipWith (IntMap.intersectionWith (/=)) (indexMaps t1) (indexMaps t2)
+
+mapTail :: (a -> a) -> [a] -> [a]
+mapTail _ [] = []
+mapTail f (x : xs) = x : fmap f xs
 
 nonZeroShowBold :: Text -> Int -> Entry
 nonZeroShowBold label' num = if num > 0 then label label' $ text (markup bold (show num)) else dummy
