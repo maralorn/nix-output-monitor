@@ -336,7 +336,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
         <> stimes (max 0 $ left_width - displayWidth l) " "
         <> maybe "" (\p -> printBar (limits.width - left_width - 6) p <> printPercent p) r
    where
-    left_width = max 60 (1 + maximum1 (0 :| (displayWidth . fst <$> rows)))
+    left_width = max 60 (1 + maximum1 (0 :| (displayWidth . fst <$> filter (isJust . snd) rows)))
   num_raw_roots = length forestRoots
   num_roots = length preparedPrintForest
   graphTitle = markup bold "Dependency Graph"
