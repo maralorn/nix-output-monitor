@@ -56,5 +56,5 @@ instance NOMInput OldStyleInput where
         { errors
         , output
         , newStateToPrint = new_state
-        , newState = MkOldStyleState (fromMaybe (old_state.state) new_state) (Strict.toStrict new_timestamp)
+        , newState = MkOldStyleState (fromMaybe old_state.state new_state) (Strict.toStrict new_timestamp)
         }
