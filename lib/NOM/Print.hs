@@ -11,7 +11,7 @@ import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
 import Data.Tree (Forest, Tree (Node))
 import GHC.Records (HasField)
-import NOM.Builds (Derivation (..), FailType (..), Host (..), StorePath (..), forgetProto)
+import NOM.Builds (Derivation (..), FailType (..), Host (..), HostContext (..), StorePath (..), forgetProto)
 import NOM.NixMessage.JSON (ActivityId (..), ActivityProgress (..))
 import NOM.Print.Table (Entry, blue, bold, cells, displayWidth, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
@@ -236,7 +236,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
   showHosts = Set.size hosts > 1
   manyHosts = Set.size buildHosts > 1 || Set.size hosts > 2 -- We only need number labels on hosts if we are using remote builders or more then one transfer peer (normally a substitution cache).
   hostNums = Map.fromSet (mkHostHandle . forgetProto) hosts
-  mkHostHandle :: Host False -> Text
+  mkHostHandle :: Host WithoutContext -> Text
   mkHostHandle = \case
     Localhost -> ""
     Hostname name -> toText $ fmap fst $ mapMaybe Text.uncons $ Text.splitOn "." name
@@ -269,7 +269,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
   printHosts =
     mapMaybe (nonEmpty . labelForHost) (Map.toList hostNums)
    where
-    labelForHost :: (Host True, Text) -> [Entry]
+    labelForHost :: (Host WithContext, Text) -> [Entry]
     labelForHost (host, index) =
       showCond
         showBuilds
@@ -290,17 +290,17 @@ stateToText config buildState@MkNOMState{..} = printWithSize
           ]
         <> one (magenta . header $ (if manyHosts && index /= "" then index <> ": " else "") <> display_host host)
      where
-      display_host :: Host True -> Text
+      display_host :: Host WithContext -> Text
       display_host = \case
         Localhost -> toText Localhost
-        Host prot name -> name <> " (" <> prot <> ")"
+        Host prot _ name -> name <> maybe "" (\p -> " (" <> p <> ")") prot
       uploads = action_count_for_host host completedUploads
       uploadsRunning' = action_count_for_host host runningUploads
       downloads = action_count_for_host host completedDownloads
       downloadsRunning' = action_count_for_host host runningDownloads
       numRunningBuildsOnHost = action_count_for_host host runningBuilds
       doneBuilds = action_count_for_host host completedBuilds
-    action_count_for_host :: (HasField "host" a (Host True)) => Host True -> CMap.CacheIdMap b a -> Int
+    action_count_for_host :: (HasField "host" a (Host WithContext)) => Host WithContext -> CMap.CacheIdMap b a -> Int
     action_count_for_host host = CMap.size . CMap.filter (\x -> host == x.host)
 
 nonZeroShowBold :: Text -> Int -> Entry
@@ -319,13 +319,13 @@ ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration
 
 printBuilds ::
   NOMState ->
-  Map (Host True) Text ->
+  Map (Host WithContext) Text ->
   Window Int ->
   Double ->
   NonEmpty Text
 printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
  where
-  hostLabel :: Bool -> Host True -> Text
+  hostLabel :: Bool -> Host WithContext -> Text
   hostLabel color host = (if color then markup magenta else id) $ fromMaybe (toText host) (Map.lookup host hostNums)
   printBuildsWithTime :: Double -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ with_progress $ showForest $ fmap (fmap ($ now)) preparedPrintForest
@@ -451,11 +451,11 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
             [markup blue $ show (CSet.size plannedDownloads) <> " " <> down <> " " <> todo]
         ]
 
-  hostMarkup :: Bool -> Host True -> [Text]
+  hostMarkup :: Bool -> Host WithContext -> [Text]
   hostMarkup _ Localhost = mempty
   hostMarkup color host = ["on", hostLabel color host]
 
-  print_hosts :: Bool -> Text -> [Host True] -> [Text]
+  print_hosts :: Bool -> Text -> [Host WithContext] -> [Text]
   print_hosts color direction_label hosts
     | null hosts || length hostNums <= 2 = []
     | otherwise = direction_label : (hostLabel color <$> hosts)
@@ -468,7 +468,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
         store_paths_in some_set = not $ Map.null $ Map.filter (`CSet.member` some_set) drvInfo.outputs
         store_paths_in_map :: StorePathMap (TransferInfo a) -> [TransferInfo a]
         store_paths_in_map info_map = toList $ Map.mapMaybe (`CMap.lookup` info_map) drvInfo.outputs
-        hosts :: [TransferInfo a] -> [Host True]
+        hosts :: [TransferInfo a] -> [Host WithContext]
         hosts = toList . Set.fromList . fmap (.host)
         earliest_start :: [TransferInfo a] -> Double
         earliest_start = Unsafe.minimum . fmap (.start)

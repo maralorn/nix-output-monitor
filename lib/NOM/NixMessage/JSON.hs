@@ -1,6 +1,6 @@
 module NOM.NixMessage.JSON (NixJSONMessage (..), StartAction (..), StopAction (..), MessageAction (..), ResultAction (..), ActivityResult (..), Activity (..), ActivityId (..), Verbosity (..), ActivityProgress (..), ActivityType (..)) where
 
-import NOM.Builds (Derivation (..), Host (..), StorePath (..))
+import NOM.Builds (Derivation (..), Host (..), HostContext (..), StorePath (..))
 import NOM.Error (NOMError)
 import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
@@ -45,16 +45,16 @@ data ActivityType where
 -- | nix src/libutil/include/nix/util/logging.hh ActivityType
 data Activity where
   Unknown :: Activity
-  CopyPath :: StorePath -> Host True -> Host True -> Activity
+  CopyPath :: StorePath -> Host WithContext -> Host WithContext -> Activity
   FileTransfer :: Text -> Activity
   Realise :: Activity
   CopyPaths :: Activity
   Builds :: Activity
-  Build :: Derivation -> Host True -> Activity
+  Build :: Derivation -> Host WithContext -> Activity
   OptimiseStore :: Activity
   VerifyPaths :: Activity
-  Substitute :: StorePath -> Host True -> Activity
-  QueryPathInfo :: StorePath -> Host True -> Activity
+  Substitute :: StorePath -> Host WithContext -> Activity
+  QueryPathInfo :: StorePath -> Host WithContext -> Activity
   PostBuildHook :: Derivation -> Activity
   BuildWaiting :: Activity
   FetchTree :: Activity

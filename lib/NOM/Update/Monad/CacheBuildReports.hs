@@ -11,7 +11,7 @@ import Control.Monad.Trans.Writer.CPS (WriterT)
 import Data.Csv (DefaultOrdered (..), FromNamedRecord (..), ToNamedRecord (..), decodeByName, encodeDefaultOrderedByName, header, namedRecord, (.:), (.=))
 import Data.Map.Strict qualified as Map
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
-import NOM.Builds (Host (..))
+import NOM.Builds (Host (..), HostContext (..))
 import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
 import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
@@ -24,10 +24,10 @@ class (Monad m) => MonadCacheBuildReports m where
   getCachedBuildReports :: m BuildReportMap
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
 
-type BuildReportMap = Map (Host False, Text) (Map UTCTime Int)
+type BuildReportMap = Map (Host WithoutContext, Text) (Map UTCTime Int)
 
 data BuildReport = BuildReport
-  { host :: Host False
+  { host :: Host WithoutContext
   , drvName :: Text
   , endTime :: UTCTime
   , buildSecs :: Int
@@ -90,7 +90,7 @@ instance FromNamedRecord BuildReport where
       <*> (parseTimeM True defaultTimeLocale timeFormat =<< m .: csvHeaderEndTime)
       <*> (m .: csvHeaderBuildSecs)
 
-toHost :: Text -> Host False
+toHost :: Text -> Host WithoutContext
 toHost = \case
   "" -> Localhost
   x -> Hostname x
@@ -104,7 +104,7 @@ instance ToNamedRecord BuildReport where
       , csvHeaderBuildSecs .= m.buildSecs
       ]
 
-fromHost :: Host False -> Text
+fromHost :: Host WithoutContext -> Text
 fromHost = \case
   Localhost -> ""
   Hostname x -> x
@@ -128,7 +128,7 @@ saveBuildReports dir reports = catchIO trySave mempty
 toCSV :: BuildReportMap -> [BuildReport]
 toCSV = Map.assocs >=> traverse Map.assocs >>> fmap toCSVLine
 
-toCSVLine :: ((Host False, Text), (UTCTime, Int)) -> BuildReport
+toCSVLine :: ((Host WithoutContext, Text), (UTCTime, Int)) -> BuildReport
 toCSVLine ((host, drvName), (endTime, buildSecs)) = BuildReport{..}
 
 loadBuildReports :: FilePath -> IO BuildReportMap
@@ -142,5 +142,5 @@ loadBuildReports dir = catchIO tryLoad mempty
 fromCSV :: [BuildReport] -> BuildReportMap
 fromCSV = fmap fromCSVLine >>> Map.fromListWith Map.union
 
-fromCSVLine :: BuildReport -> ((Host False, Text), Map UTCTime Int)
+fromCSVLine :: BuildReport -> ((Host WithoutContext, Text), Map UTCTime Int)
 fromCSVLine BuildReport{..} = ((host, drvName), Map.singleton endTime buildSecs)

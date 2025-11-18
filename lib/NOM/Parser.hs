@@ -18,15 +18,7 @@ import Data.Attoparsec.ByteString.Char8 (
   takeTill,
   try,
  )
-import NOM.Builds (
-  Derivation (..),
-  FailType (ExitCode, HashMismatch),
-  Host (..),
-  StorePath (..),
-  derivationByteStringParser,
-  parseHost,
-  storePathByteStringParser,
- )
+import NOM.Builds (Derivation (..), FailType (ExitCode, HashMismatch), Host (..), HostContext (..), StorePath (..), derivationByteStringParser, parseHost, storePathByteStringParser)
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
 import Relude hiding (take, takeWhile)
 
@@ -48,7 +40,7 @@ tick = void $ char '\''
 noTicks :: Parser ByteString
 noTicks = takeTill (== '\'')
 
-host :: Parser (Host True)
+host :: Parser (Host WithContext)
 host = parseHost . decodeUtf8 <$> inTicks noTicks
 
 ellipsisEnd :: Parser ()
@@ -146,13 +138,13 @@ transmission = do
   p <- string "path " *> inTicks storePathByteStringParser
   (Uploading p <$> toHost <|> Downloading p <$> fromHost) <* ellipsisEnd
 
-fromHost :: Parser (Host True)
+fromHost :: Parser (Host WithContext)
 fromHost = string " from " *> host
 
-toHost :: Parser (Host True)
+toHost :: Parser (Host WithContext)
 toHost = string " to " *> host
 
-onHost :: Parser (Host True)
+onHost :: Parser (Host WithContext)
 onHost = string " on " *> host
 
 -- building '/nix/store/4lj96sc0pyf76p4w6irh52wmgikx8qw2-nix-output-monitor-0.1.0.3.drv' on 'ssh://maralorn@example.org'...

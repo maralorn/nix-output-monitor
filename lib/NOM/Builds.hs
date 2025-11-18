@@ -2,6 +2,7 @@ module NOM.Builds (
   forgetProto,
   parseHost,
   Derivation (..),
+  HostContext (..),
   StorePath (..),
   Host (..),
   FailType (..),
@@ -72,15 +73,22 @@ parseStorePath = either fail pure . TextParser.parseOnly (storePathTextParser <*
 parseIndentedStoreObject :: (MonadFail m) => Text -> m (Either Derivation StorePath)
 parseIndentedStoreObject = either fail pure . TextParser.parseOnly indentedStoreObjectTextParser
 
-parseHost :: Text -> Host True
-parseHost host
-  | host `elem` ["", "local", "local://", "unix", "unix://"] = Localhost
-  | otherwise = uncurry Host $ second (Text.drop 3) $ Text.breakOn "://" host
+parseHost :: Text -> Host WithContext
+parseHost hostname
+  | hostname `elem` ["", "local", "local://", "unix", "unix://"] = Localhost
+  | otherwise = Host proto user host
+ where
+  (proto, (user, host)) = second (breakOnMaybe "@") $ breakOnMaybe "://" hostname
 
-forgetProto :: Host True -> Host False
+breakOnMaybe :: Text -> Text -> (Maybe Text, Text)
+breakOnMaybe sep input = case Text.breakOn sep input of
+  (all, "") -> (Nothing, all)
+  (pre, rest) -> (Just pre, Text.drop (Text.length sep) rest)
+
+forgetProto :: Host WithContext -> Host WithoutContext
 forgetProto = \case
   Localhost -> Localhost
-  Host _ x -> Hostname x
+  Host _ _ x -> Hostname x
 
 newtype Derivation = Derivation {storePath :: StorePath}
   deriving stock (Show)
@@ -104,10 +112,12 @@ instance ToText StorePath where
 instance ToString StorePath where
   toString = toString . toText
 
-data Host (a :: Bool) where
+data HostContext = WithContext | WithoutContext
+
+data Host (a :: HostContext) where
   Localhost :: Host a
-  Host :: Text -> Text -> Host True
-  Hostname :: Text -> Host False
+  Host :: Maybe Text -> Maybe Text -> Text -> Host WithContext
+  Hostname :: Text -> Host WithoutContext
 
 deriving stock instance Ord (Host a)
 
@@ -116,7 +126,7 @@ deriving stock instance Eq (Host a)
 deriving stock instance Show (Host a)
 
 instance ToText (Host a) where
-  toText (Host prot name) = prot <> "://" <> name
+  toText (Host proto user name) = maybe "" (<> "://") proto <> maybe "" (<> "@") user <> name
   toText (Hostname name) = name
   toText Localhost = "localhost"
 

@@ -47,7 +47,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
-import NOM.Builds (Derivation (..), FailType, Host (..), StorePath (..))
+import NOM.Builds (Derivation (..), FailType, Host (..), HostContext (..), StorePath (..))
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityProgress)
 import NOM.State.CacheId (CacheId)
 import NOM.State.CacheId.Map (CacheIdMap)
@@ -66,7 +66,7 @@ import Optics.TH (makeFieldLabelsNoPrefix, makePrismLabels)
 import Relude
 
 data TransferInfo a = MkTransferInfo
-  { host :: Host True
+  { host :: Host WithContext
   , start :: Double
   , activityId :: Strict.Maybe ActivityId
   , end :: a
@@ -128,7 +128,7 @@ makeFieldLabelsNoPrefix ''BuildFail
 
 data BuildInfo a = MkBuildInfo
   { start :: Double
-  , host :: Host True
+  , host :: Host WithContext
   , estimate :: Strict.Maybe Int
   , activityId :: Strict.Maybe ActivityId
   , end :: a
@@ -297,7 +297,7 @@ instance Monoid DependencySummary where
 getRunningBuilds :: (MonadNOMState m) => m (DerivationMap RunningBuildInfo)
 getRunningBuilds = gets (.fullSummary.runningBuilds)
 
-getRunningBuildsByHost :: (MonadNOMState m) => Host True -> m (DerivationMap RunningBuildInfo)
+getRunningBuildsByHost :: (MonadNOMState m) => Host WithContext -> m (DerivationMap RunningBuildInfo)
 getRunningBuildsByHost host = CMap.filter (\x -> x.host == host) <$> getRunningBuilds
 
 lookupStorePathId :: (MonadNOMState m) => StorePathId -> m StorePath
