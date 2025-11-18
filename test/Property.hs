@@ -59,7 +59,7 @@ main = do
               "result matches"
               ( Downloading
                   (StorePath "yk1164s4bkj6p3s4mzxm5fc4qn38cnmf" "ghc-8.8.2-doc")
-                  (Host "https" "cache.nixos.org")
+                  (Host (Just "https") Nothing "cache.nixos.org")
               )
               result
             assertEqual "no rest" "" rest
@@ -83,7 +83,7 @@ main = do
               "result matches"
               ( Build
                   (Derivation $ StorePath "63jjdifv1x1nymjxdwla603xy1sggakk" "hoogle-local-0.1")
-                  (Host "ssh" "maralorn@example.com")
+                  (Host (Just "ssh") (Just "maralorn") "example.com")
               )
               result
             assertEqual "no rest" "" rest
