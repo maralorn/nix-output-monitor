@@ -17,7 +17,7 @@ import Data.Attoparsec.ByteString qualified as Parser
 import Data.Attoparsec.ByteString.Char8 qualified as Parser.Char
 import Data.Attoparsec.Text qualified as TextParser
 import Data.Text qualified as Text
-import Optics.TH (makeFieldLabelsNoPrefix)
+import Optics.TH (makeFieldLabelsNoPrefix, makePrismLabels)
 import Relude
 
 data StorePath = StorePath
@@ -118,6 +118,8 @@ data Host (a :: HostContext) where
   Localhost :: Host a
   Host :: Maybe Text -> Maybe Text -> Text -> Host WithContext
   Hostname :: Text -> Host WithoutContext
+
+makePrismLabels ''Host
 
 deriving stock instance Ord (Host a)
 

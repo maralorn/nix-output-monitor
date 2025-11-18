@@ -6,6 +6,7 @@ import Data.List.NonEmpty.Extra (appendr)
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
+import Data.Set.Optics (setOf)
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
@@ -43,7 +44,7 @@ import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
 import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
 import Numeric.Extra (intToDouble)
-import Optics (Lens', folded, itoList, to, toListOf, view, (%), _2, _Just)
+import Optics (Lens', folded, itoList, to, toListOf, view, (%), _1, _2, _Just)
 import Relude
 import Relude.Extra (maximum1)
 import System.Console.ANSI (SGR (Reset), setSGRCode)
@@ -235,7 +236,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
 
   showHosts = Set.size hosts > 1
   manyHosts = Set.size buildHosts > 1 || Set.size hosts > 2 -- We only need number labels on hosts if we are using remote builders or more then one transfer peer (normally a substitution cache).
-  hostNums = Map.fromSet (mkHostHandle . forgetProto) hosts
+  hostNums = Map.fromSet mkHostHandle (Set.map forgetProto hosts)
   mkHostHandle :: Host WithoutContext -> Text
   mkHostHandle = \case
     Localhost -> ""
@@ -269,7 +270,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
   printHosts =
     mapMaybe (nonEmpty . labelForHost) (Map.toList hostNums)
    where
-    labelForHost :: (Host WithContext, Text) -> [Entry]
+    labelForHost :: (Host WithoutContext, Text) -> [Entry]
     labelForHost (host, index) =
       showCond
         showBuilds
@@ -288,20 +289,22 @@ stateToText config buildState@MkNOMState{..} = printWithSize
           [ yellow $ nonZeroShowBold up uploadsRunning'
           , green $ nonZeroShowBold up uploads
           ]
-        <> one (magenta . header $ (if manyHosts && index /= "" then index <> ": " else "") <> display_host host)
+        <> one (magenta . header $ (if manyHosts && index /= "" then index <> ": " else "") <> display_host)
      where
-      display_host :: Host WithContext -> Text
-      display_host = \case
-        Localhost -> toText Localhost
-        Host prot _ name -> name <> maybe "" (\p -> " (" <> p <> ")") prot
+      display_host :: Text
+      display_host =
+        toText host <> case toList prots of
+          [] -> ""
+          ps -> " (" <> Text.intercalate ", " ps <> ")"
+      prots = setOf (folded % #_Host % _1 % _Just) hosts
       uploads = action_count_for_host host completedUploads
       uploadsRunning' = action_count_for_host host runningUploads
       downloads = action_count_for_host host completedDownloads
       downloadsRunning' = action_count_for_host host runningDownloads
       numRunningBuildsOnHost = action_count_for_host host runningBuilds
       doneBuilds = action_count_for_host host completedBuilds
-    action_count_for_host :: (HasField "host" a (Host WithContext)) => Host WithContext -> CMap.CacheIdMap b a -> Int
-    action_count_for_host host = CMap.size . CMap.filter (\x -> host == x.host)
+    action_count_for_host :: (HasField "host" a (Host WithContext)) => Host WithoutContext -> CMap.CacheIdMap b a -> Int
+    action_count_for_host host = CMap.size . CMap.filter (\x -> host == forgetProto x.host)
 
 nonZeroShowBold :: Text -> Int -> Entry
 nonZeroShowBold label' num = if num > 0 then label label' $ text (markup bold (show num)) else dummy
@@ -319,14 +322,14 @@ ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration
 
 printBuilds ::
   NOMState ->
-  Map (Host WithContext) Text ->
+  Map (Host WithoutContext) Text ->
   Window Int ->
   Double ->
   NonEmpty Text
 printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
  where
   hostLabel :: Bool -> Host WithContext -> Text
-  hostLabel color host = (if color then markup magenta else id) $ fromMaybe (toText host) (Map.lookup host hostNums)
+  hostLabel color host = (if color then markup magenta else id) $ fromMaybe (toText host) (Map.lookup (forgetProto host) hostNums)
   printBuildsWithTime :: Double -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ with_progress $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   with_progress :: [(Text, Maybe Double)] -> [Text]
