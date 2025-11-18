@@ -82,7 +82,7 @@ parseHost hostname
 
 breakOnMaybe :: Text -> Text -> (Maybe Text, Text)
 breakOnMaybe sep input = case Text.breakOn sep input of
-  (all, "") -> (Nothing, all)
+  (t, "") -> (Nothing, t)
   (pre, rest) -> (Just pre, Text.drop (Text.length sep) rest)
 
 forgetProto :: Host WithContext -> Host WithoutContext
