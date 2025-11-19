@@ -67,7 +67,7 @@ import NOM.Update.Monad (
 import NOM.Util (parseOneText, repeatedly)
 import Nix.Derivation qualified as Nix
 import Numeric.Extra (intToDouble)
-import Optics (assign', at, has, ix, modifying', only, preuse, preview, use, (%), (%~), (.~) )
+import Optics (assign', at, has, ix, modifying', only, preuse, preview, use, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
@@ -291,7 +291,7 @@ processJsonMessage = \case
         uploaded to pathId now
       Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
         tokens <- use #successTokens
-        if (tokens > 0)
+        if tokens > 0
           then withChange do
             modifying' #successTokens pred
             drvId <- lookupDerivation drv
