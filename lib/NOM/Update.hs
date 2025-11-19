@@ -438,7 +438,7 @@ planBuilds drvIds = forM_ drvIds \drvId ->
 
 planDownloads :: (MonadNOMState m) => Set StorePathId -> m ()
 planDownloads pathIds = forM_ pathIds \pathId ->
-  insertStorePathState pathId DownloadPlanned Nothing
+  upsertStorePathState pathId DownloadPlanned (const Nothing)
 
 finishBuildByDrvId :: Host WithContext -> DerivationId -> ProcessingT m ()
 finishBuildByDrvId host drvId = do
@@ -451,11 +451,11 @@ finishBuildByPathId host pathId = do
   whenJust drvIdMay (\x -> finishBuildByDrvId host x)
 
 downloading :: (MonadNOMState m) => Host WithContext -> StorePathId -> Double -> Maybe ActivityId -> m ()
-downloading host pathId start activityId =
-  insertStorePathState
-    pathId
-    (State.Downloading MkTransferInfo{host, start, activityId = Strict.toStrict activityId, end = ()})
-    Nothing
+downloading host pathId start activityId = upsertStorePathState pathId newval $ \case
+  DownloadPlanned -> Just newval
+  _ -> Nothing
+ where
+  newval = State.Downloading MkTransferInfo{host, start, activityId = Strict.toStrict activityId, end = ()}
 
 getBuildInfoIfRunning :: (MonadNOMState m) => DerivationId -> m (Maybe RunningBuildInfo)
 getBuildInfoIfRunning drvId =
@@ -464,25 +464,25 @@ getBuildInfoIfRunning drvId =
     MaybeT (pure ((() <$) <$> preview (#buildStatus % #_Building) drvInfos))
 
 downloaded :: (MonadNOMState m) => Host WithContext -> StorePathId -> Double -> m ()
-downloaded host pathId end = insertStorePathState
-  pathId
-  (Downloaded MkTransferInfo{host, start = end, activityId = Strict.Nothing, end = Strict.Nothing})
-  $ Just \case
-    State.Downloading transfer_info | transfer_info.host == host -> Downloaded (transfer_info $> Strict.Just end)
-    other -> other
+downloaded host pathId end = upsertStorePathState pathId newval $ \case
+  State.Downloading transfer_info | transfer_info.host == host -> Just $ Downloaded (transfer_info $> Strict.Just end)
+  DownloadPlanned -> Just newval
+  _ -> Nothing
+ where
+  newval = Downloaded MkTransferInfo{host, start = end, activityId = Strict.Nothing, end = Strict.Nothing}
 
 uploading :: (MonadNOMState m) => Host WithContext -> StorePathId -> Double -> Maybe ActivityId -> m ()
 uploading host pathId start activityId =
-  insertStorePathState
+  upsertStorePathState
     pathId
     (State.Uploading MkTransferInfo{host, start, activityId = Strict.toStrict activityId, end = ()})
-    Nothing
+    (const Nothing)
 
 uploaded :: (MonadNOMState m) => Host WithContext -> StorePathId -> Double -> m ()
 uploaded host pathId end =
-  insertStorePathState pathId (Uploaded MkTransferInfo{host, activityId = Strict.Nothing, start = end, end = Strict.Nothing}) $ Just \case
-    State.Uploading transfer_info | transfer_info.host == host -> Uploaded (transfer_info $> Strict.Just end)
-    other -> other
+  upsertStorePathState pathId (Uploaded MkTransferInfo{host, activityId = Strict.Nothing, start = end, end = Strict.Nothing}) \case
+    State.Uploading transfer_info | transfer_info.host == host -> Just $ Uploaded (transfer_info $> Strict.Just end)
+    _ -> Nothing
 
 building :: Host WithContext -> Derivation -> Double -> Maybe ActivityId -> ProcessingT m ()
 building host drvName now activityId = do
@@ -551,24 +551,16 @@ updateParents force_direct update_func clear_func direct_parents = do
         then proceed collected_parents rest_to_scan
         else proceed (CSet.insert current_parent collected_parents) (CSet.union (CSet.difference drv_infos.derivationParents collected_parents) rest_to_scan)
 
-updateStorePathStates :: StorePathState -> Maybe (StorePathState -> StorePathState) -> Set StorePathState -> Set StorePathState
+updateStorePathStates :: StorePathState -> (StorePathState -> Maybe StorePathState) -> Set StorePathState -> Set StorePathState
 updateStorePathStates new_state update_state =
-  Set.insert new_state
-    . localFilter
-    . ( case update_state of
-          Just update_func -> Set.fromList . fmap update_func . Set.toList
-          Nothing -> id
-      )
- where
-  localFilter = case new_state of
-    DownloadPlanned -> id
-    State.Downloading _ -> Set.filter (DownloadPlanned /=)
-    Downloaded _ -> Set.filter (DownloadPlanned /=) -- We don‘t need to filter downloading state because that has already been handled by the update_state function
-    State.Uploading _ -> id
-    Uploaded _ -> id -- Analogous to downloaded
+  Set.fromList
+    . fmap (either id id)
+    . (\xs -> if any isRight xs then xs else Right new_state : xs)
+    . fmap (\x -> maybe (Left x) Right $ update_state x)
+    . toList
 
-insertStorePathState :: (MonadNOMState m) => StorePathId -> StorePathState -> Maybe (StorePathState -> StorePathState) -> m ()
-insertStorePathState storePathId new_store_path_state update_store_path_state = do
+upsertStorePathState :: (MonadNOMState m) => StorePathId -> StorePathState -> (StorePathState -> Maybe StorePathState) -> m ()
+upsertStorePathState storePathId new_store_path_state update_store_path_state = do
   -- Update storePathInfos for this Storepath
   store_path_info <- getStorePathInfos storePathId
   let oldStatus = store_path_info.states

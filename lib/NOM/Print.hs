@@ -46,7 +46,7 @@ import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
 import NOM.Util (repeatedly)
 import Numeric.Extra (intToDouble)
-import Optics (Lens', filteredBy, folded, itoList, only, preview, to, toListOf, view, (%), _1, _2, _3, _Just)
+import Optics (Lens', filteredBy, folded, itoList, only, preview, sumOf, to, toListOf, view, (%), _1, _2, _3, _Just)
 import Relude
 import Relude.Extra (maximum1)
 import System.Console.ANSI (SGR (Reset), setSGRCode)
@@ -550,7 +550,7 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
           _
             | not $ null downloadingOutputs
             , (prct, prog) <-
-                printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningDownloads) ->
+                printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) downloadingOutputs) ->
                 ( False
                 , \now ->
                     unwords
@@ -562,7 +562,7 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
                 )
             | not $ null uploadingOutputs
             , (prct, prog) <-
-                printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) drvInfo.dependencySummary.runningUploads) ->
+                printTransferProgress (toListOf (folded % #activityId % to progressMay % _Just) uploadingOutputs) ->
                 ( False
                 , \now ->
                     unwords
@@ -581,8 +581,10 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
                     $ markup green (down <> " " <> done <> " " <> drvName)
                     : fmap
                       (markup grey)
-                      ( print_hosts_down False (hosts downloadedOutputs)
+                      ( (\b -> [printBytes b | b > 0])
+                          (sumOf (folded % #activityId % to progressMay % _Just % #expected) downloadedOutputs)
                           <> ifTimeDurRelevant (build_sum downloadedOutputs) id
+                          <> print_hosts_down False (hosts downloadedOutputs)
                       )
                 , const Nothing
                 )
@@ -593,8 +595,10 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
                     $ markup green (up <> " " <> done <> " " <> drvName)
                     : fmap
                       (markup grey)
-                      ( print_hosts_up False (hosts uploadedOutputs)
+                      ( (\b -> [printBytes b | b > 0])
+                          (sumOf (folded % #activityId % to progressMay % _Just % #expected) uploadedOutputs)
                           <> ifTimeDurRelevant (build_sum uploadedOutputs) id
+                          <> print_hosts_up False (hosts uploadedOutputs)
                       )
                 , const Nothing
                 )
@@ -675,7 +679,7 @@ printBytes bytes = fromString $ printf "%.1f%s" res unit
   scaled = start : ((/ 1024) <$> scaled)
 
 sizes :: [Text]
-sizes = "" : ((<> "iB") <$> ["K", "M", "G", "T", "P"])
+sizes = "B" : ((<> "iB") <$> ["K", "M", "G", "T", "P"])
 
 printFailType :: FailType -> Text
 printFailType = \case
