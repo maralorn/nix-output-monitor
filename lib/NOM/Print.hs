@@ -46,7 +46,7 @@ import NOM.State.Tree (mapRootsTwigsAndLeafs)
 import NOM.Update (appendDifferingPlatform)
 import NOM.Util (repeatedly)
 import Numeric.Extra (intToDouble)
-import Optics (Lens', folded, itoList, to, toListOf, view, (%), _1, _2, _Just)
+import Optics (Lens', filteredBy, folded, itoList, only, preview, to, toListOf, view, (%), _1, _2, _3, _Just)
 import Relude
 import Relude.Extra (maximum1)
 import System.Console.ANSI (SGR (Reset), setSGRCode)
@@ -187,7 +187,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
         horizontal
         (vertical <> " ")
         (vertical <> " ")
-        (printBuilds buildState hostNums maxWindow now)
+        (printBuilds buildState hostAbbrevs maxWindow now)
     errorDisplay = printErrors nixErrors maxWindow.height
     traceDisplay = printTraces nixTraces maxWindow.height
   -- evalMessage = case evaluationState.lastFileName of
@@ -238,13 +238,17 @@ stateToText config buildState@MkNOMState{..} = printWithSize
 
   showHosts = Set.size hosts > 1
   manyHosts = Set.size buildHosts > 1 || Set.size hosts > 2 -- We only need number labels on hosts if we are using remote builders or more then one transfer peer (normally a substitution cache).
-  hostNums = collisionFreeHandles (Set.map forgetProto hosts)
+  hostAbbrevs = collisionFreeHandles (setOf (folded % #_Host % _3) hosts)
   showBuilds = totalBuilds > 0
   showDownloads = downloadsDone + downloadsRunning + numPlannedDownloads > 0
   showUploads = uploadsDone + uploadsRunning > 0
   numPlannedDownloads = CSet.size plannedDownloads
   buildHosts = one Localhost <> foldMap (foldMap one) [runningBuilds', completedBuilds', failedBuilds']
-  hosts = buildHosts <> foldMap (foldMap (one . (.host))) [completedUploads, completedDownloads]
+  hosts =
+    buildHosts
+      <> foldMap (foldMap (one . (.host))) [completedUploads, completedDownloads]
+      <> foldMap (foldMap (one . (.host))) [runningUploads, runningDownloads]
+
   numRunningBuilds = CMap.size runningBuilds
   numCompletedBuilds = CMap.size completedBuilds
   numPlannedBuilds = CSet.size plannedBuilds
@@ -266,10 +270,13 @@ stateToText config buildState@MkNOMState{..} = printWithSize
     | otherwise = markup green . ("Finished" <>)
   printHosts :: [NonEmpty Entry]
   printHosts =
-    mapMaybe (nonEmpty . labelForHost) (Map.toList hostNums)
+    mapMaybe (nonEmpty . labelForHost)
+      $ sortOn (fmap (reverse . Text.splitOn ".") . preview #_Hostname)
+      $ toList
+      $ Set.map forgetProto hosts
    where
-    labelForHost :: (Host WithoutContext, Text) -> [Entry]
-    labelForHost (host, index) =
+    labelForHost :: Host WithoutContext -> [Entry]
+    labelForHost host =
       showCond
         showBuilds
         [ yellow $ nonZeroShowBold running numRunningBuildsOnHost
@@ -287,14 +294,8 @@ stateToText config buildState@MkNOMState{..} = printWithSize
           [ yellow $ nonZeroShowBold up uploadsRunning'
           , green $ nonZeroShowBold up uploads
           ]
-        <> one (magenta . header $ (if manyHosts && index /= "" then index <> ": " else "") <> display_host)
+        <> one (magenta . header $ host_name_cell host)
      where
-      display_host :: Text
-      display_host =
-        toText host <> case toList prots of
-          [] -> ""
-          ps -> " (" <> Text.intercalate ", " ps <> ")"
-      prots = setOf (folded % #_Host % _1 % _Just) hosts
       uploads = action_count_for_host host completedUploads
       uploadsRunning' = action_count_for_host host runningUploads
       downloads = action_count_for_host host completedDownloads
@@ -303,10 +304,23 @@ stateToText config buildState@MkNOMState{..} = printWithSize
       doneBuilds = action_count_for_host host completedBuilds
     action_count_for_host :: (HasField "host" a (Host WithContext)) => Host WithoutContext -> CMap.CacheIdMap b a -> Int
     action_count_for_host host = CMap.size . CMap.filter (\x -> host == forgetProto x.host)
+  host_name_widths = maximum1 $ 0 :| (Text.length . toText . forgetProto <$> toList hosts)
+  host_abbrevs_widths = maximum1 $ 0 :| (Text.length <$> toList hostAbbrevs)
+  host_name_cell :: Host WithoutContext -> Text
+  host_name_cell host =
+    showCond
+      manyHosts
+      (Text.justifyLeft (2 + host_abbrevs_widths) ' ' (maybe "" (<> ": ") $ Map.lookup (toText host) hostAbbrevs))
+      <> Text.justifyRight host_name_widths ' ' (toText host)
+      <> case toList prots of
+        [] -> ""
+        ps -> " (" <> Text.intercalate ", " ps <> ")"
+   where
+    prots = setOf (folded % filteredBy (to forgetProto % only host) % #_Host % _1 % _Just) hosts
 
--- >>> collisionFreeHandles (Set.fromList [Hostname "build.example.com", Hostname "build2.example.com"])
+-- >>> collisionFreeHandles (Set.fromList ["build.example.com", "build2.example.com"])
 -- fromList [(Hostname "build.example.com","ec"),(Hostname "build2.example.com","2ec")]
-collisionFreeHandles :: Set (Host WithoutContext) -> Map (Host WithoutContext) Text
+collisionFreeHandles :: Set Text -> Map Text Text
 collisionFreeHandles hosts = Map.mapWithKey mkHandle improvedMap
  where
   defaultMap = Map.fromSet (const indexOfTwoLastDots) hosts
@@ -315,12 +329,12 @@ collisionFreeHandles hosts = Map.mapWithKey mkHandle improvedMap
   indexOfTwoLastDots :: [IntSet]
   indexOfTwoLastDots = [IntSet.singleton 0, IntSet.singleton 0] <> repeat IntSet.empty
 
-  mkHandle :: Host WithoutContext -> [IntSet] -> Text
+  mkHandle :: Text -> [IntSet] -> Text
   mkHandle host = fmap (toText . catMaybes) $ toList <=< reverse . zipWith IntMap.restrictKeys (indexMaps (toText host))
 
   indexMaps :: Text -> [IntMap (Maybe Char)]
   indexMaps = map (IntMap.fromList . zip [0 ..] . (<> [Nothing]) . fmap Just . toString) . reverse . Text.splitOn "."
-  disambig :: Host WithoutContext -> [IntSet] -> [IntSet]
+  disambig :: Text -> [IntSet] -> [IntSet]
   disambig host poss = repeatedly (zipWith IntSet.union) (firstDiff (toText host) . toText <$> colls) poss
    where
     colls = Map.keys $ Map.filterWithKey (\i k -> mkHandle i k == mkHandle host poss) $ Map.delete host defaultMap
@@ -355,14 +369,14 @@ ifTimeDurRelevant dur mod' = memptyIfFalse (dur > 1) (mod' [clock, printDuration
 
 printBuilds ::
   NOMState ->
-  Map (Host WithoutContext) Text ->
+  Map Text Text ->
   Window Int ->
   Double ->
   NonEmpty Text
-printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
+printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
  where
   hostLabel :: Bool -> Host WithContext -> Text
-  hostLabel color host = (if color then markup magenta else id) $ fromMaybe (toText host) (Map.lookup (forgetProto host) hostNums)
+  hostLabel color host = (if color then markup magenta else id) $ fromMaybe (toText host) (Map.lookup (toText $ forgetProto host) hostAbbrevs)
   printBuildsWithTime :: Double -> NonEmpty Text
   printBuildsWithTime now = (graphHeader :|) $ with_progress $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   with_progress :: [(Text, Maybe Double)] -> [Text]
@@ -493,7 +507,7 @@ printBuilds nomState@MkNOMState{..} hostNums limits = printBuildsWithTime
 
   print_hosts :: Bool -> Text -> [Host WithContext] -> [Text]
   print_hosts color direction_label hosts
-    | null hosts || length hostNums <= 2 = []
+    | null hosts || length hostAbbrevs <= 1 = []
     | otherwise = direction_label : (hostLabel color <$> hosts)
   print_hosts_down color = print_hosts color "from"
   print_hosts_up color = print_hosts color "to"
