@@ -276,10 +276,9 @@ processJsonMessage = \case
         now <- getNow
         pathId <- getStorePathId path
         uploaded to pathId now
-      Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
+      Just (MkActivityStatus{activity = JSON.Build drv host}) -> withChange do
         drvId <- lookupDerivation drv
-        isCompleted <- derivationIsCompleted drvId
-        if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
+        finishBuildByDrvId host drvId
       _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange
   ParseError err -> tell [Left err] >> noChange
