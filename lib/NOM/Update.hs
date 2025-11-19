@@ -277,8 +277,8 @@ processJsonMessage = \case
     when changed $ assign' (#activities % at id'.value) (Just $ MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
     pure changed
   Stop MkStopAction{id = id'} -> do
-    activity <- gets (\s -> IntMap.lookup id'.value s.activities)
-    interesting_activity <- gets (\s -> IntMap.lookup id'.value s.interestingActivities)
+    activity <- preuse (#activities % ix id'.value)
+    interesting_activity <- preuse (#interestingActivities % ix id'.value)
     modifying' #interestingActivities $ IntMap.delete id'.value
     case activity of
       Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
