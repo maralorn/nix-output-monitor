@@ -56,7 +56,7 @@ replaceCommandWithExit :: [String] -> [String]
 replaceCommandWithExit = (<> ["--command", "sh", "-c", "exit"]) . takeWhile (\x -> x /= "--command" && x /= "-c")
 
 knownSubCommands :: [String]
-knownSubCommands = ["build", "shell", "develop"]
+knownSubCommands = ["build", "copy", "shell", "develop"]
 
 knownFlags :: [String]
 knownFlags = ["--version", "-h", "--help", "--json"]
@@ -85,6 +85,7 @@ runApp = \cases
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix-shell" (withJSON args <> ["--run", "exit"]))
     exitWith =<< runProcess (proc "nix-shell" args)
   "nom" ("build" : args) -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix" ("build" : withJSON args))
+  "nom" ("copy" : args) -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix" ("copy" : withJSON args))
   "nom" ("shell" : args) -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix" ("shell" : withJSON (replaceCommandWithExit args)))
     exitWith =<< runProcess (proc "nix" ("shell" : args))
@@ -225,6 +226,7 @@ helpText =
     , "    nom build <nix-args>"
     , "    nom shell <nix-args>"
     , "    nom develop <nix-args>"
+    , "    nom copy <nix-args>"
     , ""
     , "    nom-build <nix-args>"
     , "    nom-shell <nix-args>"
