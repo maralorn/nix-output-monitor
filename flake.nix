@@ -47,7 +47,7 @@
             (haskellPackages.callPackage self)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
-            (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
+            (hlib.appendConfigureFlag "--ghc-option=-Wno-error=unrecognised-warning-flags")
 
             (hlib.overrideCabal (
               {
