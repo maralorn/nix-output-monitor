@@ -1,0 +1,8 @@
+{
+    "plugin": {
+        "hlint": {
+            "codeActionsOn": false,
+            "diagnosticsOn": false
+        }
+    }
+}
