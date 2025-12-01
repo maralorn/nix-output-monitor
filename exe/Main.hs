@@ -23,6 +23,8 @@ import NOM.Update (detectLocalFinishedBuilds, maintainState)
 import NOM.Update.Monad (UpdateMonad)
 import Optics ((%), (%~), (.~), (^.))
 import Optics.TH (makeFieldLabelsNoPrefix)
+import Options.Applicative
+import Options.Applicative.Help
 import Paths_nix_output_monitor (version)
 import Relude
 import System.Console.ANSI qualified as Terminal
@@ -39,6 +41,16 @@ data ProcessState a = MkProcessState
   { updaterState :: UpdaterState a
   , printFunction :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
   }
+
+data SubCommand = CmdBuild | CmdShell | CmdDevelop | CmdCopy
+  deriving stock (Show)
+
+data Options = Options
+  { version :: Bool
+  , json :: Bool
+  , subCommand :: Maybe SubCommand -- This is always Nothing
+  }
+  deriving stock (Show)
 
 makeFieldLabelsNoPrefix ''ProcessState
 
@@ -64,6 +76,59 @@ knownFlags = ["--version", "-h", "--help", "--json"]
 withJSON :: [String] -> [String]
 withJSON x = "-v" : "--log-format" : "internal-json" : x
 
+parseOptions :: ParserInfo Options
+parseOptions =
+  info
+    (helper <*> parseOptionsNoInfo)
+    ( progDesc "Outputs nix build info in a pretty way"
+        <> footerDoc (Just usageDoc)
+    )
+ where
+  usageDoc :: Doc
+  usageDoc =
+    vsep
+      [ "Wrappers (when invoked as nom-build, nom-shell, etc.):"
+      , indent 2
+          $ vsep
+            [ "nom-build <nix-args>"
+            , "nom-shell <nix-args>"
+            ]
+      , mempty
+      , "Direct piping:"
+      , indent 2
+          $ vsep
+            [ "via json parsing:"
+            , indent 2
+                $ vsep
+                  [ "nix build --log-format internal-json -v <nix-args> |& nom --json"
+                  , "nix-build --log-format internal-json -v <nix-args> |& nom --json"
+                  ]
+            , mempty
+            , "via human-readable log parsing:"
+            , indent 2 "nix-build |& nom"
+            , mempty
+            , "Don't forget to redirect stderr, too. That's what the `&` does."
+            ]
+      , mempty
+      , "Please see the readme for more details:"
+      , "https://code.maralorn.de/maralorn/nix-output-monitor#readme"
+      ]
+
+  parseSubCommand :: Parser SubCommand
+  parseSubCommand =
+    subparser
+      ( command "build" (info (pure CmdBuild) $ progDesc "Wrapper over `nix build`")
+          <> command "shell" (info (pure CmdShell) $ progDesc "Wrapper over `nix shell`")
+          <> command "develop" (info (pure CmdDevelop) $ progDesc "Wrapper over `nix develop`")
+          <> command "copy" (info (pure CmdDevelop) $ progDesc "Wrapper over `nix copy`")
+      )
+  parseOptionsNoInfo :: Parser Options
+  parseOptionsNoInfo =
+    Options
+      <$> switch (long "version" <> help "Show version")
+      <*> switch (long "json" <> help "Parse input as nix internal-json")
+      <*> optional parseSubCommand
+
 main :: IO Void
 main = do
   installSignalHandlers
@@ -77,9 +142,9 @@ main = do
 
 runApp :: String -> [String] -> IO Void
 runApp = \cases
-  _ ["--version"] -> do
-    hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
-    exitWith =<< runProcess (proc "nix" ["--version"])
+  -- _ ["--version"] -> do
+  --   hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
+  --   exitWith =<< runProcess (proc "nix" ["--version"])
   "nom-build" args -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix-build" (withJSON args))
   "nom-shell" args -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix-shell" (withJSON args <> ["--run", "exit"]))
@@ -92,21 +157,20 @@ runApp = \cases
   "nom" ("develop" : args) -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix" ("develop" : withJSON (replaceCommandWithExit args)))
     exitWith =<< runProcess (proc "nix" ("develop" : args))
-  "nom" [] -> do
-    finalState <- monitorHandle OldStyleInput defaultConfig{piping = True} stdin
-    if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
-      then exitSuccess
-      else exitFailure
-  "nom" ["--json"] -> do
-    finalState <- monitorHandle NixJSONMessage defaultConfig{piping = True} stdin
-    if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
-      then exitSuccess
-      else exitFailure
-  _ xs -> do
-    hPutStrLn stderr helpText
-    -- It's not a mistake if the user requests the help text, otherwise tell
-    -- them off with a non-zero exit code.
-    if any (liftA2 (||) (== "-h") (== "--help")) xs then exitSuccess else exitFailure
+  _ _ -> do
+    parsedArgs <- execParser parseOptions
+    case parsedArgs of
+      Options{version = True} -> do
+        hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
+        exitWith =<< runProcess (proc "nix" ["--version"])
+      _ -> do
+        finalState <-
+          (bool (monitorHandle OldStyleInput) (monitorHandle NixJSONMessage) parsedArgs.json)
+            defaultConfig{piping = True}
+            stdin
+        if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
+          then exitSuccess
+          else exitFailure
 
 printNixCompletion :: String -> [String] -> IO Void
 printNixCompletion = \cases
