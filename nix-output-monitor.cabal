@@ -151,6 +151,7 @@ executable nom
   other-modules: Paths_nix_output_monitor
   build-depends:
     nix-output-monitor,
+    optparse-applicative,
     typed-process,
     unix,
 
