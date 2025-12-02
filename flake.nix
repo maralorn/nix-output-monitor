@@ -58,7 +58,6 @@
                   ''
                     ln -s nom "$out/bin/nom-build"
                     ln -s nom "$out/bin/nom-shell"
-                    chmod a+x $out/bin/nom-shell
 
                     bashCompDir="''${!outputBin}/share/bash-completion/completions"
                     zshCompDir="''${!outputBin}/share/zsh/vendor-completions"
@@ -70,6 +69,12 @@
                     "''${!outputBin}/bin/nom" --bash-completion-script "''${!outputBin}/bin/nom" >"$bashCompDir/nom"
                     "''${!outputBin}/bin/nom" --zsh-completion-script "''${!outputBin}/bin/nom" >"$zshCompDir/_nom"
                     "''${!outputBin}/bin/nom" --fish-completion-script "''${!outputBin}/bin/nom" >"$fishCompDir/nom.fish"
+
+                    # Nix 2 wrappers (nix-*) without fish
+                    cp completions/zsh/_nom-*.zsh "$zshCompDir"
+
+                    # Both Nix 2 and Nix 3 wrappers for fish
+                    cat completions/nom.fish >> "$fishCompDir/nom.fish"
                   '';
               }
               // lib.optionalAttrs (system == "x86_64-linux") {
