@@ -53,12 +53,10 @@
               {
                 src = cleanSelf;
                 doCheck = false;
-                buildTools = [ pkgs.installShellFiles ];
                 postInstall = ''
                   ln -s nom "$out/bin/nom-build"
                   ln -s nom "$out/bin/nom-shell"
                   chmod a+x $out/bin/nom-shell
-                  installShellCompletion completions/*
                 '';
               }
               // lib.optionalAttrs (system == "x86_64-linux") {
@@ -69,6 +67,11 @@
                 '';
               }
             ))
+            (haskellPackages.generateOptparseApplicativeCompletions [
+              "nom"
+              # "nom-build"
+              # "nom-shell"
+            ])
           ];
         };
         checks = {

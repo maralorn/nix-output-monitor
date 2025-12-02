@@ -67,12 +67,6 @@ defaultConfig =
 replaceCommandWithExit :: [String] -> [String]
 replaceCommandWithExit = (<> ["--command", "sh", "-c", "exit"]) . takeWhile (\x -> x /= "--command" && x /= "-c")
 
-knownSubCommands :: [String]
-knownSubCommands = ["build", "copy", "shell", "develop"]
-
-knownFlags :: [String]
-knownFlags = ["--version", "-h", "--help", "--json"]
-
 withJSON :: [String] -> [String]
 withJSON x = "-v" : "--log-format" : "internal-json" : x
 
@@ -136,9 +130,7 @@ main = do
   prog_name <- Environment.getProgName
   args <- Environment.getArgs
 
-  lookupEnv "NIX_GET_COMPLETIONS" >>= \case
-    Just _ -> printNixCompletion prog_name args
-    Nothing -> runApp prog_name args
+  runApp prog_name args
 
 runApp :: String -> [String] -> IO Void
 runApp = \cases
@@ -171,22 +163,6 @@ runApp = \cases
         if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
           then exitSuccess
           else exitFailure
-
-printNixCompletion :: String -> [String] -> IO Void
-printNixCompletion = \cases
-  "nom" [input] -> do
-    putStrLn "normal"
-    mapM_ putStrLn $ findMatches input (knownSubCommands <> knownFlags)
-    exitSuccess
-  "nom" args@(sub_cmd : _)
-    | sub_cmd `elem` knownSubCommands ->
-        exitWith =<< Process.runProcess (Process.proc "nix" args)
-  prog args -> do
-    putTextLn $ "No completion support for " <> unwords (toText <$> prog : args)
-    exitFailure
-
-findMatches :: String -> [String] -> [String]
-findMatches input = filter (input `isPrefixOf`)
 
 installSignalHandlers :: IO ()
 installSignalHandlers = do
@@ -281,35 +257,3 @@ finalizer config = do
       { updaterState = nomState @a .~ newState $ old_state.updaterState
       , printFunction = stateToText config newState
       }
-
-helpText :: Text
-helpText =
-  unlines
-    [ "nix-output-monitor usages:"
-    , "  Wrappers:"
-    , "    nom build <nix-args>"
-    , "    nom shell <nix-args>"
-    , "    nom develop <nix-args>"
-    , "    nom copy <nix-args>"
-    , ""
-    , "    nom-build <nix-args>"
-    , "    nom-shell <nix-args>"
-    , ""
-    , "  Direct piping:"
-    , "    via json parsing:"
-    , "      nix build --log-format internal-json -v <nix-args> |& nom --json"
-    , "      nix-build --log-format internal-json -v <nix-args> |& nom --json"
-    , ""
-    , "    via human-readable log parsing:"
-    , "      nix-build |& nom"
-    , ""
-    , "    Don't forget to redirect stderr, too. That's what the & does."
-    , ""
-    , "Flags:"
-    , "  --version  Show version."
-    , "  -h, --help Show this help."
-    , "  --json     Parse input as nix internal-json"
-    , ""
-    , "Please see the readme for more details:"
-    , "https://code.maralorn.de/maralorn/nix-output-monitor#readme"
-    ]
