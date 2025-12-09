@@ -85,6 +85,7 @@ makeFieldLabelsNoPrefix ''ActivityProgress
 
 data StartAction = MkStartAction
   { id :: ActivityId
+  , parent :: ActivityId
   , level :: Verbosity
   , text :: Text
   , activity :: Activity

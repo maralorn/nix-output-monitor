@@ -262,6 +262,10 @@ data NOMState = MkNOMState
   , evaluationState :: EvalInfo
   , successTokens :: Int
   , buildsActivity :: Strict.Maybe ActivityId
+  , activityParents :: IntMap Int
+  -- ^ Maps activity ID to its parent activity ID
+  , activityRemoteStores :: IntMap (Host WithContext)
+  -- ^ Maps activity ID to the remote store it's associated with
   }
   deriving stock (Show, Eq, Ord)
 
@@ -291,6 +295,8 @@ initalStateFromBuildPlatform platform = do
       MkEvalInfo{count = 0, at = 0, lastFileName = Strict.Nothing}
       0
       Strict.Nothing
+      mempty
+      mempty
 
 instance Semigroup DependencySummary where
   (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7 lm8 lm9) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7 rm8 rm9) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7) (lm8 <> rm8) (lm9 <> rm9)
