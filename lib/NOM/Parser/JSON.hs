@@ -104,7 +104,7 @@ four listdec = do
 
 parseResultAction :: JSON.FieldsDecoder ResultAction
 parseResultAction = do
-  idField <- MkId <$> JSON.atKey "id" JSON.int
+  idField <- MkId <$> JSON.atKey "id" JSON.uint
   type' <- JSON.atKey "type" JSON.int
   let txt = textFields
   let num = intFields
@@ -125,11 +125,11 @@ parseResultAction = do
   pure MkResultAction{id = idField, result}
 
 parseStopAction :: JSON.FieldsDecoder StopAction
-parseStopAction = MkStopAction . MkId <$> JSON.atKey "id" JSON.int
+parseStopAction = MkStopAction . MkId <$> JSON.atKey "id" JSON.uint
 
 parseStartAction :: JSON.FieldsDecoder StartAction
 parseStartAction = do
-  idField <- JSON.atKey "id" JSON.int
+  idField <- JSON.atKey "id" JSON.uint
   text <- JSON.atKey "text" JSON.text
   level <- JSON.atKey "level" parseVerbosity
   activityType <- JSON.atKey "type" (JSON.withInt parseActivityType)

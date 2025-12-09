@@ -2,7 +2,6 @@ module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, mai
 
 import Control.Monad.Trans.Writer.CPS (WriterT, runWriterT, tell)
 import Data.ByteString.Char8 qualified as ByteString
-import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as Map
 import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
@@ -233,11 +232,11 @@ processJsonMessage = \case
     modifying' #evaluationState \old -> old{count = old.count + 1, lastFileName = Strict.Just file_name, at = now}
   Result MkResultAction{result = BuildLogLine line, id = id'} -> do
     nomState <- get
-    prefix <- activityPrefix ((.activity) <$> IntMap.lookup id'.value nomState.activities)
+    prefix <- activityPrefix ((.activity) <$> Map.lookup id'.value nomState.activities)
     tell [Right (encodeUtf8 (prefix <> line))]
     noChange
   Result MkResultAction{result = SetPhase phase, id = id'} ->
-    withChange $ modifying' #activities $ IntMap.adjust (#phase .~ Strict.Just phase) id'.value
+    withChange $ modifying' #activities $ Map.adjust (#phase .~ Strict.Just phase) id'.value
   Result MkResultAction{result = Progress progress, id = id'} -> do
     whenM (isJust <$> preuse (#buildsActivity % only (Strict.Just id'))) $ do
       prev_prog <- preuse (#activities % ix id'.value % #progress)
@@ -250,7 +249,7 @@ processJsonMessage = \case
     when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
     let set_interesting = withChange do
           now <- getNow
-          modifying' #interestingActivities $ IntMap.insert id'.value (MkInterestingUnknownActivity startAction.text now)
+          modifying' #interestingActivities $ Map.insert id'.value (MkInterestingUnknownActivity startAction.text now)
     changed <- case startAction.activity of
       JSON.Build drvName host -> withChange do
         now <- getNow
@@ -279,7 +278,7 @@ processJsonMessage = \case
   Stop MkStopAction{id = id'} -> do
     activity <- preuse (#activities % ix id'.value)
     interesting_activity <- preuse (#interestingActivities % ix id'.value)
-    modifying' #interestingActivities $ IntMap.delete id'.value
+    modifying' #interestingActivities $ Map.delete id'.value
     case activity of
       Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
         now <- getNow
