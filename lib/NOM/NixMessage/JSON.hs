@@ -5,7 +5,7 @@ import NOM.Error (NOMError)
 import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
 
-newtype ActivityId = MkId {value :: Int}
+newtype ActivityId = MkId {value :: Word}
   deriving newtype (Show, Eq, Ord)
 
 makeFieldLabelsNoPrefix ''ActivityId
