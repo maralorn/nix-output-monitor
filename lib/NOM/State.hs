@@ -262,6 +262,10 @@ data NOMState = MkNOMState
   , evaluationState :: EvalInfo
   , successTokens :: Int
   , buildsActivity :: Strict.Maybe ActivityId
+  , remoteStore :: Strict.Maybe (Host WithContext)
+  {- ^ Detected remote store from upload activities. When builds report empty
+  host but we're uploading to a remote store, builds are happening there.
+  -}
   }
   deriving stock (Show, Eq, Ord)
 
@@ -290,6 +294,7 @@ initalStateFromBuildPlatform platform = do
       mempty
       MkEvalInfo{count = 0, at = 0, lastFileName = Strict.Nothing}
       0
+      Strict.Nothing
       Strict.Nothing
 
 instance Semigroup DependencySummary where
