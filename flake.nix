@@ -113,6 +113,7 @@
             (lib.getBin pkgs.haskellPackages.fourmolu)
             git-hooks.packages.${system}.default
             pkgs.haskell-language-server
+            pkgs.hlint
             (lib.getBin pkgs.haskellPackages.weeder)
             pkgs.cabal-install
             pkgs.pv
