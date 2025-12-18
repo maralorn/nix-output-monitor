@@ -567,7 +567,7 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
                 , \now ->
                     unwords
                       $ markups [bold, yellow] (up <> " " <> running <> " " <> drvName)
-                      : print_hosts_down True (hosts uploadingOutputs)
+                      : print_hosts_up True (hosts uploadingOutputs)
                         <> ifTimeDiffRelevant now (earliest_start uploadingOutputs) id
                         <> prog
                 , const prct
