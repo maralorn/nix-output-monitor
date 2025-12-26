@@ -9,4 +9,5 @@ function __fish_complete_nom_like_nix
     complete --do-complete "nix $cmdline"
 end
 
-complete --command nom --condition "__fish_seen_subcommand_from build develop shell copy" --arguments '(__fish_complete_nom_like_nix)'
+set -l subcmds (nom --list-subcommands)
+complete --command nom --condition "__fish_seen_subcommand_from $subcmds" --arguments '(__fish_complete_nom_like_nix)'

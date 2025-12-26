@@ -42,13 +42,11 @@ data ProcessState a = MkProcessState
   , printFunction :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
   }
 
-data SubCommand = CmdBuild | CmdShell | CmdDevelop | CmdCopy
-  deriving stock (Show)
-
 data Options = Options
   { version :: Bool
   , json :: Bool
-  , subCommand :: Maybe SubCommand -- This is always Nothing
+  , listSubCommands :: Bool
+  , usesSubCommand :: Maybe () -- This should always be Nothing
   }
   deriving stock (Show)
 
@@ -108,20 +106,24 @@ parseOptions =
       , "https://code.maralorn.de/maralorn/nix-output-monitor#readme"
       ]
 
-  parseSubCommand :: Parser SubCommand
+  parseSubCommand :: Parser ()
   parseSubCommand =
     subparser
-      ( command "build" (info (pure CmdBuild) $ progDesc "Wrapper over `nix build`")
-          <> command "shell" (info (pure CmdShell) $ progDesc "Wrapper over `nix shell`")
-          <> command "develop" (info (pure CmdDevelop) $ progDesc "Wrapper over `nix develop`")
-          <> command "copy" (info (pure CmdDevelop) $ progDesc "Wrapper over `nix copy`")
+      ( command "build" (info (pure ()) $ progDesc "Wrapper over `nix build`")
+          <> command "copy" (info (pure ()) $ progDesc "Wrapper over `nix copy`")
+          <> command "shell" (info (pure ()) $ progDesc "Wrapper over `nix shell`")
+          <> command "develop" (info (pure ()) $ progDesc "Wrapper over `nix develop`")
       )
   parseOptionsNoInfo :: Parser Options
   parseOptionsNoInfo =
     Options
       <$> switch (long "version" <> help "Show version")
       <*> switch (long "json" <> help "Parse input as nix internal-json")
+      <*> switch (long "list-subcommands" <> internal) -- List subcommands for shell autocompletions
       <*> optional parseSubCommand
+
+subCommands :: [Text]
+subCommands = ["build", "copy", "shell", "develop"]
 
 main :: IO Void
 main = do
@@ -134,9 +136,6 @@ main = do
 
 runApp :: String -> [String] -> IO Void
 runApp = \cases
-  -- _ ["--version"] -> do
-  --   hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
-  --   exitWith =<< runProcess (proc "nix" ["--version"])
   "nom-build" args -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix-build" (withJSON args))
   "nom-shell" args -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix-shell" (withJSON args <> ["--run", "exit"]))
@@ -155,6 +154,9 @@ runApp = \cases
       Options{version = True} -> do
         hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
         exitWith =<< runProcess (proc "nix" ["--version"])
+      Options{listSubCommands = True} -> do
+        putTextLn (unwords subCommands)
+        exitWith Process.ExitSuccess
       _ -> do
         finalState <-
           (bool (monitorHandle OldStyleInput) (monitorHandle NixJSONMessage) parsedArgs.json)
