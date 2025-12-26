@@ -15,8 +15,6 @@ author: maralorn <mail@maralorn.de>
 maintainer: maralorn <mail@maralorn.de>
 build-type: Simple
 extra-source-files:
-  completions/completion.bash
-  completions/completion.zsh
   test/golden/fail/stderr
   test/golden/fail/stderr.json
   test/golden/fail/stdout
@@ -151,6 +149,7 @@ executable nom
   other-modules: Paths_nix_output_monitor
   build-depends:
     nix-output-monitor,
+    optparse-applicative,
     typed-process,
     unix,
 

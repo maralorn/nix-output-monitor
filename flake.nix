@@ -47,19 +47,35 @@
             (haskellPackages.callPackage self)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
-            (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
+            (hlib.appendConfigureFlag "--ghc-option=-Wno-error=unrecognised-warning-flags")
 
             (hlib.overrideCabal (
               {
                 src = cleanSelf;
                 doCheck = false;
-                buildTools = [ pkgs.installShellFiles ];
-                postInstall = ''
-                  ln -s nom "$out/bin/nom-build"
-                  ln -s nom "$out/bin/nom-shell"
-                  chmod a+x $out/bin/nom-shell
-                  installShellCompletion completions/*
-                '';
+                postInstall =
+                  # bash
+                  ''
+                    ln -s nom "$out/bin/nom-build"
+                    ln -s nom "$out/bin/nom-shell"
+
+                    bashCompDir="''${!outputBin}/share/bash-completion/completions"
+                    zshCompDir="''${!outputBin}/share/zsh/vendor-completions"
+                    fishCompDir="''${!outputBin}/share/fish/vendor_completions.d"
+
+                    mkdir -p "$bashCompDir" "$zshCompDir" "$fishCompDir"
+
+                    # Optparse applicative builtin completions
+                    "''${!outputBin}/bin/nom" --bash-completion-script "''${!outputBin}/bin/nom" >"$bashCompDir/nom"
+                    "''${!outputBin}/bin/nom" --zsh-completion-script "''${!outputBin}/bin/nom" >"$zshCompDir/_nom"
+                    "''${!outputBin}/bin/nom" --fish-completion-script "''${!outputBin}/bin/nom" >"$fishCompDir/nom.fish"
+
+                    # Nix 2 wrappers (nix-*) without fish
+                    cp completions/zsh/_nom-*.zsh "$zshCompDir"
+
+                    # Both Nix 2 and Nix 3 wrappers for fish
+                    cat completions/nom.fish >> "$fishCompDir/nom.fish"
+                  '';
               }
               // lib.optionalAttrs (system == "x86_64-linux") {
                 doCheck = true;
