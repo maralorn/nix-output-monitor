@@ -78,6 +78,10 @@
               fourmolu = lib.mkForce (lib.getBin pkgs.haskellPackages.fourmolu);
               cabal-gild = lib.mkForce (lib.getBin pkgs.haskellPackages.cabal-gild);
             };
+            default_stages = [
+              "manual"
+              "pre-push"
+            ];
             hooks = {
               hlint.enable = true;
               nixfmt-rfc-style = {
