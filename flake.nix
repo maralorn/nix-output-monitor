@@ -3,7 +3,7 @@
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-unstable";
     git-hooks = {
-      url = "github:cachix/git-hooks.nix/31792452cf92d204ea0df8e3fddc018235c4cf1b";
+      url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
