@@ -1,8 +1,9 @@
 { mkDerivation, ansi-terminal, async, attoparsec, base, bytestring
-, cassava, containers, directory, extra, filelock, filepath
-, hermes-json, HUnit, lib, nix-derivation, optics, random, relude
-, safe, safe-exceptions, stm, streamly-core, strict, terminal-size
-, text, time, transformers, typed-process, unix, word8
+, cabal-doctest, cassava, containers, directory, doctest
+, doctest-discover, extra, filelock, filepath, hermes-json, HUnit
+, lib, nix-derivation, optics, random, relude, safe
+, safe-exceptions, stm, streamly-core, strict, terminal-size, text
+, time, transformers, typed-process, unix, word8
 }:
 mkDerivation {
   pname = "nix-output-monitor";
@@ -10,6 +11,7 @@ mkDerivation {
   src = ./.;
   isLibrary = true;
   isExecutable = true;
+  setupHaskellDepends = [ base cabal-doctest ];
   libraryHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
     directory extra filelock filepath hermes-json nix-derivation optics
@@ -24,9 +26,10 @@ mkDerivation {
   ];
   testHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
-    directory extra filelock filepath hermes-json HUnit nix-derivation
-    optics random relude safe safe-exceptions stm streamly-core strict
-    terminal-size text time transformers typed-process word8
+    directory doctest doctest-discover extra filelock filepath
+    hermes-json HUnit nix-derivation optics random relude safe
+    safe-exceptions stm streamly-core strict terminal-size text time
+    transformers typed-process word8
   ];
   homepage = "https://code.maralorn.de/maralorn/nix-output-monitor";
   description = "Processes output of Nix commands to show helpful and pretty information";
