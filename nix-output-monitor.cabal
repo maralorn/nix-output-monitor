@@ -15,9 +15,11 @@ author: maralorn <mail@maralorn.de>
 maintainer: maralorn <mail@maralorn.de>
 build-type: Simple
 extra-source-files:
+  completions/nom-build.zsh
+  completions/nom-shell.zsh
   completions/nom.bash
-  completions/nom.zsh
   completions/nom.fish
+  completions/nom.zsh
   test/golden/fail/stderr
   test/golden/fail/stderr.json
   test/golden/fail/stdout
