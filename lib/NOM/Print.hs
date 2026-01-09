@@ -101,6 +101,12 @@ average = "∅"
 -- | U+2211 N-ARY SUMMATION
 bigsum = "∑"
 
+{- | >>> showCond True "foo"
+"foo"
+
+ >>> showCond False "foo"
+""
+-}
 showCond :: (Monoid m) => Bool -> m -> m
 showCond = memptyIfFalse
 
