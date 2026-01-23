@@ -11,7 +11,7 @@ import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime)
 import NOM.Builds (Derivation (..), FailType, Host (..), HostContext (..), StorePath (..), forgetProto, parseDerivation, parseIndentedStoreObject, parseStorePath)
 import NOM.Error (NOMError)
-import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
+import NOM.NixMessage.JSON (Activity, ActivityId (..), ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 import NOM.NixMessage.JSON qualified as JSON
 import NOM.NixMessage.OldStyle (NixOldStyleMessage)
 import NOM.NixMessage.OldStyle qualified as OldStyleMessage
@@ -179,7 +179,7 @@ processResult result = do
       finishBuildByPathId host pathId
     OldStyleMessage.PlanCopies _ -> noChange
     OldStyleMessage.Build drvName host -> withChange do
-      building host drvName now Nothing
+      building host drvName now Nothing Nothing
     OldStyleMessage.PlanBuilds plannedBuilds _lastBuild -> withChange do
       plannedDrvIds <- forM (toList plannedBuilds) (\x -> lookupDerivation x)
       planBuilds (fromList plannedDrvIds)
@@ -187,7 +187,7 @@ processResult result = do
       plannedDownloadIds <- forM (toList plannedDownloads) (\x -> getStorePathId x)
       planDownloads (fromList plannedDownloadIds)
     OldStyleMessage.Checking drvName -> withChange do
-      building Localhost drvName now Nothing
+      building Localhost drvName now Nothing Nothing
     OldStyleMessage.Failed drv code -> withChange do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
@@ -245,7 +245,11 @@ processJsonMessage = \case
         Just (Strict.Just prog) | newdone <- progress.done - prog.done, newdone > 0 -> modifying' #successTokens (+ newdone)
         _ -> pass
     withChange $ assign' (#activities % ix id'.value % #progress) (Strict.Just progress)
-  Start startAction@MkStartAction{id = id'} -> do
+  Start startAction@MkStartAction{id = id', parent = parentId} -> do
+    -- Record parent relationship
+    when (parentId /= MkId 0)
+      $ modifying' #activityParents
+      $ IntMap.insert id'.value parentId.value
     prefix <- activityPrefix $ Just startAction.activity
     when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
     let set_interesting = withChange do
@@ -254,7 +258,7 @@ processJsonMessage = \case
     changed <- case startAction.activity of
       JSON.Build drvName host -> withChange do
         now <- getNow
-        building host drvName now (Just id')
+        building host drvName now (Just id') (Just startAction.parent)
       JSON.CopyPath path from Localhost -> withChange do
         now <- getNow
         pathId <- getStorePathId path
@@ -263,6 +267,10 @@ processJsonMessage = \case
         now <- getNow
         pathId <- getStorePathId path
         uploading to pathId now (Just id')
+        -- Track remote store on this activity's parent
+        when (to /= Localhost && startAction.parent /= MkId 0)
+          $ modifying' #activityRemoteStores
+          $ IntMap.insert startAction.parent.value to
       JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
       JSON.Builds -> do
         ba <- use #buildsActivity
@@ -280,6 +288,8 @@ processJsonMessage = \case
     activity <- preuse (#activities % ix id'.value)
     interesting_activity <- preuse (#interestingActivities % ix id'.value)
     modifying' #interestingActivities $ IntMap.delete id'.value
+    modifying' #activityParents $ IntMap.delete id'.value
+    modifying' #activityRemoteStores $ IntMap.delete id'.value
     case activity of
       Just (MkActivityStatus{activity = JSON.CopyPath path from Localhost}) -> withChange do
         now <- getNow
@@ -289,13 +299,15 @@ processJsonMessage = \case
         now <- getNow
         pathId <- getStorePathId path
         uploaded to pathId now
-      Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
+      Just (MkActivityStatus{activity = JSON.Build drv _host}) -> do
         tokens <- use #successTokens
         if tokens > 0
           then withChange do
             modifying' #successTokens pred
             drvId <- lookupDerivation drv
-            finishBuildByDrvId host drvId
+            buildInfoMay <- getBuildInfoIfRunning drvId
+            whenJust buildInfoMay \buildInfo ->
+              finishBuilds buildInfo.host [(drvId, buildInfo)]
           else noChange
       _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange
@@ -484,17 +496,34 @@ uploaded host pathId end =
     State.Uploading transfer_info | transfer_info.host == host -> Just $ Uploaded (transfer_info $> Strict.Just end)
     _ -> Nothing
 
-building :: Host WithContext -> Derivation -> Double -> Maybe ActivityId -> ProcessingT m ()
-building host drvName now activityId = do
+findRemoteStoreInAncestors :: IntMap Int -> IntMap (Host WithContext) -> Maybe ActivityId -> Host WithContext
+findRemoteStoreInAncestors parents stores = go (20 :: Int)
+ where
+  go 0 _ = Localhost
+  go _ Nothing = Localhost
+  go n (Just aid) = case IntMap.lookup aid.value stores of
+    Just h -> h
+    Nothing -> case IntMap.lookup aid.value parents of
+      Just parentVal -> go (n - 1) (Just (MkId parentVal))
+      Nothing -> Localhost
+
+building :: Host WithContext -> Derivation -> Double -> Maybe ActivityId -> Maybe ActivityId -> ProcessingT m ()
+building host drvName now activityId parentId = do
+  effectiveHost <- case host of
+    Localhost -> do
+      parents <- use #activityParents
+      stores <- use #activityRemoteStores
+      pure $ findRemoteStoreInAncestors parents stores parentId
+    _ -> pure host
   reportName <- getReportName <$> lookupDerivationInfos drvName
-  lastNeeded <- (median <=< Map.lookup (forgetProto host, reportName)) . (.buildReports) <$> get
+  lastNeeded <- (median <=< Map.lookup (forgetProto effectiveHost, reportName)) . (.buildReports) <$> get
   drvId <- lookupDerivation drvName
   updateDerivationState drvId
     $ Building
     . \case
-      Building bi -> bi & #activityId .~ Strict.toStrict activityId -- This happens with ssh-ng. After we already registered this build as started we get a second activity start event. No frome the remote host. Sadly we can not see whether a message is from the local or the remote daemon.
+      Building bi -> bi & #activityId .~ Strict.toStrict activityId -- This happens with ssh-ng. After we already registered this build as started we get a second activity start event. Now from the remote host. Sadly we can not see whether a message is from the local or the remote daemon.
       -- It would probably be better to only mark the build running on the second start message, but that probably does not work with all remote build protocols other than ssh-ng.
-      _ -> MkBuildInfo now host (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ()
+      _ -> MkBuildInfo now effectiveHost (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ()
 
 median :: Map a Int -> Maybe Int
 median xs = case drop ((len - 1) `div` 2) $ sort $ toList xs of

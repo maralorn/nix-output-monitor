@@ -132,6 +132,7 @@ parseStartAction = do
   idField <- JSON.atKey "id" JSON.int
   text <- JSON.atKey "text" JSON.text
   level <- JSON.atKey "level" parseVerbosity
+  parentField <- JSON.atKey "parent" JSON.int
   activityType <- JSON.atKey "type" (JSON.withInt parseActivityType)
   let txt = textFields
   activity <- case activityType of
@@ -163,4 +164,4 @@ parseStartAction = do
     PostBuildHookType -> PostBuildHook <$> (one txt >>= parseDerivation)
     BuildWaitingType -> pure BuildWaiting
     FetchTreeType -> pure FetchTree
-  pure MkStartAction{id = MkId idField, text, activity, level}
+  pure MkStartAction{id = MkId idField, parent = MkId parentField, text, activity, level}
