@@ -254,11 +254,11 @@ data NOMState = MkNOMState
   , storePathIds :: Map StorePath StorePathId
   , derivationIds :: Map Derivation DerivationId
   , touchedIds :: DerivationSet
-  , activities :: IntMap ActivityStatus
+  , activities :: Map Word ActivityStatus
   , nixErrors :: Seq Text
   , nixTraces :: Seq Text
   , buildPlatform :: Strict.Maybe Text
-  , interestingActivities :: IntMap InterestingActivity
+  , interestingActivities :: Map Word InterestingActivity
   , evaluationState :: EvalInfo
   , successTokens :: Int
   , buildsActivity :: Strict.Maybe ActivityId

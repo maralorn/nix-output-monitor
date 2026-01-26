@@ -527,7 +527,7 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
         activityField :: Lens' ActivityStatus (Strict.Maybe a) -> Strict.Maybe ActivityId -> Maybe a
         activityField field activityId' = do
           activityId <- Strict.toLazy activityId'
-          activity_status <- IntMap.lookup activityId.value nomState.activities
+          activity_status <- Map.lookup activityId.value nomState.activities
           Strict.toLazy $ view field activity_status
         progressMay = activityField #progress
         phaseMay = activityField #phase
