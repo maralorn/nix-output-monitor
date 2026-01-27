@@ -85,16 +85,19 @@
             hooks = {
               hlint.enable = true;
               nixfmt-rfc-style = {
-                excludes = [ "default.nix" ];
                 enable = true;
+                excludes = [ "default.nix" ];
               };
               cabal2nix.enable = true;
               nil.enable = true;
               editorconfig-checker = {
-                excludes = [ ".*\\.md" ];
                 enable = true;
+                excludes = [ ".*\\.md" ];
               };
-              deadnix.enable = true;
+              deadnix = {
+                enable = true;
+                excludes = [ "default.nix" ];
+              };
               statix.enable = true;
               fourmolu.enable = true;
               ormolu.settings.defaultExtensions = [
