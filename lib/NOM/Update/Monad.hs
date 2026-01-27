@@ -6,9 +6,9 @@ module NOM.Update.Monad (
   module NOM.Update.Monad.CacheBuildReports,
 ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (try)
 import Control.Monad.Trans.Writer.CPS (WriterT)
--- attoparsec
 import Data.Attoparsec.Text (eitherResult, parse)
 import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime, getCurrentTime)
@@ -16,7 +16,6 @@ import GHC.Clock qualified
 import NOM.Builds (Derivation, StorePath)
 import NOM.Error (NOMError (..))
 import NOM.Update.Monad.CacheBuildReports
--- nix-derivation
 import Nix.Derivation qualified as Nix
 import Relude
 import System.Directory (doesPathExist)
@@ -65,12 +64,23 @@ instance (MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
 
 class (Monad m) => MonadCheckStorePath m where
   storePathExists :: StorePath -> m Bool
+  waitForStorePath :: StorePath -> m Bool
 
 instance MonadCheckStorePath IO where
   storePathExists = doesPathExist . toString
+  waitForStorePath path = go 5
+   where
+    go (count :: Nat) = do
+      there <- storePathExists path
+      if
+        | there -> pure True
+        | count <= 0 -> pure False
+        | otherwise -> threadDelay 100_000 >> go (count - 1)
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
   storePathExists = lift . storePathExists
+  waitForStorePath = lift . waitForStorePath
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
   storePathExists = lift . storePathExists
+  waitForStorePath = lift . waitForStorePath
