@@ -13,8 +13,9 @@ license: AGPL-3.0-or-later
 license-file: LICENSE
 author: maralorn <mail@maralorn.de>
 maintainer: maralorn <mail@maralorn.de>
-build-type: Simple
+build-type: Custom
 extra-source-files:
+  Setup.hs
   completions/nom-build.zsh
   completions/nom-shell.zsh
   completions/nom.bash
@@ -33,6 +34,11 @@ extra-doc-files: CHANGELOG.md
 category:
   console
   nix
+
+custom-setup
+  setup-depends:
+    base,
+    cabal-doctest,
 
 source-repository head
   type: git
@@ -179,3 +185,19 @@ test-suite golden-tests
   build-depends: random
   type: exitcode-stdio-1.0
   main-is: Golden.hs
+
+test-suite doctests
+  import: tests
+  build-depends:
+    base,
+    doctest,
+    doctest-discover,
+
+  ghc-options:
+    -- These warnings appear in generated code and fail the build if not disabled.
+    -Wno-missing-export-lists
+    -Wno-missing-deriving-strategies
+
+  type: exitcode-stdio-1.0
+  main-is: Doctest.hs
+  hs-source-dirs: test
