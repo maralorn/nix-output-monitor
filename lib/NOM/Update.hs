@@ -66,7 +66,7 @@ import NOM.Update.Monad (
 import NOM.Util (parseOneText, repeatedly)
 import Nix.Derivation qualified as Nix
 import Numeric.Extra (intToDouble)
-import Optics (assign', at, has, ix, modifying', only, preuse, preview, use, (%), (%~), (.~))
+import Optics (Ixed (..), assign', has, modifying', preuse, preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 
@@ -237,13 +237,8 @@ processJsonMessage = \case
     noChange
   Result MkResultAction{result = SetPhase phase, id = id'} ->
     withChange $ modifying' #activities $ Map.adjust (#phase .~ Strict.Just phase) id'.value
-  Result MkResultAction{result = Progress progress, id = id'} -> do
-    whenM (isJust <$> preuse (#buildsActivity % only (Strict.Just id'))) $ do
-      prev_prog <- preuse (#activities % ix id'.value % #progress)
-      case prev_prog of
-        Just (Strict.Just prog) | newdone <- progress.done - prog.done, newdone > 0 -> modifying' #successTokens (+ newdone)
-        _ -> pass
-    withChange $ assign' (#activities % ix id'.value % #progress) (Strict.Just progress)
+  Result MkResultAction{result = Progress progress, id = id'} ->
+    withChange $ modifying' #activities $ Map.adjust (#progress .~ Strict.Just progress) id'.value
   Start startAction@MkStartAction{id = id'} -> do
     prefix <- activityPrefix $ Just startAction.activity
     when (not (Text.null startAction.text) && startAction.level <= Info) $ tell [Right . encodeUtf8 $ prefix <> startAction.text]
@@ -263,17 +258,9 @@ processJsonMessage = \case
         pathId <- getStorePathId path
         uploading to pathId now (Just id')
       JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
-      JSON.Builds -> do
-        ba <- use #buildsActivity
-        if Strict.isNothing ba
-          then do
-            assign' #buildsActivity (Strict.Just id')
-            set_interesting
-          else
-            noChange
       JSON.QueryPathInfo{} -> set_interesting
       _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
-    when changed $ assign' (#activities % at id'.value) (Just $ MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
+    when changed $ modifying' #activities $ Map.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
     pure changed
   Stop MkStopAction{id = id'} -> do
     activity <- preuse (#activities % ix id'.value)
@@ -289,13 +276,9 @@ processJsonMessage = \case
         pathId <- getStorePathId path
         uploaded to pathId now
       Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
-        tokens <- use #successTokens
-        if tokens > 0
-          then withChange do
-            modifying' #successTokens pred
-            drvId <- lookupDerivation drv
-            finishBuildByDrvId host drvId
-          else noChange
+        drvId <- lookupDerivation drv
+        isCompleted <- derivationIsCompleted drvId
+        if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
       _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange
   ParseError err -> tell [Left err] >> noChange
