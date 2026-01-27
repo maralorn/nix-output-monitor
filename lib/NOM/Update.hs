@@ -277,7 +277,10 @@ processJsonMessage = \case
         uploaded to pathId now
       Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
         drvId <- lookupDerivation drv
-        isCompleted <- derivationIsCompleted drvId
+        isCompleted <-
+          derivationToAnyOutPath drvId >>= \case
+            Nothing -> pure False -- Derivation has no "out" output.
+            Just path -> waitForStorePath path -- Blocks up to 500ms. This should probably be fixed by doing something smart wtih concurrency.
         if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
       _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange
