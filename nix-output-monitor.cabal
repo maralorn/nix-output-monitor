@@ -9,7 +9,7 @@ description:
 
 homepage: https://code.maralorn.de/maralorn/nix-output-monitor
 bug-reports: https://github.com/maralorn/nix-output-monitor/issues
-license: AGPL-3.0-or-later
+license: EUPL-1.2
 license-file: LICENSE
 author: maralorn <mail@maralorn.de>
 maintainer: maralorn <mail@maralorn.de>
