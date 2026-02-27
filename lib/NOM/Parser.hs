@@ -121,6 +121,12 @@ failed =
     <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivationByteStringParser <* string ":")
     <*> pure HashMismatch
     <* endOfLine
+    <|>
+    -- nix >= 2.29: error: Cannot build '/nix/store/xxx.drv'.
+    Failed
+    <$> (string "error: Cannot build " *> inTicks derivationByteStringParser <* string ".")
+    <*> pure (ExitCode 1)
+    <* endOfLine
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser NixOldStyleMessage
