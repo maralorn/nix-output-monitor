@@ -25,6 +25,8 @@ module NOM.State (
   InputDerivation (..),
   EvalInfo (..),
   BuildReportMap,
+  BuildReportKey,
+  BuildReportContext (..),
   getDerivationInfos,
   updateSummaryForStorePath,
   clearDerivationIdFromSummary,
@@ -238,7 +240,15 @@ makeFieldLabelsNoPrefix ''EvalInfo
 data ProgressState = JustStarted | InputReceived | Finished
   deriving stock (Show, Eq, Ord)
 
-type BuildReportMap = Map (Host WithoutContext, Text) (Map UTCTime Int)
+type BuildReportKey = (Host WithoutContext, Text, BuildReportContext)
+
+type BuildReportMap = Map BuildReportKey (Map UTCTime Int)
+
+data BuildReportContext = BuildReportContext
+  { buildPlatform :: Maybe Text
+  , targetPlatform :: Maybe Text
+  }
+  deriving stock (Show, Eq, Ord)
 
 data NOMState = MkNOMState
   { derivationInfos :: DerivationMap DerivationInfo
