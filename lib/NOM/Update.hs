@@ -56,6 +56,8 @@ import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (sortDepsOfSet, sortKey)
 import NOM.StreamParser (stripANSICodes)
 import NOM.Update.Monad (
+  BuildReportContext (..),
+  BuildReportKey,
   BuildReportMap,
   MonadCacheBuildReports (..),
   MonadCheckStorePath (..),
@@ -76,6 +78,18 @@ getReportName :: DerivationInfo -> Text
 getReportName drv = case drv.pname of
   Strict.Just pname -> pname
   Strict.Nothing -> Text.dropWhileEnd (`Set.member` fromList ".1234567890-") drv.name.storePath.name
+
+buildReportKey :: Maybe Text -> Host WithoutContext -> DerivationInfo -> BuildReportKey
+buildReportKey currentBuildPlatform host drv =
+  ( host
+  , getReportName drv
+  , BuildReportContext
+      { buildPlatform = case host of
+          Localhost -> currentBuildPlatform
+          Hostname _ -> Nothing
+      , targetPlatform = Strict.toLazy drv.platform
+      }
+  )
 
 setInputReceived :: (MonadNOMState m) => m Bool
 setInputReceived = do
@@ -303,10 +317,10 @@ activityPrefix activities = case activities of
     pure $ toText (setSGRCode [Reset]) <> markup blue (appendDifferingPlatform nomState drvInfo (getReportName drvInfo) <> "> ")
   _ -> pure ""
 
-reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Host WithoutContext -> NonEmpty (DerivationInfo, Double) -> m BuildReportMap
-reportFinishingBuilds host builds = do
+reportFinishingBuilds :: (MonadCacheBuildReports m, MonadNow m) => Maybe Text -> Host WithoutContext -> NonEmpty (DerivationInfo, Double) -> m BuildReportMap
+reportFinishingBuilds buildPlatform host builds = do
   now <- getNow
-  updateBuildReports =<< injectBuildReports host (timeDiffInt now <<$>> builds)
+  updateBuildReports =<< injectBuildReports buildPlatform host (timeDiffInt now <<$>> builds)
 
 -- | time difference in seconds rounded down
 timeDiffInt :: Double -> Double -> Int
@@ -314,27 +328,28 @@ timeDiffInt = fmap floor . (-)
 
 finishBuilds :: Host WithContext -> [(DerivationId, BuildInfo ())] -> ProcessingT m ()
 finishBuilds host builds = do
+  buildPlatform <- Strict.toLazy <$> gets (.buildPlatform)
   derivationsWithNames <- forM builds \(drvId, buildInfo) ->
     (,buildInfo.start) <$> getDerivationInfos drvId
   ( \case
       Nothing -> pass
       Just finishedBuilds -> do
-        newBuildReports <- reportFinishingBuilds (forgetProto host) finishedBuilds
+        newBuildReports <- reportFinishingBuilds buildPlatform (forgetProto host) finishedBuilds
         assign' #buildReports newBuildReports
     )
     $ nonEmpty derivationsWithNames
   now <- getNow
   forM_ builds \(drv, info) -> updateDerivationState drv (const (Built (info $> now)))
 
-injectBuildReports :: (MonadNow m) => Host WithoutContext -> NonEmpty (DerivationInfo, Int) -> m (BuildReportMap -> BuildReportMap)
-injectBuildReports host builds = do
+injectBuildReports :: (MonadNow m) => Maybe Text -> Host WithoutContext -> NonEmpty (DerivationInfo, Int) -> m (BuildReportMap -> BuildReportMap)
+injectBuildReports buildPlatform host builds = do
   timestamp <- getUTC
   pure $ repeatedly (uncurry (insertBuildReport timestamp)) builds
  where
   insertBuildReport :: UTCTime -> DerivationInfo -> Int -> BuildReportMap -> BuildReportMap
   insertBuildReport now name =
     Map.singleton now
-      >>> Map.insertWith (<>) (host, getReportName name)
+      >>> Map.insertWith (<>) (buildReportKey buildPlatform host name)
       >>> fmap (fmap enforceHistoryLimit)
 
 enforceHistoryLimit :: Map UTCTime Int -> Map UTCTime Int
@@ -471,8 +486,10 @@ uploaded host pathId end =
 
 building :: Host WithContext -> Derivation -> Double -> Maybe ActivityId -> ProcessingT m ()
 building host drvName now activityId = do
-  reportName <- getReportName <$> lookupDerivationInfos drvName
-  lastNeeded <- (median <=< Map.lookup (forgetProto host, reportName)) . (.buildReports) <$> get
+  drvInfo <- lookupDerivationInfos drvName
+  nomState <- get
+  let reportKey = buildReportKey (Strict.toLazy nomState.buildPlatform) (forgetProto host) drvInfo
+      lastNeeded = median =<< Map.lookup reportKey nomState.buildReports
   drvId <- lookupDerivation drvName
   updateDerivationState drvId
     $ Building
