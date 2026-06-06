@@ -43,15 +43,23 @@
       in
       rec {
         packages = {
+          generateGoldenFiles = import ./generate-expected.nix { inherit system; } "nix_2_28";
+
           default = lib.pipe { } [
-            (haskellPackages.callPackage self)
+            (haskellPackages.callPackage cleanSelf)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
             (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
 
+            (
+              drv:
+              drv.overrideAttrs (oldAttrs: {
+                outputs = oldAttrs.outputs or [ ] ++ [ "test" ];
+              })
+            )
+
             (hlib.overrideCabal (
               {
-                src = cleanSelf;
                 doCheck = false;
                 buildTools = [ pkgs.installShellFiles ];
                 postInstall = ''
@@ -63,9 +71,20 @@
               }
               // lib.optionalAttrs (system == "x86_64-linux") {
                 doCheck = true;
-                preCheck = ''
-                  # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
-                  export TESTS_FROM_FILE=true;
+                preCheck =
+                  let
+                    pin = import ./test/golden/pin.nix;
+                    pkgs = import pin { inherit system; };
+                  in
+                  ''
+                    # Make sure some paths are available
+                    # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
+                    # ${pkgs.busybox}
+                    export TESTS_FROM_FILE=true;
+                  '';
+                postInstall = ''
+                  mkdir -p $test
+                  cp ./dist/build/golden-tests/golden-tests $test/golden-tests
                 '';
               }
             ))
@@ -113,7 +132,39 @@
               cabal-gild.enable = true;
             };
           };
-        };
+        }
+        // (
+          let
+            nixPackages =
+              map (nixVersion: pkgs.nixVersions.${nixVersion}) [
+                "stable"
+                "latest"
+                "git"
+              ]
+              ++ map (lixVersion: pkgs.lixPackageSets.${lixVersion}.lix) [
+                "stable"
+                "latest"
+                "git"
+              ];
+            testNomAgainstNixImpl = import ./nixos-test.nix {
+              nom-test = packages.default;
+              inherit system lib;
+            };
+            allTests = lib.genAttrs' nixPackages (
+              nixImpl:
+              lib.nameValuePair "nixos-test_${lib.getName nixImpl}_${lib.replaceString "." "_" (lib.getVersion nixImpl)}" (
+                testNomAgainstNixImpl nixImpl
+              )
+            );
+          in
+          allTests
+          // {
+            nixos-test_all = pkgs.runCommand "nixos-test" { } ''
+              # ${toString (lib.attrValues allTests)}
+              touch $out
+            '';
+          }
+        );
         devShells.default = haskellPackages.shellFor {
           packages = _: [ packages.default ];
           buildInputs = [
