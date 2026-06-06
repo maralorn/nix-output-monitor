@@ -21,7 +21,7 @@ import NOM.State (DependencySummary (..), NOMState (..), ProgressState (..), ini
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.Update (detectLocalFinishedBuilds, maintainState)
 import NOM.Update.Monad (UpdateMonad)
-import Optics ((%), (%~), (.~), (^.))
+import Optics ((%~), (.~))
 import Optics.TH (makeFieldLabelsNoPrefix)
 import Paths_nix_output_monitor (version)
 import Relude
@@ -35,8 +35,8 @@ import System.Process.Typed qualified as Process
 
 type MainThreadId = ThreadId
 
-data ProcessState a = MkProcessState
-  { updaterState :: UpdaterState a
+data ProcessState = MkProcessState
+  { updaterState :: NOMState
   , printFunction :: Maybe (Window Int) -> (ZonedTime, Double) -> Text
   }
 
@@ -174,12 +174,12 @@ monitorHandle update config input_handle = withParser \streamParser -> do
 
       current_system <- Exception.handle ((Nothing <$) . printIOException) $ Just . decodeUtf8 <$> Process.readProcessStdout_ (Process.proc "nix" ["eval", "--extra-experimental-features", "nix-command", "--impure", "--raw", "--expr", "builtins.currentSystem"])
       first_state <- initalStateFromBuildPlatform current_system
-      let first_process_state = MkProcessState (firstState @update first_state) (stateToText config first_state)
-      interact @update config streamParser (processStateUpdater config) (\now -> #updaterState % nomState @update %~ maintainState now) (.printFunction) (finalizer config) (inputStream update input_handle) outputHandle first_process_state
+      let first_process_state = MkProcessState first_state (stateToText config first_state)
+      interact @update config streamParser (processStateUpdater config) (\now -> #updaterState %~ maintainState now) (.printFunction) (finalizer config) (inputStream update input_handle) outputHandle first_process_state
       `Exception.finally` do
         Terminal.hShowCursor outputHandle
         ByteString.hPut outputHandle "\n" -- We print a new line after finish, because in normal nom state the last line is not empty.
-  pure (finalState.updaterState ^. nomState @update)
+  pure finalState.updaterState
 
 {-# INLINE processStateUpdater #-}
 processStateUpdater ::
@@ -187,7 +187,7 @@ processStateUpdater ::
   (NOMInput a, UpdateMonad m) =>
   Config ->
   a ->
-  StateT (ProcessState a) m ([NOMError], ByteString, Bool)
+  StateT ProcessState m ([NOMError], ByteString, Bool)
 processStateUpdater config input = do
   old_state <- get
   updater_result <- updateState input old_state.updaterState
@@ -205,16 +205,16 @@ processStateUpdater config input = do
     )
 
 finalizer ::
-  forall a m.
-  (NOMInput a, UpdateMonad m) =>
+  forall m.
+  (UpdateMonad m) =>
   Config ->
-  StateT (ProcessState a) m ()
+  StateT ProcessState m ()
 finalizer config = do
   old_state <- get
-  newState <- (#progressState .~ Finished) <$> execStateT (runWriterT detectLocalFinishedBuilds) (old_state.updaterState ^. nomState @a)
+  newState <- (#progressState .~ Finished) <$> execStateT (runWriterT detectLocalFinishedBuilds) old_state.updaterState
   put
     MkProcessState
-      { updaterState = nomState @a .~ newState $ old_state.updaterState
+      { updaterState = newState
       , printFunction = stateToText config newState
       }
 

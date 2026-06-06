@@ -10,9 +10,7 @@ import NOM.IO (Stream)
 import NOM.IO.Input (NOMInput (..), UpdateResult (..), statelessUnfoldM)
 import NOM.NixMessage.JSON (NixJSONMessage)
 import NOM.Parser.JSON (parseJSONLine)
-import NOM.State (NOMState)
 import NOM.Update (updateStateNixJSONMessage)
-import Optics qualified
 import Relude
 import System.IO.Error qualified as IOError
 
@@ -27,10 +25,7 @@ readLines handle =
 
 instance NOMInput NixJSONMessage where
   withParser body = JSON.withHermesEnv_ (body . fmap . parseJSONLine)
-  type UpdaterState NixJSONMessage = NOMState
   inputStreamImpl = readLines
-  nomState = Optics.equality'
-  firstState = id
   {-# INLINE updateState #-}
   updateState input old_state = mkUpdateResult <$> updateStateNixJSONMessage input old_state
    where

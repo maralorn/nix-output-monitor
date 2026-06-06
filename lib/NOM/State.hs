@@ -260,6 +260,11 @@ data NOMState = MkNOMState
   , buildPlatform :: Strict.Maybe Text
   , interestingActivities :: Map Word InterestingActivity
   , evaluationState :: EvalInfo
+  , -- Because old style human nix logs don't include information for when a
+    -- build finishes we monitor the existence of the output paths.
+    --  This variable saves when we last polled the disc for
+    -- output paths of currently running builds.
+    lastRead :: Strict.Maybe Double
   }
   deriving stock (Show, Eq, Ord)
 
@@ -287,6 +292,7 @@ initalStateFromBuildPlatform platform = do
       (Strict.toStrict platform)
       mempty
       MkEvalInfo{count = 0, at = 0, lastFileName = Strict.Nothing}
+      Strict.Nothing
 
 instance Semigroup DependencySummary where
   (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7 lm8 lm9) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7 rm8 rm9) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7) (lm8 <> rm8) (lm9 <> rm9)

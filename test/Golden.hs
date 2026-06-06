@@ -27,7 +27,6 @@ import NOM.Update (
  )
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
-import Optics ((%~), (.~), (^.))
 import Relude
 import Streamly.Data.Stream qualified as Stream
 import System.Environment qualified
@@ -99,22 +98,22 @@ testBuild name config asserts =
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
 testProcess input = withParser @input \streamParser -> do
-  first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
-  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)
-  pure (end_state ^. nomState @input)
+  first_state <- initalStateFromBuildPlatform (Just "x86_64-linux")
+  end_state <- processTextStream @input @NOMState (MkConfig False False) streamParser stateUpdater (\now -> maintainState now) Nothing finalizer first_state (Right <$> input)
+  pure end_state
 
-stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT (UpdaterState input) m ([NOMError], ByteString, Bool)
+stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT NOMState m ([NOMError], ByteString, Bool)
 stateUpdater input = do
   old_state <- get
   new_state <- (.newState) <$> updateState @input input old_state
   put new_state
   pure (mempty, mempty, False)
 
-finalizer :: forall input m. (NOMInput input, UpdateMonad m) => StateT (UpdaterState input) m ()
+finalizer :: forall m. UpdateMonad m => StateT NOMState m ()
 finalizer = do
   old_state <- get
-  new_state <- execStateT (runWriterT detectLocalFinishedBuilds) (old_state ^. nomState @input)
-  put (nomState @input .~ new_state $ old_state)
+  new_state <- execStateT (runWriterT detectLocalFinishedBuilds) old_state
+  put new_state
 
 goldenStandard :: TestConfig -> Test
 goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMState{fullSummary = MkDependencySummary{..}} -> do
