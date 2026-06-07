@@ -120,9 +120,12 @@ goldenStandard :: TestConfig -> Test
 goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMState{fullSummary = MkDependencySummary{..}} -> do
   let noOfBuilds :: Int
       noOfBuilds = 4
-  assertBool "Everything built" (CSet.null plannedBuilds)
-  assertBool "No running builds" (CMap.null runningBuilds)
-  assertEqual "Builds completed" noOfBuilds (CMap.size completedBuilds)
+  assertBool ("There should be no running builds but there is " <> show plannedBuilds) (CSet.null plannedBuilds)
+  assertBool ("All builds should be finished but there is " <> show runningBuilds) (CMap.null runningBuilds)
+  assertEqual
+    ("The number of completed builds should be " <> show noOfBuilds <> " but is " <> show completedBuilds)
+    noOfBuilds
+    (CMap.size completedBuilds)
   when config.oldStyle $ do
     let outputStorePaths = mapMaybe parseStorePath (Text.lines nix_output)
     assertEqual "All output paths parsed" noOfBuilds (length outputStorePaths)
