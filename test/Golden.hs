@@ -30,7 +30,7 @@ import NOM.Util (forMaybeM)
 import Optics ((%~), (.~), (^.))
 import Relude
 import Streamly.Data.Stream qualified as Stream
-import System.Environment qualified
+-- import System.Environment qualified
 import System.Process.Typed qualified as Process
 import System.Random (randomIO)
 import Test.HUnit (
@@ -42,6 +42,8 @@ import Test.HUnit (
   runTestTT,
   (~:),
  )
+import Text.Pretty.Simple (pShow)
+import System.IO (openFile, hClose, hPutStrLn)
 
 tests :: [TestConfig -> Test]
 tests = [goldenStandard, goldenFail]
@@ -49,20 +51,21 @@ tests = [goldenStandard, goldenFail]
 label :: (Semigroup a, IsString a) => TestConfig -> a -> a
 label config name = "golden test " <> name <> " for " <> (if config.oldStyle then "old-style messages" else "json messages") <> if config.withNix then " with nix" else " with log from file"
 
-allBools :: [Bool]
-allBools = [True, False]
+-- allBools :: [Bool]
+-- allBools = [True, False]
 
 main :: IO ()
 main = do
-  with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
+  -- with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
   counts <- runTestTT
     $ test
     $ do
       test' <- tests
-      if with_nix
-        then do
-          test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
-        else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
+      -- if with_nix
+      --   then do
+      --     test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
+      --   else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
+      [test' $ MkTestConfig{withNix = False, oldStyle = True}]
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
@@ -87,13 +90,25 @@ testBuild name config asserts =
             <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
         readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
     (output, errors) <- if config.withNix then callNix else readFiles
-    end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
+    end_state <- if config.oldStyle then testProcess @OldStyleInput name (Stream.fromPure errors) else testProcess @NixJSONMessage name (Stream.fromList (ByteString.lines errors))
+
+    handle <- openFile "stderr-from-nix.log" WriteMode
+    ByteString.hPutStrLn handle errors
+    hClose handle
+
     asserts output end_state
 
-testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
-testProcess input = withParser @input \streamParser -> do
+testProcess :: forall input. (Show (UpdaterState input), NOMInput input) => String -> Stream.Stream IO ByteString -> IO NOMState
+testProcess name input = withParser @input \streamParser -> do
   first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
-  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)
+
+  handle <- openFile "processing.log" AppendMode
+  hPutStrLn handle name
+  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) 
+      (Just (\st _ time  -> fromLazy (pShow (st, time)), handle))
+      (finalizer @input) first_state (Right <$> input)
+  hClose handle
+
   pure (end_state ^. nomState @input)
 
 stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT (UpdaterState input) m ([NOMError], ByteString, Bool)

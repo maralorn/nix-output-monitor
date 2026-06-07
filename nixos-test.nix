@@ -45,5 +45,7 @@ pkgs.testers.runNixOSTest {
     print(stdout)
 
     machine.copy_from_machine("stdout.log")
+    machine.copy_from_machine("processing.log")
+    machine.copy_from_machine("stderr-from-nix.log")
   '';
 }

@@ -34,6 +34,7 @@ data OldStyleState = MkOldStyleState
     -- output paths of currently running builds.
     lastRead :: Strict.Maybe Double
   }
+  deriving stock Show
 
 makeFieldLabelsNoPrefix ''OldStyleState
 
@@ -41,6 +42,7 @@ data OldStyleInput = MkOldStyleInput
   { parseResult :: Maybe NixOldStyleMessage
   , parsedInput :: ByteString
   }
+  deriving stock Show
 
 instance NOMInput OldStyleInput where
   withParser body = body (fmap (uncurry MkOldStyleInput . first join) <$> parseStreamAttoparsec parser)
