@@ -115,7 +115,7 @@ data Config = MkConfig
   }
 
 printSections :: NonEmpty Text -> Text
-printSections = (upperleft <>) . Text.intercalate (toText (setSGRCode [Reset]) <> "\n" <> leftT) . toList
+printSections = (toText (setSGRCode [Reset]) <>) . (upperleft <>) . Text.intercalate (toText (setSGRCode [Reset]) <> "\n" <> leftT) . toList
 
 -- printInterestingActivities :: Maybe Text -> IntMap InterestingActivity -> (ZonedTime, Double) -> Text
 -- printInterestingActivities message activities (_, now) =
