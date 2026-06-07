@@ -105,7 +105,7 @@
               hlint.enable = true;
               nixfmt-rfc-style = {
                 enable = true;
-                excludes = [ "default.nix" ];
+                excludes = [ "^default.nix" ];
               };
               cabal2nix.enable = true;
               nil.enable = true;
