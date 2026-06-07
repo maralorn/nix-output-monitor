@@ -137,6 +137,7 @@
           let
             nixPackages =
               map (nixVersion: pkgs.nixVersions.${nixVersion}) [
+                "nix_2_28" # prove that 2.28 works, but stable doesn't
                 "stable"
                 "latest"
                 "git"
@@ -147,7 +148,7 @@
                 "git"
               ];
             testNomAgainstNixImpl = import ./nixos-test.nix {
-              nom-test = packages.default;
+              nom-test = lib.getOutput "test" packages.default;
               inherit system lib;
             };
             allTests = lib.genAttrs' nixPackages (

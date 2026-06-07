@@ -55,13 +55,6 @@ allBools = [True, False]
 main :: IO ()
 main = do
   with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
-  when with_nix
-    $ Process.runProcess_
-    $ Process.setStderr Process.nullStream
-    $ Process.setStdout Process.nullStream
-    $ Process.proc
-      "nix-store"
-      ["-r", "/nix/store/y7ji7mwys7g60j2w8bl93cmfbvd3xi3r-busybox-static-x86_64-unknown-linux-musl-1.35.0/bin/"]
   counts <- runTestTT
     $ test
     $ do
