@@ -69,6 +69,7 @@ import Numeric.Extra (intToDouble)
 import Optics (Ixed (..), assign', has, modifying', preuse, preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
+import System.Timeout (timeout)
 
 type ProcessingT m a = (UpdateMonad m, MonadNOMState m) => WriterT [Either NOMError ByteString] m a
 
@@ -279,8 +280,12 @@ processJsonMessage = \case
         drvId <- lookupDerivation drv
         isCompleted <-
           derivationToAnyOutPath drvId >>= \case
-            Nothing -> pure False -- Derivation has no "out" output.
-            Just path -> waitForStorePath path -- Blocks up to 500ms. This should probably be fixed by doing something smart wtih concurrency.
+            Nothing -> pure True -- Derivation has no "out" output.
+            Just path -> do
+              inotify <- theInotify
+              liftIO do
+                result <- timeout 1_000_000 $ runReaderT (waitForStorePath path) inotify
+                pure $ isJust result
         if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
       _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange

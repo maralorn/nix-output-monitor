@@ -18,6 +18,7 @@ import Streamly.Data.Stream qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
+import System.INotify
 import System.IO qualified
 
 type Stream = Stream.Stream IO
@@ -36,17 +37,18 @@ type Window = Terminal.Size.Window Int
 
 runUpdate ::
   forall update state.
+  INotify ->
   TVar [ByteString] ->
   TMVar state ->
   TVar Bool ->
   UpdateFunc update state ->
   update ->
   IO ()
-runUpdate output_builder_var state_var refresh_display_var updater input = do
+runUpdate inotify output_builder_var state_var refresh_display_var updater input = do
   -- Since we are taking the state_var here we prevent any other state update
   -- to happen simultaneously.
   old_state <- atomically $ takeTMVar state_var
-  ((errors, log_output, display_changed), !newState) <- runStateT (updater input) old_state
+  ((errors, log_output, display_changed), !newState) <- runReaderT (runStateT (updater input) old_state) inotify
   atomically $ do
     forM_ errors (writeErrorToBuilder output_builder_var)
     putTMVar state_var newState
@@ -235,27 +237,28 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   state_var <- newTMVarIO initialState
   output_builder_var <- newTVarIO []
   refresh_display_var <- newTVarIO False
-  let keepProcessing :: IO ()
-      keepProcessing =
-        inputStream
-          & Stream.tap (errorsToBuilderFold output_builder_var)
-          & Stream.mapMaybe rightToMaybe
-          & parser
-          & Stream.fold (Fold.drainMapM (runUpdate output_builder_var state_var refresh_display_var updater))
-      waitForInput :: IO ()
-      waitForInput = atomically $ check =<< readTVar refresh_display_var
-  printerMay & maybe keepProcessing \(printer, output_handle) -> do
-    linesVar <- newTVarIO 0
-    let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen (not config.silent) linesVar state_var output_builder_var refresh_display_var maintenance printer output_handle
-        keepPrinting :: IO ()
-        keepPrinting = forever do
-          race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
-          writeToScreen
-    race_ keepProcessing keepPrinting
-    atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
-    writeToScreen
-  (if isNothing printerMay then (>>= execStateT finalize) else id) $ atomically $ takeTMVar state_var
+  withINotify \inotify -> do
+    let keepProcessing :: IO ()
+        keepProcessing =
+          inputStream
+            & Stream.tap (errorsToBuilderFold output_builder_var)
+            & Stream.mapMaybe rightToMaybe
+            & parser
+            & Stream.fold (Fold.drainMapM (runUpdate inotify output_builder_var state_var refresh_display_var updater))
+        waitForInput :: IO ()
+        waitForInput = atomically $ check =<< readTVar refresh_display_var
+    printerMay & maybe keepProcessing \(printer, output_handle) -> do
+      linesVar <- newTVarIO 0
+      let writeToScreen :: IO ()
+          writeToScreen = writeStateToScreen (not config.silent) linesVar state_var output_builder_var refresh_display_var maintenance printer output_handle
+          keepPrinting :: IO ()
+          keepPrinting = forever do
+            race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
+            writeToScreen
+      race_ keepProcessing keepPrinting
+      atomically (takeTMVar state_var) >>= \s -> runReaderT (execStateT finalize s) inotify >>= atomically . putTMVar state_var
+      writeToScreen
+    (if isNothing printerMay then (>>= \s -> runReaderT (execStateT finalize s) inotify) else id) $ atomically $ takeTMVar state_var
 
 errorsToBuilderFold :: TVar [ByteString] -> Fold.Fold IO (Either NOMError ByteString) ()
 errorsToBuilderFold builder_var = Fold.drainMapM saveInput

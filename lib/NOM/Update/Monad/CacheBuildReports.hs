@@ -50,6 +50,10 @@ instance (MonadCacheBuildReports m) => MonadCacheBuildReports (WriterT a m) wher
   getCachedBuildReports = lift getCachedBuildReports
   updateBuildReports = lift . updateBuildReports
 
+instance (MonadCacheBuildReports m) => MonadCacheBuildReports (ReaderT a m) where
+  getCachedBuildReports = lift getCachedBuildReports
+  updateBuildReports = lift . updateBuildReports
+
 -- Implementation
 
 tryUpdateBuildReports :: (BuildReportMap -> BuildReportMap) -> IO BuildReportMap

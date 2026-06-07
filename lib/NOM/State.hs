@@ -43,6 +43,7 @@ module NOM.State (
   OutputName (..),
 ) where
 
+import Control.Concurrent.Async (Async)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
@@ -260,8 +261,8 @@ data NOMState = MkNOMState
   , buildPlatform :: Strict.Maybe Text
   , interestingActivities :: Map Word InterestingActivity
   , evaluationState :: EvalInfo
+  , waitingDerivations :: Map (Host WithContext, DerivationId) (Async ())
   }
-  deriving stock (Show, Eq, Ord)
 
 makeFieldLabelsNoPrefix ''NOMState
 
@@ -287,6 +288,7 @@ initalStateFromBuildPlatform platform = do
       (Strict.toStrict platform)
       mempty
       MkEvalInfo{count = 0, at = 0, lastFileName = Strict.Nothing}
+      mempty
 
 instance Semigroup DependencySummary where
   (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7 lm8 lm9) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7 rm8 rm9) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7) (lm8 <> rm8) (lm9 <> rm9)
