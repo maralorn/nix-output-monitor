@@ -30,7 +30,7 @@ import NOM.Util (forMaybeM)
 import Optics ((%~), (.~), (^.))
 import Relude
 import Streamly.Data.Stream qualified as Stream
--- import System.Environment qualified
+import System.Environment qualified
 import System.Process.Typed qualified as Process
 import System.Random (randomIO)
 import Test.HUnit (
@@ -46,27 +46,26 @@ import Text.Pretty.Simple (pShow)
 import System.IO (openFile, hClose, hPutStrLn)
 import Data.Text.IO qualified as Text.IO
 
--- tests :: [TestConfig -> Test]
--- tests = [goldenStandard, goldenFail]
+tests :: [TestConfig -> Test]
+tests = [goldenStandard, goldenFail]
 
 label :: (Semigroup a, IsString a) => TestConfig -> a -> a
 label config name = "golden test " <> name <> " for " <> (if config.oldStyle then "old-style messages" else "json messages") <> if config.withNix then " with nix" else " with log from file"
 
--- allBools :: [Bool]
--- allBools = [True, False]
+allBools :: [Bool]
+allBools = [True, False]
 
 main :: IO ()
 main = do
-  -- with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
+  with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
   counts <- runTestTT
     $ test
     $ do
-      -- test' <- tests
-      -- if with_nix
-      --   then do
-      --     test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
-      --   else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
-      [goldenStandard $ MkTestConfig{withNix = False, oldStyle = True}]
+      test' <- tests
+      if with_nix
+        then do
+          test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
+        else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
@@ -150,9 +149,9 @@ goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMSt
     assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
     assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
 
--- goldenFail :: TestConfig -> Test
--- goldenFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
---   assertEqual ("There should be one waiting build in " <> show d) 1 (CSet.size plannedBuilds)
---   assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
---   assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)
---   assertEqual ("There should be one unfinished build " <> show d) 1 (CMap.size runningBuilds)
+goldenFail :: TestConfig -> Test
+goldenFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
+  assertEqual ("There should be one waiting build in " <> show d) 1 (CSet.size plannedBuilds)
+  assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
+  assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)
+  assertEqual ("There should be one unfinished build " <> show d) 1 (CMap.size runningBuilds)

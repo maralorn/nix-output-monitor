@@ -43,7 +43,7 @@ pkgs.testers.runNixOSTest {
     machine.execute("mkdir -p test")
     machine.execute("cp -r ${./test/golden} test/golden")
     exitcode, stdout = machine.execute("./golden-tests 2>&1 | tee stdout.log")
-    print(stdout)
+    print(exitcode)
 
     # ${toString (all-golden-tests ++ map (x: x.drvPath) all-golden-tests)}
 
