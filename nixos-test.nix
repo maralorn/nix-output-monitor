@@ -39,7 +39,6 @@ pkgs.testers.runNixOSTest {
 
   testScript = /* python */ ''
     start_all()
-
     machine.succeed("nix-store -r ${pin}")
 
     # golden tests path are hard coded in the test binary.
