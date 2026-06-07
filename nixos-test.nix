@@ -18,6 +18,8 @@ pkgs.testers.runNixOSTest {
     {
       environment.systemPackages = [ pkgs.busybox ];
 
+      nix.nixPath = [ "nixpkgs=${pin}" ];
+
       nix = {
         package = nixPackage;
 
@@ -38,6 +40,8 @@ pkgs.testers.runNixOSTest {
   testScript = /* python */ ''
     start_all()
 
+    machine.succeed("nix-store -r ${pin}")
+
     # golden tests path are hard coded in the test binary.
     machine.execute("cp -r ${nom-test}/golden-tests .")
     machine.execute("mkdir -p test")
@@ -46,6 +50,7 @@ pkgs.testers.runNixOSTest {
     print(exitcode)
 
     # ${toString (all-golden-tests ++ map (x: x.drvPath) all-golden-tests)}
+    # ${pin}
 
     machine.copy_from_machine("stdout.log")
     machine.copy_from_machine("processing.log")
