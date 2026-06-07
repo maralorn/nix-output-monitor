@@ -79,6 +79,7 @@ common common-config
     filelock,
     filepath,
     hermes-json >=0.6.0.0,
+    hinotify,
     nix-derivation,
     optics,
     relude,
