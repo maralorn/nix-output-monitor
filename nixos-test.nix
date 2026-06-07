@@ -50,10 +50,5 @@ pkgs.testers.runNixOSTest {
 
     # ${toString (all-golden-tests ++ map (x: x.drvPath) all-golden-tests)}
     # ${pin}
-
-    machine.copy_from_machine("stdout.log")
-    machine.copy_from_machine("processing.log")
-    machine.copy_from_machine("stdout-from-nix.log")
-    machine.copy_from_machine("stderr-from-nix.log")
   '';
 }

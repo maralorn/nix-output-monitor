@@ -42,9 +42,6 @@ import Test.HUnit (
   runTestTT,
   (~:),
  )
-import Text.Pretty.Simple (pShow)
-import System.IO (openFile, hClose, hPutStrLn)
-import Data.Text.IO qualified as Text.IO
 
 tests :: [TestConfig -> Test]
 tests = [goldenStandard, goldenFail]
@@ -81,7 +78,7 @@ testBuild name config asserts =
                   then
                     Process.proc
                       "nix-build"
-                      ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed, "-v"]
+                      ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
                   else
                     Process.proc
                       "nix"
@@ -90,30 +87,13 @@ testBuild name config asserts =
             <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
         readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
     (output, errors) <- if config.withNix then callNix else readFiles
-    end_state <- if config.oldStyle then testProcess @OldStyleInput name (Stream.fromPure errors) else testProcess @NixJSONMessage name (Stream.fromList (ByteString.lines errors))
-
-    handle <- openFile "stderr-from-nix.log" WriteMode
-    ByteString.hPutStrLn handle errors
-    hClose handle
-
-    handle2 <- openFile "stdout-from-nix.log" WriteMode
-    Text.IO.hPutStrLn handle2 output
-    hClose handle2
-
-
+    end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
     asserts output end_state
 
-testProcess :: forall input. (Show (UpdaterState input), NOMInput input) => String -> Stream.Stream IO ByteString -> IO NOMState
-testProcess name input = withParser @input \streamParser -> do
+testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
+testProcess input = withParser @input \streamParser -> do
   first_state <- firstState @input <$> initalStateFromBuildPlatform (Just "x86_64-linux")
-
-  handle <- openFile "processing.log" AppendMode
-  hPutStrLn handle name
-  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) 
-      (Just (\st _ time  -> fromLazy (pShow (st, time)), handle))
-      (finalizer @input) first_state (Right <$> input)
-  hClose handle
-
+  end_state <- processTextStream @input @(UpdaterState input) (MkConfig False False) streamParser stateUpdater (\now -> nomState @input %~ maintainState now) Nothing (finalizer @input) first_state (Right <$> input)
   pure (end_state ^. nomState @input)
 
 stateUpdater :: forall input m. (NOMInput input, UpdateMonad m) => input -> StateT (UpdaterState input) m ([NOMError], ByteString, Bool)
