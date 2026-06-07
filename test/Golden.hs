@@ -109,7 +109,7 @@ stateUpdater input = do
   put new_state
   pure (mempty, mempty, False)
 
-finalizer :: forall m. UpdateMonad m => StateT NOMState m ()
+finalizer :: (UpdateMonad m) => StateT NOMState m ()
 finalizer = do
   old_state <- get
   new_state <- execStateT (runWriterT detectLocalFinishedBuilds) old_state
