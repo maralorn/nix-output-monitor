@@ -7,6 +7,7 @@
 let
   pin = import ./test/golden/pin.nix;
   pkgs = import pin { inherit system; };
+  all-golden-tests = import ./test/golden/all.nix;
 in
 
 nixPackage:
@@ -44,8 +45,11 @@ pkgs.testers.runNixOSTest {
     exitcode, stdout = machine.execute("./golden-tests 2>&1 | tee stdout.log")
     print(stdout)
 
+    # ${toString (all-golden-tests ++ map (x: x.drvPath) all-golden-tests)}
+
     machine.copy_from_machine("stdout.log")
     machine.copy_from_machine("processing.log")
+    machine.copy_from_machine("stdout-from-nix.log")
     machine.copy_from_machine("stderr-from-nix.log")
   '';
 }

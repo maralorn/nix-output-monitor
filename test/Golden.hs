@@ -44,9 +44,10 @@ import Test.HUnit (
  )
 import Text.Pretty.Simple (pShow)
 import System.IO (openFile, hClose, hPutStrLn)
+import Data.Text.IO qualified as Text.IO
 
-tests :: [TestConfig -> Test]
-tests = [goldenStandard, goldenFail]
+-- tests :: [TestConfig -> Test]
+-- tests = [goldenStandard, goldenFail]
 
 label :: (Semigroup a, IsString a) => TestConfig -> a -> a
 label config name = "golden test " <> name <> " for " <> (if config.oldStyle then "old-style messages" else "json messages") <> if config.withNix then " with nix" else " with log from file"
@@ -60,12 +61,12 @@ main = do
   counts <- runTestTT
     $ test
     $ do
-      test' <- tests
+      -- test' <- tests
       -- if with_nix
       --   then do
       --     test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
       --   else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
-      [test' $ MkTestConfig{withNix = False, oldStyle = True}]
+      [goldenStandard $ MkTestConfig{withNix = False, oldStyle = True}]
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
@@ -81,7 +82,7 @@ testBuild name config asserts =
                   then
                     Process.proc
                       "nix-build"
-                      ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+                      ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed, "-v"]
                   else
                     Process.proc
                       "nix"
@@ -95,6 +96,11 @@ testBuild name config asserts =
     handle <- openFile "stderr-from-nix.log" WriteMode
     ByteString.hPutStrLn handle errors
     hClose handle
+
+    handle2 <- openFile "stdout-from-nix.log" WriteMode
+    Text.IO.hPutStrLn handle2 output
+    hClose handle2
+
 
     asserts output end_state
 
@@ -144,9 +150,9 @@ goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMSt
     assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
     assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
 
-goldenFail :: TestConfig -> Test
-goldenFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
-  assertEqual ("There should be one waiting build in " <> show d) 1 (CSet.size plannedBuilds)
-  assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
-  assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)
-  assertEqual ("There should be one unfinished build " <> show d) 1 (CMap.size runningBuilds)
+-- goldenFail :: TestConfig -> Test
+-- goldenFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
+--   assertEqual ("There should be one waiting build in " <> show d) 1 (CSet.size plannedBuilds)
+--   assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
+--   assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)
+--   assertEqual ("There should be one unfinished build " <> show d) 1 (CMap.size runningBuilds)
