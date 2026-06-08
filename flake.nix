@@ -40,6 +40,23 @@
           "CHANGELOG.md"
           "default.nix"
         ];
+        doCheck = system == "x86_64-linux";
+        injectChecks =
+          opts:
+          opts
+          // {
+            postInstall = opts.postInstall or "" + ''
+              mkdir -p $test
+              cp ./dist/build/golden-tests/golden-tests $test/golden-tests
+            '';
+            preCheck = ''
+              # Make sure golden-tests runtime and buildtime paths are available
+              # ${toString (golden-tests ++ map (x: x.drvPath) golden-tests)}
+              # Other tests call nix, which we can’t do from within a nix build, so we disable it with this variable.
+              export TESTS_FROM_FILE=true;
+            '';
+          };
+
       in
       rec {
         packages = {
@@ -59,26 +76,14 @@
             )
 
             (hlib.overrideCabal (
-              {
-                doCheck = false;
+              (if doCheck then injectChecks else lib.id) {
+                inherit doCheck;
                 buildTools = [ pkgs.installShellFiles ];
                 postInstall = ''
                   ln -s nom "$out/bin/nom-build"
                   ln -s nom "$out/bin/nom-shell"
                   chmod a+x $out/bin/nom-shell
                   installShellCompletion completions/*
-                '';
-              }
-              // lib.optionalAttrs (system == "x86_64-linux") {
-                doCheck = true;
-                preCheck = ''
-                  # Make sure golden-tests runtime and buildtime paths are available
-                  # ${toString (golden-tests ++ map (x: x.drvPath) golden-tests)}
-                  export TESTS_FROM_FILE=true;
-                '';
-                postInstall = ''
-                  mkdir -p $test
-                  cp ./dist/build/golden-tests/golden-tests $test/golden-tests
                 '';
               }
             ))
