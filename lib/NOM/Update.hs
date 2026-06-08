@@ -115,20 +115,24 @@ updateStateNixJSONMessage input inputState = do
       errors = lefts msgs
   pure ((errors, ByteString.unlines (rights msgs)), retval)
 
-updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> (Maybe Double, NOMState) -> m (([NOMError], ByteString), (Maybe Double, Maybe NOMState))
-updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
+-- Check whether the path exists at every event, blocking but fast (just checking the path).
+updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> NOMState -> m (([NOMError], ByteString), Maybe NOMState)
+updateStateNixOldStyleMessage (result, input) inputState = do
   now <- getNow
 
   let processing = case result of
         Just result' -> processResult result'
         Nothing -> pure False
-      (outputAccessTime, check)
-        | maybe True ((>= minTimeBetweenPollingNixStore) . realToFrac . (now -)) inputAccessTime = (Just now, detectLocalFinishedBuilds)
-        | otherwise = (inputAccessTime, pure False)
+      check
+        | Strict.maybe True ((>= minTimeBetweenPollingNixStore) . realToFrac . (now -)) inputState.lastRead = do
+            assign' #lastRead (Strict.Just now)
+            detectLocalFinishedBuilds
+        | otherwise = pure False
   ((hasChanged, msgs), outputState) <-
     runStateT
       ( runWriterT
           ( or
+              -- returned value represents whether there's a change, which will refresh the screen
               <$> sequence
                 [ -- First check if this is the first time that we receive input (for error messages).
                   setInputReceived
@@ -142,7 +146,7 @@ updateStateNixOldStyleMessage (result, input) (inputAccessTime, inputState) = do
       )
       inputState
   -- If any of the update steps returned true, return the new state, otherwise return Nothing.
-  let retval = (outputAccessTime, if hasChanged then Just outputState else Nothing)
+  let retval = if hasChanged then Just outputState else Nothing
       errors = lefts msgs
   pure ((errors, input <> ByteString.unlines (rights msgs)), retval)
 
