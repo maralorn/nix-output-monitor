@@ -4,4 +4,4 @@ import Relude
 
 type CacheId :: Type -> Type
 newtype CacheId b = MkCacheId {unCacheId :: Int}
-  deriving stock (Show, Eq, Ord, Read)
+  deriving newtype (Show, Eq, Ord, Read)
