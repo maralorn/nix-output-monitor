@@ -123,7 +123,6 @@ checkFinishedBuilds = do
   forM_ found_store_paths $ \(host, drvId) -> finishBuildByDrvId host drvId
   pure $ not $ null found_store_paths
 
--- Check whether the path exists at every event, blocking but fast (just checking the path).
 updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> NOMState -> m (([NOMError], ByteString), Maybe NOMState)
 updateStateNixOldStyleMessage (result, input) inputState = do
   let processing = case result of
