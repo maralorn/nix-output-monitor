@@ -51,7 +51,7 @@
             '';
             preCheck = ''
               # Make sure golden-tests runtime and buildtime paths are available
-              # ${toString (golden-tests ++ map (x: x.drvPath) golden-tests)}
+              # ${toString golden-tests}
               # Other tests call nix, which we can’t do from within a nix build, so we disable it with this variable.
               export TESTS_FROM_FILE=true;
             '';
