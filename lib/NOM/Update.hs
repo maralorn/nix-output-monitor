@@ -467,8 +467,9 @@ building host drvName now activityId = do
   updateDerivationState drvId
     $ Building
     . \case
-      Building bi -> bi & #activityId .~ Strict.toStrict activityId -- This happens with ssh-ng. After we already registered this build as started we get a second activity start event. No frome the remote host. Sadly we can not see whether a message is from the local or the remote daemon.
+      -- This happens with ssh-ng. After we already registered this build as started we get a second activity start event. No from the remote host. Sadly we can not see whether a message is from the local or the remote daemon.
       -- It would probably be better to only mark the build running on the second start message, but that probably does not work with all remote build protocols other than ssh-ng.
+      Building bi -> bi & #activityId .~ Strict.toStrict activityId
       _ -> MkBuildInfo now host (Strict.toStrict lastNeeded) (Strict.toStrict activityId) ()
 
 median :: Map a Int -> Maybe Int

@@ -97,7 +97,7 @@ main = do
               (Failed (Derivation $ StorePath "fbpdwqrfwr18nn504kb5jqx7s06l1mar" "regex-base-0.94.0.1") (ExitCode 1))
               result
             assertEqual "no rest" "" rest
-        , "Parse faild build for nix 2.4" ~: do
+        , "Parse failed build for nix 2.4" ~: do
             (rest, result) <-
               assertOldStyleParse
                 "error: builder for '/nix/store/dylih0mw8yisn6nrjc3qlf51knmdkrq1-local-build-3.drv' failed with exit code 1;\n"
