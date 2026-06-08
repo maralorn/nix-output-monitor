@@ -17,15 +17,12 @@ import NOM.State (
   DerivationId,
   NOMState (..),
   getStorePathId,
-  initalStateFromBuildPlatform,
   outPathToDerivation,
  )
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
-import NOM.Update (
-  detectLocalFinishedBuilds,
-  maintainState,
- )
+import NOM.State.Initial (initialStateFromBuildPlatform)
+import NOM.Update (checkFinishedBuilds, maintainState)
 import NOM.Update.Monad (UpdateMonad)
 import NOM.Util (forMaybeM)
 import Relude
@@ -92,7 +89,7 @@ testBuild name config asserts =
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
 testProcess input = withParser @input \streamParser -> do
-  first_state <- initalStateFromBuildPlatform (Just "x86_64-linux")
+  first_state <- initialStateFromBuildPlatform (Just "x86_64-linux")
   end_state <- processTextStream @input @NOMState (MkConfig False False) streamParser stateUpdater (\now -> maintainState now) Nothing finalizer first_state (Right <$> input)
   pure end_state
 

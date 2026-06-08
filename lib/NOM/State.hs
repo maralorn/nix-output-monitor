@@ -24,8 +24,8 @@ module NOM.State (
   InterestingActivity (..),
   InputDerivation (..),
   EvalInfo (..),
+  BuildReportMap,
   getDerivationInfos,
-  initalStateFromBuildPlatform,
   updateSummaryForStorePath,
   clearDerivationIdFromSummary,
   clearStorePathsFromSummary,
@@ -43,11 +43,11 @@ module NOM.State (
   OutputName (..),
 ) where
 
-import Control.Concurrent.Async (Async)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
+import Data.Time (UTCTime)
 import NOM.Builds (Derivation (..), FailType, Host (..), HostContext (..), StorePath (..))
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityProgress)
 import NOM.State.CacheId (CacheId)
@@ -55,12 +55,6 @@ import NOM.State.CacheId.Map (CacheIdMap)
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set (CacheIdSet)
 import NOM.State.CacheId.Set qualified as CSet
-import NOM.Update.Monad (
-  BuildReportMap,
-  MonadCacheBuildReports (getCachedBuildReports),
-  MonadNow,
-  getNow,
- )
 import NOM.Util (repeatedly)
 import Optics (modifying', (%~))
 import Optics.TH (makeFieldLabelsNoPrefix, makePrismLabels)
@@ -244,6 +238,8 @@ makeFieldLabelsNoPrefix ''EvalInfo
 data ProgressState = JustStarted | InputReceived | Finished
   deriving stock (Show, Eq, Ord)
 
+type BuildReportMap = Map (Host WithoutContext, Text) (Map UTCTime Int)
+
 data NOMState = MkNOMState
   { derivationInfos :: DerivationMap DerivationInfo
   , storePathInfos :: StorePathMap StorePathInfo
@@ -261,40 +257,9 @@ data NOMState = MkNOMState
   , buildPlatform :: Strict.Maybe Text
   , interestingActivities :: Map Word InterestingActivity
   , evaluationState :: EvalInfo
-  , waitingDerivations :: Map (Host WithContext, DerivationId) (Async ())
-  , -- Because old style human nix logs don't include information for when a
-    -- build finishes we monitor the existence of the output paths.
-    --  This variable saves when we last polled the disc for
-    -- output paths of currently running builds.
-    lastRead :: Strict.Maybe Double
   }
 
 makeFieldLabelsNoPrefix ''NOMState
-
-initalStateFromBuildPlatform :: (MonadCacheBuildReports m, MonadNow m) => Maybe Text -> m NOMState
-initalStateFromBuildPlatform platform = do
-  now <- getNow
-  buildReports <- getCachedBuildReports
-  pure
-    $ MkNOMState
-      mempty
-      mempty
-      mempty
-      mempty
-      buildReports
-      now
-      JustStarted
-      mempty
-      mempty
-      mempty
-      mempty
-      mempty
-      mempty
-      (Strict.toStrict platform)
-      mempty
-      MkEvalInfo{count = 0, at = 0, lastFileName = Strict.Nothing}
-      mempty
-      Strict.Nothing
 
 instance Semigroup DependencySummary where
   (MkDependencySummary ls1 lm2 lm3 lm4 ls5 lm6 lm7 lm8 lm9) <> (MkDependencySummary rs1 rm2 rm3 rm4 rs5 rm6 rm7 rm8 rm9) = MkDependencySummary (ls1 <> rs1) (lm2 <> rm2) (lm3 <> rm3) (lm4 <> rm4) (ls5 <> rs5) (lm6 <> rm6) (lm7 <> rm7) (lm8 <> rm8) (lm9 <> rm9)

@@ -1,4 +1,10 @@
-module NOM.Update (updateStateNixJSONMessage, updateStateNixOldStyleMessage, maintainState, detectLocalFinishedBuilds, appendDifferingPlatform) where
+module NOM.Update (
+  updateStateNixJSONMessage,
+  updateStateNixOldStyleMessage,
+  maintainState,
+  appendDifferingPlatform,
+  checkFinishedBuilds,
+) where
 
 import Control.Monad.Trans.Writer.CPS (WriterT, runWriterT, tell)
 import Data.ByteString.Char8 qualified as ByteString
@@ -7,7 +13,7 @@ import Data.Sequence.Strict qualified as Seq
 import Data.Set qualified as Set
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
-import Data.Time (NominalDiffTime, UTCTime)
+import Data.Time (UTCTime)
 import NOM.Builds (Derivation (..), FailType, Host (..), HostContext (..), StorePath (..), forgetProto, parseDerivation, parseIndentedStoreObject, parseStorePath)
 import NOM.Error (NOMError)
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
@@ -42,7 +48,6 @@ import NOM.State (
   derivationToAnyOutPath,
   getDerivationId,
   getDerivationInfos,
-  getRunningBuildsByHost,
   getStorePathId,
   getStorePathInfos,
   outPathToDerivation,
@@ -69,7 +74,6 @@ import Numeric.Extra (intToDouble)
 import Optics (Ixed (..), assign', has, modifying', preuse, preview, (%), (%~), (.~))
 import Relude
 import System.Console.ANSI (SGR (Reset), setSGRCode)
-import System.Timeout (timeout)
 
 type ProcessingT m a = (UpdateMonad m, MonadNOMState m) => WriterT [Either NOMError ByteString] m a
 
@@ -95,9 +99,6 @@ maintainState now = execState $ do
   when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
     assign' (#evaluationState % #lastFileName) Strict.Nothing
 
-minTimeBetweenPollingNixStore :: NominalDiffTime
-minTimeBetweenPollingNixStore = 0.2 -- in seconds
-
 {-# INLINE updateStateNixJSONMessage #-}
 updateStateNixJSONMessage :: forall m. (UpdateMonad m) => NixJSONMessage -> NOMState -> m (([NOMError], ByteString), Maybe NOMState)
 updateStateNixJSONMessage input inputState = do
@@ -107,6 +108,7 @@ updateStateNixJSONMessage input inputState = do
           ( sequence
               [ setInputReceived
               , processJsonMessage input
+              , checkFinishedBuilds
               ]
           )
       )
@@ -115,19 +117,18 @@ updateStateNixJSONMessage input inputState = do
       errors = lefts msgs
   pure ((errors, ByteString.unlines (rights msgs)), retval)
 
+checkFinishedBuilds :: ProcessingT m Bool
+checkFinishedBuilds = do
+  found_store_paths <- foundStorePaths
+  forM_ found_store_paths $ \(host, drvId) -> finishBuildByDrvId host drvId
+  pure $ not $ null found_store_paths
+
 -- Check whether the path exists at every event, blocking but fast (just checking the path).
 updateStateNixOldStyleMessage :: forall m. (UpdateMonad m) => (Maybe NixOldStyleMessage, ByteString) -> NOMState -> m (([NOMError], ByteString), Maybe NOMState)
 updateStateNixOldStyleMessage (result, input) inputState = do
-  now <- getNow
-
   let processing = case result of
         Just result' -> processResult result'
         Nothing -> pure False
-      check
-        | Strict.maybe True ((>= minTimeBetweenPollingNixStore) . realToFrac . (now -)) inputState.lastRead = do
-            assign' #lastRead (Strict.Just now)
-            detectLocalFinishedBuilds
-        | otherwise = pure False
   ((hasChanged, msgs), outputState) <-
     runStateT
       ( runWriterT
@@ -138,9 +139,7 @@ updateStateNixOldStyleMessage (result, input) inputState = do
                   setInputReceived
                 , -- Update the state if any changes where parsed.
                   processing
-                , -- Check if any local builds have finished, because nix-build would not tell us.
-                  -- If we haven‘t done so in the last minTimeBetweenPollingNixStore seconds.
-                  check
+                , checkFinishedBuilds
                 ]
           )
       )
@@ -149,20 +148,6 @@ updateStateNixOldStyleMessage (result, input) inputState = do
   let retval = if hasChanged then Just outputState else Nothing
       errors = lefts msgs
   pure ((errors, input <> ByteString.unlines (rights msgs)), retval)
-
-derivationIsCompleted :: (UpdateMonad m, MonadNOMState m) => DerivationId -> m Bool
-derivationIsCompleted drvId =
-  derivationToAnyOutPath drvId >>= \case
-    Nothing -> pure False -- Derivation has no "out" output.
-    Just path -> storePathExists path
-
-detectLocalFinishedBuilds :: ProcessingT m Bool
-detectLocalFinishedBuilds = do
-  runningLocalBuilds <- CMap.toList <$> getRunningBuildsByHost Localhost -- .> traceShowId
-  newCompletedOutputs <- filterM (\(x, _) -> derivationIsCompleted x) runningLocalBuilds
-  let anyBuildsFinished = not (null newCompletedOutputs)
-  when anyBuildsFinished (finishBuilds Localhost newCompletedOutputs)
-  pure anyBuildsFinished
 
 withChange :: (Functor f) => f b -> f Bool
 withChange = (True <$)
@@ -184,6 +169,9 @@ processResult result = do
     OldStyleMessage.PlanCopies _ -> noChange
     OldStyleMessage.Build drvName host -> withChange do
       building host drvName now Nothing
+      drvId <- lookupDerivation drvName
+      whenJustM (derivationToAnyOutPath drvId) \path ->
+        subscribeStorePath path (host, drvId)
     OldStyleMessage.PlanBuilds plannedBuilds _lastBuild -> withChange do
       plannedDrvIds <- forM (toList plannedBuilds) (\x -> lookupDerivation x)
       planBuilds (fromList plannedDrvIds)
@@ -282,15 +270,9 @@ processJsonMessage = \case
         uploaded to pathId now
       Just (MkActivityStatus{activity = JSON.Build drv host}) -> do
         drvId <- lookupDerivation drv
-        isCompleted <-
-          derivationToAnyOutPath drvId >>= \case
-            Nothing -> pure True -- Derivation has no "out" output.
-            Just path -> do
-              inotify <- theInotify
-              liftIO do
-                result <- timeout 1_000_000 $ runReaderT (waitForStorePath path) inotify
-                pure $ isJust result
-        if isCompleted then withChange $ finishBuildByDrvId host drvId else noChange
+        derivationToAnyOutPath drvId >>= \case
+          Nothing -> withChange $ finishBuildByDrvId host drvId -- Derivation has no "out" output.
+          Just path -> subscribeStorePath path (host, drvId) >> noChange
       _ -> pure (isJust interesting_activity)
   Plain msg -> tell [Right msg] >> noChange
   ParseError err -> tell [Left err] >> noChange

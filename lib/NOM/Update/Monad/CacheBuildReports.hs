@@ -12,6 +12,7 @@ import Data.Csv (DefaultOrdered (..), FromNamedRecord (..), ToNamedRecord (..), 
 import Data.Map.Strict qualified as Map
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
 import NOM.Builds (Host (..), HostContext (..))
+import NOM.State (BuildReportMap)
 import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
 import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
@@ -23,8 +24,6 @@ import System.FilePath ((<.>), (</>))
 class (Monad m) => MonadCacheBuildReports m where
   getCachedBuildReports :: m BuildReportMap
   updateBuildReports :: (BuildReportMap -> BuildReportMap) -> m BuildReportMap
-
-type BuildReportMap = Map (Host WithoutContext, Text) (Map UTCTime Int)
 
 data BuildReport = BuildReport
   { host :: Host WithoutContext

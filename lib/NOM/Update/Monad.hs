@@ -3,19 +3,22 @@ module NOM.Update.Monad (
   MonadNow (..),
   MonadReadDerivation (..),
   MonadCheckStorePath (..),
+  CheckStorePathEnv (..),
   Update,
   module NOM.Update.Monad.CacheBuildReports,
 ) where
 
-import Control.Concurrent.STM (retry)
+import Control.Concurrent.Async (async)
+import Control.Concurrent.STM (TChan, retry, tryReadTChan, writeTChan)
 import Control.Exception (bracket, try)
 import Control.Monad.Trans.Writer.CPS (WriterT)
 import Data.Attoparsec.Text (eitherResult, parse)
 import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime, getCurrentTime)
 import GHC.Clock qualified
-import NOM.Builds (Derivation, StorePath)
+import NOM.Builds (Derivation, Host, HostContext (WithContext), StorePath)
 import NOM.Error (NOMError (..))
+import NOM.State (DerivationId)
 import NOM.Update.Monad.CacheBuildReports
 import Nix.Derivation qualified as Nix
 import Relude
@@ -23,8 +26,7 @@ import System.Directory (doesPathExist)
 import System.FilePath (takeDirectory)
 import System.INotify
 
--- the MonadIO kind of defeats the point here, but we need it to partially "unlift" back into IO
-type UpdateMonad m = (Monad m, MonadIO m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
+type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
 class (Monad m) => MonadNow m where
   getNow :: m Double
@@ -73,31 +75,42 @@ instance (MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
 instance (MonadReadDerivation m) => MonadReadDerivation (ReaderT a m) where
   getDerivation = lift . getDerivation
 
-type Update = ReaderT INotify IO
+type Update = ReaderT CheckStorePathEnv IO
+
+data CheckStorePathEnv = MkCheckStorePathEnv
+  { iNotifyManager :: INotify
+  , pathFoundChannel :: TChan (Host WithContext, DerivationId)
+  }
 
 class (Monad m) => MonadCheckStorePath m where
-  storePathExists :: StorePath -> m Bool
-
-  -- | WILL block indefinitely if the store path is not going to exist. Use with a timeout.
-  waitForStorePath :: StorePath -> m ()
-
-  -- | Implementation detail. Added only because of the monad transformer stack being annoying
-  theInotify :: m INotify
+  subscribeStorePath :: StorePath -> (Host WithContext, DerivationId) -> m ()
+  foundStorePaths :: m [(Host WithContext, DerivationId)]
 
 storePathExistsIO :: StorePath -> IO Bool
 storePathExistsIO = doesPathExist . toString
 
+flushChan :: TChan a -> STM [a]
+flushChan chan = go
+ where
+  go =
+    tryReadTChan chan >>= \case
+      Nothing -> pure []
+      Just next -> (next :) <$> go
+
 instance MonadCheckStorePath Update where
-  theInotify = ask
-  storePathExists = liftIO . storePathExistsIO
-  waitForStorePath path = do
-    inotify <- ask
+  foundStorePaths = do
+    check_env <- ask
+    let chan = check_env.pathFoundChannel
+    atomically $ flushChan chan
+
+  subscribeStorePath path payload = do
+    check_env <- ask
     let rawStorePath = encodeUtf8 (toString path)
         rawStore = encodeUtf8 . takeDirectory $ toString path
     found <- newTVarIO False
 
-    liftIO $ bracket
-      ( addWatch inotify [AllEvents] rawStore \case
+    void $ liftIO $ async $ bracket
+      ( addWatch (check_env.iNotifyManager) [MoveIn] rawStore \case
           MovedIn{filePath}
             | rawStore <> "/" <> filePath == rawStorePath ->
                 atomically $ writeTVar found True
@@ -110,13 +123,12 @@ instance MonadCheckStorePath Update where
         atomically do
           found1 <- readTVar found
           unless found1 retry
+          writeTChan (check_env.pathFoundChannel) payload
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
-  storePathExists = lift . storePathExists
-  waitForStorePath = lift . waitForStorePath
-  theInotify = lift theInotify
+  foundStorePaths = lift $ foundStorePaths
+  subscribeStorePath path payload = lift $ subscribeStorePath path payload
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
-  storePathExists = lift . storePathExists
-  waitForStorePath = lift . waitForStorePath
-  theInotify = lift theInotify
+  foundStorePaths = lift $ foundStorePaths
+  subscribeStorePath path payload = lift $ subscribeStorePath path payload
