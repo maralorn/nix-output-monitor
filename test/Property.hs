@@ -1,3 +1,4 @@
+import Data.ByteString.Char8 qualified as ByteString
 import Data.Set (singleton)
 import NOM.Builds
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
@@ -105,5 +106,18 @@ main = do
               (Failed (Derivation $ StorePath "dylih0mw8yisn6nrjc3qlf51knmdkrq1" "local-build-3") (ExitCode 1))
               result
             assertEqual "no rest" "" rest
+        , "Parse failed build for nix >= 2.29" ~: do
+            (_, result) <-
+              assertOldStyleParse
+                $ ByteString.unlines
+                  [ "error: Cannot build '/nix/store/d055cqki6z1vll144kvj496cknwvwi44-build-fail.drv'."
+                  , "       Reason: builder failed with exit code 1."
+                  , "       Output paths:"
+                  , "          /nix/store/pvf324ikpfb9nhyszmc4zz5g9y8by0f6-build-fail"
+                  ]
+            assertEqual
+              "result matches"
+              (Failed (Derivation $ StorePath "d055cqki6z1vll144kvj496cknwvwi44" "build-fail") (ExitCode 1))
+              result
         ]
   if errors counts + failures counts == 0 then exitSuccess else exitFailure
