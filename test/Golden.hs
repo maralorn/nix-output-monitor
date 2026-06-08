@@ -86,7 +86,9 @@ testBuild name config asserts =
         readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
     (output, errors) <- if config.withNix then callNix else readFiles
     end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
-    onException (asserts output end_state) $ ByteString.putStrLn errors
+    onException (asserts output end_state) $ do
+      ByteString.putStrLn errors
+      print end_state
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
 testProcess input = withParser @input \streamParser -> do
@@ -104,7 +106,7 @@ stateUpdater input = do
 finalizer :: (MonadIO m, UpdateMonad m) => StateT NOMState m ()
 finalizer = do
   old_state <- get
-  liftIO $ threadDelay 1_000_000
+  liftIO $ threadDelay 1_000_000 -- Wait for the store to settle before we finally check for completed builds
   new_state <- execStateT (runWriterT checkFinishedBuilds) old_state
   put new_state
 
