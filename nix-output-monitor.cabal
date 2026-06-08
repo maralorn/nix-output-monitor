@@ -79,6 +79,7 @@ common common-config
     filelock,
     filepath,
     hermes-json >=0.6.0.0,
+    hinotify,
     nix-derivation,
     optics,
     relude,
@@ -135,6 +136,7 @@ library
     NOM.State.CacheId
     NOM.State.CacheId.Map
     NOM.State.CacheId.Set
+    NOM.State.Initial
     NOM.State.Sorting
     NOM.State.Tree
     NOM.StreamParser

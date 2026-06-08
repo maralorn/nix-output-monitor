@@ -43,7 +43,7 @@ runNixOSTest {
     # (with_nix) Ensure the nixpkgs to evaluate is available
     machine.succeed("nix-store -r ${pin}")
     # (from files) Make sure golden-tests runtime and buildtime paths are available
-    # ${toString (all-golden-tests ++ map (x: x.drvPath) all-golden-tests)}
+    # ${toString all-golden-tests}
 
     # golden tests path are hard coded in the test binary.
     machine.execute("cp -r ${nom-test}/golden-tests .")

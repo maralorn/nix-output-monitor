@@ -3,24 +3,36 @@ module NOM.Update.Monad (
   MonadNow (..),
   MonadReadDerivation (..),
   MonadCheckStorePath (..),
+  CheckStorePathEnv (..),
+  Update,
   module NOM.Update.Monad.CacheBuildReports,
 ) where
 
-import Control.Concurrent (threadDelay)
-import Control.Exception (try)
+import Control.Concurrent.Async (async)
+import Control.Concurrent.STM (TChan, retry, tryReadTChan, writeTChan)
+import Control.Exception (bracket, try)
 import Control.Monad.Trans.Writer.CPS (WriterT)
 import Data.Attoparsec.Text (eitherResult, parse)
 import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime, getCurrentTime)
 import GHC.Clock qualified
-import NOM.Builds (Derivation, StorePath)
+import NOM.Builds (Derivation, Host, HostContext (WithContext), StorePath)
 import NOM.Error (NOMError (..))
+import NOM.State (DerivationId)
 import NOM.Update.Monad.CacheBuildReports
 import Nix.Derivation qualified as Nix
 import Relude
 import System.Directory (doesPathExist)
+import System.FilePath (takeDirectory)
+import System.INotify (
+  Event (MovedIn, filePath),
+  EventVariety (MoveIn),
+  INotify,
+  addWatch,
+  removeWatch,
+ )
 
-type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
+type UpdateMonad m = (MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
 class (Monad m) => MonadNow m where
   getNow :: m Double
@@ -35,6 +47,10 @@ instance (MonadNow m) => MonadNow (StateT a m) where
   getUTC = lift getUTC
 
 instance (MonadNow m) => MonadNow (WriterT a m) where
+  getNow = lift getNow
+  getUTC = lift getUTC
+
+instance (MonadNow m) => MonadNow (ReaderT a m) where
   getNow = lift getNow
   getUTC = lift getUTC
 
@@ -62,25 +78,63 @@ instance (MonadReadDerivation m) => MonadReadDerivation (ExceptT a m) where
 instance (MonadReadDerivation m) => MonadReadDerivation (WriterT a m) where
   getDerivation = lift . getDerivation
 
-class (Monad m) => MonadCheckStorePath m where
-  storePathExists :: StorePath -> m Bool
-  waitForStorePath :: StorePath -> m Bool
+instance (MonadReadDerivation m) => MonadReadDerivation (ReaderT a m) where
+  getDerivation = lift . getDerivation
 
-instance MonadCheckStorePath IO where
-  storePathExists = doesPathExist . toString
-  waitForStorePath path = go 5
-   where
-    go (count :: Nat) = do
-      there <- storePathExists path
-      if
-        | there -> pure True
-        | count <= 0 -> pure False
-        | otherwise -> threadDelay 100_000 >> go (count - 1)
+type Update = ReaderT CheckStorePathEnv IO
+
+data CheckStorePathEnv = MkCheckStorePathEnv
+  { iNotifyManager :: INotify
+  , pathFoundChannel :: TChan (Host WithContext, DerivationId)
+  }
+
+class (Monad m) => MonadCheckStorePath m where
+  subscribeStorePath :: StorePath -> (Host WithContext, DerivationId) -> m ()
+  foundStorePaths :: m [(Host WithContext, DerivationId)]
+
+storePathExistsIO :: StorePath -> IO Bool
+storePathExistsIO = doesPathExist . toString
+
+flushChan :: TChan a -> STM [a]
+flushChan chan = go
+ where
+  go =
+    tryReadTChan chan >>= \case
+      Nothing -> pure []
+      Just next -> (next :) <$> go
+
+instance MonadCheckStorePath Update where
+  foundStorePaths = do
+    check_env <- ask
+    let chan = check_env.pathFoundChannel
+    atomically $ flushChan chan
+
+  subscribeStorePath path payload = do
+    check_env <- ask
+    let rawStorePath = encodeUtf8 (toString path)
+        rawStore = encodeUtf8 . takeDirectory $ toString path
+    found <- newTVarIO False
+
+    void $ liftIO $ async $ bracket
+      ( addWatch (check_env.iNotifyManager) [MoveIn] rawStore \case
+          MovedIn{filePath}
+            | rawStore <> "/" <> filePath == rawStorePath ->
+                atomically $ writeTVar found True
+          _ -> pure ()
+      )
+      removeWatch
+      \_ -> do
+        there <- storePathExistsIO path
+        when there $ atomically $ writeTVar found True
+        atomically do
+          found1 <- readTVar found
+          unless found1 retry
+          writeTChan (check_env.pathFoundChannel) payload
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
-  storePathExists = lift . storePathExists
-  waitForStorePath = lift . waitForStorePath
+  foundStorePaths = lift foundStorePaths
+  subscribeStorePath path payload = lift $ subscribeStorePath path payload
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
-  storePathExists = lift . storePathExists
-  waitForStorePath = lift . waitForStorePath
+  foundStorePaths = lift foundStorePaths
+  subscribeStorePath path payload = lift $ subscribeStorePath path payload

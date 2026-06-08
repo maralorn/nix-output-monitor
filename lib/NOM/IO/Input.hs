@@ -9,7 +9,6 @@ import NOM.Error (NOMError)
 import NOM.IO (Stream, StreamParser)
 import NOM.State (NOMState)
 import NOM.Update.Monad (UpdateMonad)
-import Optics (Lens')
 import Relude
 import Streamly.Data.Stream qualified as Stream
 
@@ -19,18 +18,15 @@ statelessUnfoldM generator =
     & Stream.takeWhile isJust
     & Stream.catMaybes
 
-data UpdateResult a = MkUpdateResult
+data UpdateResult = MkUpdateResult
   { errors :: [NOMError]
   , output :: ByteString
   , newStateToPrint :: Maybe NOMState
-  , newState :: UpdaterState a
+  , newState :: NOMState
   }
 
 class NOMInput a where
-  type UpdaterState a
-  firstState :: NOMState -> UpdaterState a
-  updateState :: (UpdateMonad m) => a -> UpdaterState a -> m (UpdateResult a)
-  nomState :: Lens' (UpdaterState a) NOMState
+  updateState :: (UpdateMonad m) => a -> NOMState -> m UpdateResult
   inputStreamImpl :: Handle -> Stream (Either NOMError ByteString)
   withParser :: (StreamParser a -> IO t) -> IO t
 

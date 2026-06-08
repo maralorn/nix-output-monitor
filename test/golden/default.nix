@@ -4,14 +4,14 @@ args@{
 }:
 let
   nixpkgs = import ./pin.nix;
-  pkgs = import nixpkgs { };
+  pkgs = import nixpkgs { system = "x86_64-linux"; };
   busyBoxExe = pkgs.lib.getExe' pkgs.busybox;
 in
 if busybox then
   derivation (
     args
     // {
-      system = builtins.currentSystem;
+      system = "x86_64-linux";
       builder = busyBoxExe "sh";
       sleep = busyBoxExe "sleep";
       args = [

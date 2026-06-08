@@ -2,7 +2,7 @@ module NOM.IO (interact, processTextStream, StreamParser, Stream) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
-import Control.Concurrent.STM (check, swapTVar)
+import Control.Concurrent.STM (check, newTChanIO, swapTVar)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as ByteString
@@ -11,13 +11,14 @@ import Data.Time (ZonedTime, getZonedTime)
 import NOM.Error (NOMError)
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
-import NOM.Update.Monad (UpdateMonad, getNow)
+import NOM.Update.Monad (CheckStorePathEnv (..), UpdateMonad, getNow)
 import Relude
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
+import System.INotify
 import System.IO qualified
 
 type Stream = Stream.Stream IO
@@ -30,23 +31,24 @@ type UpdateFunc update state = forall m. (UpdateMonad m) => update -> StateT sta
 
 type OutputFunc state = state -> Maybe Window -> (ZonedTime, Double) -> Output
 
-type Finalizer state = forall m. (UpdateMonad m) => StateT state m ()
+type Finalizer state = forall m. (MonadIO m, UpdateMonad m) => StateT state m ()
 
 type Window = Terminal.Size.Window Int
 
 runUpdate ::
   forall update state.
+  CheckStorePathEnv ->
   TVar [ByteString] ->
   TMVar state ->
   TVar Bool ->
   UpdateFunc update state ->
   update ->
   IO ()
-runUpdate output_builder_var state_var refresh_display_var updater input = do
+runUpdate check_env output_builder_var state_var refresh_display_var updater input = do
   -- Since we are taking the state_var here we prevent any other state update
   -- to happen simultaneously.
   old_state <- atomically $ takeTMVar state_var
-  ((errors, log_output, display_changed), !newState) <- runStateT (updater input) old_state
+  ((errors, log_output, display_changed), !newState) <- runReaderT (runStateT (updater input) old_state) check_env
   atomically $ do
     forM_ errors (writeErrorToBuilder output_builder_var)
     putTMVar state_var newState
@@ -235,27 +237,42 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   state_var <- newTMVarIO initialState
   output_builder_var <- newTVarIO []
   refresh_display_var <- newTVarIO False
-  let keepProcessing :: IO ()
-      keepProcessing =
-        inputStream
-          & Stream.tap (errorsToBuilderFold output_builder_var)
-          & Stream.mapMaybe rightToMaybe
-          & parser
-          & Stream.fold (Fold.drainMapM (runUpdate output_builder_var state_var refresh_display_var updater))
-      waitForInput :: IO ()
-      waitForInput = atomically $ check =<< readTVar refresh_display_var
-  printerMay & maybe keepProcessing \(printer, output_handle) -> do
-    linesVar <- newTVarIO 0
-    let writeToScreen :: IO ()
-        writeToScreen = writeStateToScreen (not config.silent) linesVar state_var output_builder_var refresh_display_var maintenance printer output_handle
-        keepPrinting :: IO ()
-        keepPrinting = forever do
-          race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
-          writeToScreen
-    race_ keepProcessing keepPrinting
-    atomically (takeTMVar state_var) >>= execStateT finalize >>= atomically . putTMVar state_var
-    writeToScreen
-  (if isNothing printerMay then (>>= execStateT finalize) else id) $ atomically $ takeTMVar state_var
+  path_found_var <- newTChanIO
+  withINotify \inotify -> do
+    let check_path_env = MkCheckStorePathEnv inotify path_found_var
+    let keepProcessing :: IO ()
+        keepProcessing =
+          inputStream
+            & Stream.tap (errorsToBuilderFold output_builder_var)
+            & Stream.mapMaybe rightToMaybe
+            & parser
+            & Stream.fold (Fold.drainMapM (runUpdate check_path_env output_builder_var state_var refresh_display_var updater))
+        waitForInput :: IO ()
+        waitForInput = atomically $ check =<< readTVar refresh_display_var
+    printerMay & maybe keepProcessing \(printer, output_handle) -> do
+      linesVar <- newTVarIO 0
+      let writeToScreen :: IO ()
+          writeToScreen =
+            writeStateToScreen
+              (not config.silent)
+              linesVar
+              state_var
+              output_builder_var
+              refresh_display_var
+              maintenance
+              printer
+              output_handle
+          keepPrinting :: IO ()
+          keepPrinting = forever do
+            race_ (concurrently_ (threadDelay minFrameDuration) waitForInput) (threadDelay maxFrameDuration)
+            writeToScreen
+      race_ keepProcessing keepPrinting
+      atomically (takeTMVar state_var) >>= \s ->
+        runReaderT (execStateT finalize s) check_path_env >>= atomically . putTMVar state_var
+      writeToScreen
+    (if isNothing printerMay then (>>= \s -> runReaderT (execStateT finalize s) check_path_env) else id)
+      $ atomically
+      $ takeTMVar state_var
 
 errorsToBuilderFold :: TVar [ByteString] -> Fold.Fold IO (Either NOMError ByteString) ()
 errorsToBuilderFold builder_var = Fold.drainMapM saveInput
@@ -289,11 +306,13 @@ truncateOutput win output = maybe output go win
   go window = Text.intercalate "\n" $ truncateColumns window.width <$> truncateRows window.height
 
   truncateColumns :: Int -> Text -> Text
-  truncateColumns columns line = if displayWidth line > columns then Table.truncate (columns - 1) line <> "…" <> toText (setSGRCode [Reset]) else line
+  truncateColumns columns line =
+    if displayWidth line > columns then Table.truncate (columns - 1) line <> "…" <> toText (setSGRCode [Reset]) else line
 
   truncateRows :: Int -> [Text]
   truncateRows rows
-    | length outputLines >= rows - outputLinesToAlwaysShow = take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + outputLinesToAlwaysShow + 2 - rows) outputLines
+    | length outputLines >= rows - outputLinesToAlwaysShow =
+        take 1 outputLines <> [" ⋮ "] <> drop (length outputLines + outputLinesToAlwaysShow + 2 - rows) outputLines
     | otherwise = outputLines
 
   outputLines :: [Text]

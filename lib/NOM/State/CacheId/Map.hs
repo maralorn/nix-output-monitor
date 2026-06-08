@@ -19,8 +19,7 @@ import Relude
 
 type CacheIdMap :: Type -> Type -> Type
 newtype CacheIdMap b a = MkCacheIdMap {intMap :: IntMap a}
-  deriving stock (Show, Eq, Ord, Read)
-  deriving newtype (Semigroup, Monoid, Foldable, Functor)
+  deriving newtype (Show, Eq, Ord, Read, Semigroup, Monoid, Foldable, Functor)
 
 filter :: (a -> Bool) -> CacheIdMap b a -> CacheIdMap b a
 filter p = MkCacheIdMap . IntMap.filter p . (.intMap)
