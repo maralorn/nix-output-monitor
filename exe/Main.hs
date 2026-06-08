@@ -206,7 +206,6 @@ processStateUpdater config input = do
     )
 
 finalizer ::
-  forall m.
   (UpdateMonad m) =>
   Config ->
   StateT ProcessState m ()
