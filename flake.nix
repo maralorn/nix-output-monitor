@@ -129,6 +129,7 @@
                 excludes = [ "\\.zsh" ];
               };
               cabal-gild.enable = true;
+              typos.enable = true;
             };
           };
         }
