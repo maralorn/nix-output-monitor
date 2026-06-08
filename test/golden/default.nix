@@ -5,17 +5,15 @@ args@{
 let
   nixpkgs = import ./pin.nix;
   pkgs = import nixpkgs { };
-  inherit (pkgs) lib;
-
-  busyboxBin = lib.makeBinPath [ pkgs.busybox ];
+  busyBoxExe = pkgs.lib.getExe' pkgs.busybox;
 in
 if busybox then
   derivation (
     args
     // {
       system = builtins.currentSystem;
-      builder = busyboxBin + "/sh";
-      sleep = busyboxBin + "/sleep";
+      builder = busyBoxExe "sh";
+      sleep = busyBoxExe "sleep";
       args = [
         "-c"
         args.script
