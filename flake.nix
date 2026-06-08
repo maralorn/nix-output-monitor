@@ -144,6 +144,7 @@
             testNomAgainstNixImpl = import ./nixos-test.nix {
               nom-test = lib.getOutput "test" packages.default;
               inherit system lib;
+              inherit (pkgs.testers) runNixOSTest;
             };
             allTests = lib.genAttrs' nixPackages (
               nixImpl:

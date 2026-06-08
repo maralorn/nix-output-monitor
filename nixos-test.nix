@@ -1,4 +1,5 @@
 {
+  runNixOSTest,
   system,
   lib,
   nom-test,
@@ -6,38 +7,35 @@
 
 let
   pin = import ./test/golden/pin.nix;
-  pkgs = import pin { inherit system; };
+  pinned-pkgs = import pin { inherit system; };
   all-golden-tests = import ./test/golden/all.nix;
 in
 
 nixPackage:
-pkgs.testers.runNixOSTest {
+runNixOSTest {
   name = "nom_${lib.getName nixPackage}_${lib.getVersion nixPackage}";
-  nodes.machine =
-    { pkgs, ... }:
-    {
-      # "with_nix" tests builds with minimal path requirements (just busybox).
-      # Removing this will fail because qemu can't access internet.
-      environment.systemPackages = [ pkgs.busybox ];
+  nodes.machine = {
+    # "with_nix" tests builds with minimal path requirements (just busybox).
+    # Removing this will fail because qemu can't access internet.
+    environment.systemPackages = [ pinned-pkgs.busybox ];
+    nix.nixPath = [ "nixpkgs=${pin}" ];
 
-      nix.nixPath = [ "nixpkgs=${pin}" ];
+    nix = {
+      package = nixPackage;
 
-      nix = {
-        package = nixPackage;
+      settings = {
+        substitute = false;
 
-        settings = {
-          substitute = false;
-
-          # nom testsuite uses nix-command, probably flakes
-          experimental-features = [
-            "nix-command"
-            "flakes"
-          ];
-          # When building a, b, c where a depends on b, c should build instead of being pending to match the golden files.
-          max-jobs = 4;
-        };
+        # nom testsuite uses nix-command, probably flakes
+        experimental-features = [
+          "nix-command"
+          "flakes"
+        ];
+        # When building a, b, c where a depends on b, c should build instead of being pending to match the golden files.
+        max-jobs = 4;
       };
     };
+  };
 
   testScript = /* python */ ''
     start_all()
