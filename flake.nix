@@ -40,32 +40,50 @@
           "CHANGELOG.md"
           "default.nix"
         ];
+        doCheck = system == "x86_64-linux";
+        injectChecks =
+          opts:
+          opts
+          // {
+            postInstall = opts.postInstall or "" + ''
+              mkdir -p $test
+              cp ./dist/build/golden-tests/golden-tests $test/golden-tests
+            '';
+            preCheck = ''
+              # Make sure golden-tests runtime and buildtime paths are available
+              # ${toString (golden-tests ++ map (x: x.drvPath) golden-tests)}
+              # Other tests call nix, which we can’t do from within a nix build, so we disable it with this variable.
+              export TESTS_FROM_FILE=true;
+            '';
+          };
+
       in
       rec {
         packages = {
+          generateGoldenFiles = import ./generate-expected.nix { inherit system; } "nix_2_28";
+
           default = lib.pipe { } [
-            (haskellPackages.callPackage self)
+            (haskellPackages.callPackage cleanSelf)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
             (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
 
+            (
+              drv:
+              drv.overrideAttrs (oldAttrs: {
+                outputs = oldAttrs.outputs or [ ] ++ [ "test" ];
+              })
+            )
+
             (hlib.overrideCabal (
-              {
-                src = cleanSelf;
-                doCheck = false;
+              (if doCheck then injectChecks else lib.id) {
+                inherit doCheck;
                 buildTools = [ pkgs.installShellFiles ];
                 postInstall = ''
                   ln -s nom "$out/bin/nom-build"
                   ln -s nom "$out/bin/nom-shell"
                   chmod a+x $out/bin/nom-shell
                   installShellCompletion completions/*
-                '';
-              }
-              // lib.optionalAttrs (system == "x86_64-linux") {
-                doCheck = true;
-                preCheck = ''
-                  # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
-                  export TESTS_FROM_FILE=true;
                 '';
               }
             ))
@@ -86,7 +104,7 @@
               hlint.enable = true;
               nixfmt-rfc-style = {
                 enable = true;
-                excludes = [ "default.nix" ];
+                excludes = [ "^default.nix" ];
               };
               cabal2nix.enable = true;
               nil.enable = true;
@@ -113,7 +131,41 @@
               cabal-gild.enable = true;
             };
           };
-        };
+        }
+        // (
+          let
+            nixPackages =
+              map (nixVersion: pkgs.nixVersions.${nixVersion}) [
+                "nix_2_28" # prove that 2.28 works, but stable doesn't
+                "stable"
+                "latest"
+                "git"
+              ]
+              ++ map (lixVersion: pkgs.lixPackageSets.${lixVersion}.lix) [
+                "stable"
+                "latest"
+                "git"
+              ];
+            testNomAgainstNixImpl = import ./nixos-test.nix {
+              nom-test = lib.getOutput "test" packages.default;
+              inherit system lib;
+              inherit (pkgs.testers) runNixOSTest;
+            };
+            allTests = lib.genAttrs' nixPackages (
+              nixImpl:
+              lib.nameValuePair "nixos-test_${lib.getName nixImpl}_${lib.replaceString "." "_" (lib.getVersion nixImpl)}" (
+                testNomAgainstNixImpl nixImpl
+              )
+            );
+          in
+          allTests
+          // {
+            nixos-test_all = pkgs.runCommand "nixos-test" { } ''
+              # ${toString (lib.attrValues allTests)}
+              touch $out
+            '';
+          }
+        );
         devShells.default = haskellPackages.shellFor {
           packages = _: [ packages.default ];
           buildInputs = [

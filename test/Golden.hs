@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Control.Exception (onException)
 import Control.Monad.Trans.Writer.CPS (runWriterT)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
@@ -55,13 +56,6 @@ allBools = [True, False]
 main :: IO ()
 main = do
   with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
-  when with_nix
-    $ Process.runProcess_
-    $ Process.setStderr Process.nullStream
-    $ Process.setStdout Process.nullStream
-    $ Process.proc
-      "nix-store"
-      ["-r", "/nix/store/y7ji7mwys7g60j2w8bl93cmfbvd3xi3r-busybox-static-x86_64-unknown-linux-musl-1.35.0/bin/"]
   counts <- runTestTT
     $ test
     $ do
@@ -95,7 +89,7 @@ testBuild name config asserts =
         readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
     (output, errors) <- if config.withNix then callNix else readFiles
     end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
-    asserts output end_state
+    onException (asserts output end_state) $ ByteString.putStrLn errors
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
 testProcess input = withParser @input \streamParser -> do
