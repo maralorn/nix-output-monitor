@@ -49,9 +49,7 @@
             (haskellPackages.callPackage cleanSelf)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
-            # TODO(leana8959): restore this
-            # (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
-            (hlib.appendConfigureFlag "-O0")
+            (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
 
             (
               drv:
