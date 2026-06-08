@@ -31,7 +31,7 @@ type UpdateFunc update state = forall m. (UpdateMonad m) => update -> StateT sta
 
 type OutputFunc state = state -> Maybe Window -> (ZonedTime, Double) -> Output
 
-type Finalizer state = forall m. (UpdateMonad m) => StateT state m ()
+type Finalizer state = forall m. (MonadIO m, UpdateMonad m) => StateT state m ()
 
 type Window = Terminal.Size.Window Int
 

@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (onException)
 import Control.Monad.Trans.Writer.CPS (runWriterT)
 import Data.ByteString.Char8 qualified as ByteString
@@ -100,10 +101,11 @@ stateUpdater input = do
   put new_state
   pure (mempty, mempty, False)
 
-finalizer :: (UpdateMonad m) => StateT NOMState m ()
+finalizer :: (MonadIO m, UpdateMonad m) => StateT NOMState m ()
 finalizer = do
   old_state <- get
-  new_state <- execStateT (runWriterT detectLocalFinishedBuilds) old_state
+  liftIO $ threadDelay 1_000_000
+  new_state <- execStateT (runWriterT checkFinishedBuilds) old_state
   put new_state
 
 goldenStandard :: TestConfig -> Test
