@@ -102,8 +102,8 @@ planDownloadLine :: Parser StorePath
 planDownloadLine = indent *> storePathByteStringParser <* endOfLine
 
 failed :: Parser NixOldStyleMessage
--- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
 failed =
+  -- builder for '/nix/store/fbpdwqrfwr18nn504kb5jqx7s06l1mar-regex-base-0.94.0.1.drv' failed with exit code 1
   Failed
     <$> ( choice
             [ string "error: build of " <* inTicks derivationByteStringParser <* manyTill' anyChar (string "failed: error: ")
@@ -121,6 +121,14 @@ failed =
     <$> (choice [string "error: ", pure ""] *> string "hash mismatch in fixed-output derivation " *> inTicks derivationByteStringParser <* string ":")
     <*> pure HashMismatch
     <* endOfLine
+    <|>
+    -- > error: Cannot build '/nix/store/d055cqki6z1vll144kvj496cknwvwi44-build-fail.drv'.
+    -- >        Reason: builder failed with exit code 1.
+    -- >        Output paths:
+    -- >          /nix/store/pvf324ikpfb9nhyszmc4zz5g9y8by0f6-build-fail
+    Failed
+    <$> (string "error: Cannot build " *> inTicks derivationByteStringParser <* "." <* endOfLine)
+    <*> (string "       Reason: builder failed with exit code " *> (ExitCode <$> decimal) <* "." <* endOfLine)
 
 -- checking outputs of '/nix/store/xxqgv6kwf6yz35jslsar0kx4f03qzyis-nix-output-monitor-0.1.0.3.drv'...
 checking :: Parser NixOldStyleMessage
