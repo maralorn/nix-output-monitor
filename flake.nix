@@ -71,17 +71,11 @@
               }
               // lib.optionalAttrs (system == "x86_64-linux") {
                 doCheck = true;
-                preCheck =
-                  let
-                    pin = import ./test/golden/pin.nix;
-                    pkgs = import pin { inherit system; };
-                  in
-                  ''
-                    # Make sure some paths are available
-                    # ${lib.concatStringsSep ", " (golden-tests ++ map (x: x.drvPath) golden-tests)}
-                    # ${pkgs.busybox}
-                    export TESTS_FROM_FILE=true;
-                  '';
+                preCheck = ''
+                  # Make sure golden-tests runtime and buildtime paths are available
+                  # ${toString (golden-tests ++ map (x: x.drvPath) golden-tests)}
+                  export TESTS_FROM_FILE=true;
+                '';
                 postInstall = ''
                   mkdir -p $test
                   cp ./dist/build/golden-tests/golden-tests $test/golden-tests
