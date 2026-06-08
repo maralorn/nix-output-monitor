@@ -258,6 +258,7 @@ data NOMState = MkNOMState
   , interestingActivities :: Map Word InterestingActivity
   , evaluationState :: EvalInfo
   }
+  deriving stock (Eq, Show)
 
 makeFieldLabelsNoPrefix ''NOMState
 
