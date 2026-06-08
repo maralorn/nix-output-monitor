@@ -1,8 +1,14 @@
-module NOM.Util (repeatedly, forMaybeM, parseOne, parseOneText) where
+module NOM.Util (
+  repeatedly,
+  forMaybeM,
+  parseOne,
+  parseOneText,
+) where
 
 import Data.Attoparsec.ByteString qualified as Parser
 import Relude
 
+-- | https://well-typed.com/blog/2024/01/haskell-unfolder-episode-19-a-new-perspective-on-foldl/
 repeatedly :: (Foldable f) => (b -> a -> a) -> f b -> a -> a
 repeatedly = flip . foldl' . flip
 

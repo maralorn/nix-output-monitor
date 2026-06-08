@@ -24,9 +24,15 @@ import Nix.Derivation qualified as Nix
 import Relude
 import System.Directory (doesPathExist)
 import System.FilePath (takeDirectory)
-import System.INotify
+import System.INotify (
+  Event (MovedIn, filePath),
+  EventVariety (MoveIn),
+  INotify,
+  addWatch,
+  removeWatch,
+ )
 
-type UpdateMonad m = (Monad m, MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
+type UpdateMonad m = (MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
 class (Monad m) => MonadNow m where
   getNow :: m Double
