@@ -7,8 +7,6 @@ module NOM.Update.Monad (
   module NOM.Update.Monad.CacheBuildReports,
 ) where
 
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async
 import Control.Concurrent.STM (retry)
 import Control.Exception (bracket, try)
 import Control.Monad.Trans.Writer.CPS (WriterT)
@@ -98,33 +96,20 @@ instance MonadCheckStorePath Update where
         rawStore = encodeUtf8 . takeDirectory $ toString path
     found <- newTVarIO False
 
-    liftIO
-      $ withAsync
-        do
-          fix \k -> do
-            there <- storePathExistsIO path
-            if there
-              then do
-                threadDelay 500_000
-                k
-              else atomically $ writeTVar found True
-        \pathPoller -> do
-          link pathPoller
-
-          found0 <- readTVarIO found
-
-          if found0
-            then pure ()
-            else do
-              liftIO $ bracket
-                ( addWatch inotify [MoveIn] rawStore \case
-                    MovedIn{filePath} | filePath == rawStorePath -> atomically $ writeTVar found True
-                    _ -> pure ()
-                )
-                removeWatch
-                \_ -> atomically do
-                  found1 <- readTVar found
-                  unless found1 retry
+    liftIO $ bracket
+      ( addWatch inotify [AllEvents] rawStore \case
+          MovedIn{filePath}
+            | rawStore <> "/" <> filePath == rawStorePath ->
+                atomically $ writeTVar found True
+          _ -> pure ()
+      )
+      removeWatch
+      \_ -> do
+        there <- storePathExistsIO path
+        when there $ atomically $ writeTVar found True
+        atomically do
+          found1 <- readTVar found
+          unless found1 retry
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
   storePathExists = lift . storePathExists
