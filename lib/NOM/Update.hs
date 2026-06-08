@@ -8,7 +8,7 @@ import Data.Set qualified as Set
 import Data.Strict qualified as Strict
 import Data.Text qualified as Text
 import Data.Time (NominalDiffTime, UTCTime)
-import NOM.Builds (Derivation (..), FailType, Host (..), HostContext (..), StorePath (..), forgetProto, parseDerivation, parseIndentedStoreObject, parseStorePath)
+import NOM.Builds (Derivation (..), FailType (..), Host (..), HostContext (..), StorePath (..), forgetProto, parseDerivation, parseIndentedStoreObject, parseStorePath)
 import NOM.Error (NOMError)
 import NOM.NixMessage.JSON (Activity, ActivityId, ActivityResult (..), MessageAction (..), NixJSONMessage (..), ResultAction (..), StartAction (..), StopAction (..), Verbosity (..))
 import NOM.NixMessage.JSON qualified as JSON
@@ -190,6 +190,11 @@ processResult result = do
     OldStyleMessage.Failed drv code -> withChange do
       drvId <- lookupDerivation drv
       failedBuild now drvId code
+      let failTypeText = case code of ExitCode i -> "exit code " <> show i; HashMismatch -> "hash mismatch"
+          errMsg = "error: builder for '" <> toText drv <> "' failed with " <> failTypeText
+      errors <- gets (.nixErrors)
+      unless (any (Text.isInfixOf (Text.drop 7 errMsg)) errors) do
+        modifying' #nixErrors (<> (errMsg Seq.<| mempty))
 
 processJsonMessage :: NixJSONMessage -> ProcessingT m Bool
 processJsonMessage = \case
