@@ -60,7 +60,7 @@
       in
       rec {
         packages = {
-          generateGoldenFiles = import ./generate-expected.nix { inherit system; } "nix_2_28";
+          generateGoldenFiles = import ./generate-expected.nix { inherit system; } "stable";
 
           default = lib.pipe { } [
             (haskellPackages.callPackage cleanSelf)
@@ -136,7 +136,6 @@
           let
             nixPackages =
               map (nixVersion: pkgs.nixVersions.${nixVersion}) [
-                "nix_2_28" # prove that 2.28 works, but stable doesn't
                 "stable"
                 "latest"
                 "git"
