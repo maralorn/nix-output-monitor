@@ -132,9 +132,9 @@ instance MonadCheckStorePath Update where
           writeTChan (check_env.pathFoundChannel) payload
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
-  foundStorePaths = lift $ foundStorePaths
+  foundStorePaths = lift foundStorePaths
   subscribeStorePath path payload = lift $ subscribeStorePath path payload
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (WriterT a m) where
-  foundStorePaths = lift $ foundStorePaths
+  foundStorePaths = lift foundStorePaths
   subscribeStorePath path payload = lift $ subscribeStorePath path payload

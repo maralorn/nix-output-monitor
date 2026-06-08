@@ -239,7 +239,7 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   refresh_display_var <- newTVarIO False
   path_found_var <- newTChanIO
   withINotify \inotify -> do
-    let check_path_env = (MkCheckStorePathEnv inotify path_found_var)
+    let check_path_env = MkCheckStorePathEnv inotify path_found_var
     let keepProcessing :: IO ()
         keepProcessing =
           inputStream
