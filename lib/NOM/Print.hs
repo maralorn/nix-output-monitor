@@ -42,7 +42,7 @@ import NOM.State (
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (SortKey, sortKey, summaryIncludingRoot)
-import NOM.State.Tree (mapRootsTwigsAndLeafs)
+import NOM.State.Tree (mapRootsTwigsAndLeaves)
 import NOM.Update (appendDifferingPlatform)
 import NOM.Util (repeatedly)
 import Numeric.Extra (intToDouble)
@@ -396,7 +396,7 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
     | num_raw_roots == num_roots = unwords [graphTitle, "with", show num_roots, "roots"]
     | otherwise = unwords [graphTitle, "showing", show num_roots, "of", show num_raw_roots, "roots"]
   preparedPrintForest :: Forest (Double -> (Text, Maybe Double))
-  preparedPrintForest = mapRootsTwigsAndLeafs (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf) <$> buildForest
+  preparedPrintForest = mapRootsTwigsAndLeaves (printTreeNode Root) (printTreeNode Twig) (printTreeNode Leaf) <$> buildForest
   printTreeNode :: TreeLocation -> DerivationInfo -> Double -> (Text, Maybe Double)
   printTreeNode location drvInfo =
     let summary = showSummary drvInfo.dependencySummary
@@ -414,9 +414,9 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
       let mkNode
             | not (CSet.member thisDrv seen_ids) && CSet.member thisDrv derivationsToShow = do
                 let drvInfo = get' (getDerivationInfos thisDrv)
-                    childs = children thisDrv
+                    this_children = children thisDrv
                 modify (CSet.insert thisDrv)
-                subforest <- goBuildForest childs
+                subforest <- goBuildForest this_children
                 pure (Node drvInfo subforest :)
             | otherwise = pure id
       prepend_node <- mkNode

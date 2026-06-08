@@ -1,12 +1,12 @@
 module NOM.State.Tree (
-  mapRootsTwigsAndLeafs,
+  mapRootsTwigsAndLeaves,
 ) where
 
 import Data.Tree (Tree (Node))
 import Relude
 
-mapRootsTwigsAndLeafs :: (a -> b) -> (a -> b) -> (a -> b) -> Tree a -> Tree b
-mapRootsTwigsAndLeafs mapRoot mapTwig mapLeaf = go True
+mapRootsTwigsAndLeaves :: (a -> b) -> (a -> b) -> (a -> b) -> Tree a -> Tree b
+mapRootsTwigsAndLeaves mapRoot mapTwig mapLeaf = go True
  where
   go top = \case
     Node l [] -> Node (mapLeaf l) []
