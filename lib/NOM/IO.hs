@@ -18,7 +18,7 @@ import Streamly.Data.Stream qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
-import System.INotify
+import System.FSNotify (withManager)
 import System.IO qualified
 
 type Stream = Stream.Stream IO
@@ -238,8 +238,8 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   output_builder_var <- newTVarIO []
   refresh_display_var <- newTVarIO False
   path_found_var <- newTChanIO
-  withINotify \inotify -> do
-    let check_path_env = MkCheckStorePathEnv inotify path_found_var
+  withManager \manager -> do
+    let check_path_env = MkCheckStorePathEnv manager path_found_var
     let keepProcessing :: IO ()
         keepProcessing =
           inputStream

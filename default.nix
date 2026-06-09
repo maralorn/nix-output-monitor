@@ -1,6 +1,6 @@
 { mkDerivation, ansi-terminal, async, attoparsec, base, bytestring
 , cassava, containers, directory, extra, filelock, filepath
-, hermes-json, hinotify, HUnit, lib, nix-derivation, optics, random
+, fsnotify, hermes-json, HUnit, lib, nix-derivation, optics, random
 , relude, safe, safe-exceptions, stm, streamly-core, strict
 , terminal-size, text, time, transformers, typed-process, unix
 , word8
@@ -13,20 +13,20 @@ mkDerivation {
   isExecutable = true;
   libraryHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
-    directory extra filelock filepath hermes-json hinotify
+    directory extra filelock filepath fsnotify hermes-json
     nix-derivation optics relude safe safe-exceptions stm streamly-core
     strict terminal-size text time transformers word8
   ];
   executableHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
-    directory extra filelock filepath hermes-json hinotify
+    directory extra filelock filepath fsnotify hermes-json
     nix-derivation optics relude safe safe-exceptions stm streamly-core
     strict terminal-size text time transformers typed-process unix
     word8
   ];
   testHaskellDepends = [
     ansi-terminal async attoparsec base bytestring cassava containers
-    directory extra filelock filepath hermes-json hinotify HUnit
+    directory extra filelock filepath fsnotify hermes-json HUnit
     nix-derivation optics random relude safe safe-exceptions stm
     streamly-core strict terminal-size text time transformers
     typed-process word8

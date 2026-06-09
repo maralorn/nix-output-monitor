@@ -1,5 +1,6 @@
 module NOM.Builds (
   forgetProto,
+  storePrefix,
   parseHost,
   Derivation (..),
   HostContext (..),
