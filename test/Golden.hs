@@ -3,8 +3,8 @@ module Main (main) where
 import Control.Concurrent (threadDelay)
 import Control.Exception (onException)
 import Control.Monad.Trans.Writer.CPS (runWriterT)
-import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
+import Data.Text.IO qualified as TIO
 import NOM.Builds (parseStorePath)
 import NOM.Error (NOMError)
 import NOM.IO (processTextStream)
@@ -65,37 +65,36 @@ main = do
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
 
-
 streamNixCommand ::
   TestConfig ->
   Process.ProcessConfig () () () ->
-  ((Stream.Stream IO Text, Stream.Stream IO ByteString) -> IO r) ->
-  IO (r, Process.ExitCode)
+  (Stream.Stream IO ByteString -> IO r) ->
+  IO (r, STM Text, Process.ExitCode)
 streamNixCommand test_config process_config use_stream = do
   let process_config_with_handles =
-        Process.setStdout Process.createPipe
+        Process.setStdout Process.byteStringOutput
           . Process.setStderr Process.createPipe
           $ process_config
   Process.withProcessWait @IO process_config_with_handles \process -> do
-    let stdout = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStdout process)
-    let stderr = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStderr process)
+    let out = decodeUtf8 <$> Process.getStdout process
+    let err = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStderr process)
 
     -- TODO(leana8959): deal with the errors within the streams
-    result <- use_stream (decodeUtf8 <$> stdout, stderr)
+    result <- use_stream err
     exitCode <- Process.waitExitCode process
-    pure (result, exitCode)
+    pure (result, out, exitCode)
 
 streamFromFiles ::
   String ->
   TestConfig ->
-  ((Stream.Stream IO Text, Stream.Stream IO ByteString) -> IO r) ->
-  IO (r, Process.ExitCode)
+  (Stream.Stream IO ByteString -> IO r) ->
+  IO (r, STM Text, Process.ExitCode)
 streamFromFiles name config use_stream = do
   let suffix = if config.oldStyle then "" else ".json"
   out <- readFileBS ("test/golden/" <> name <> "/stdout" <> suffix)
   err <- readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
-  result <- use_stream (Stream.fromPure (decodeUtf8 out), Stream.fromPure err)
-  pure (result, Process.ExitSuccess)
+  result <- use_stream (Stream.fromPure err)
+  pure (result, pure (decodeUtf8 out), Process.ExitSuccess)
 
 testBuild :: String -> TestConfig -> (Text -> NOMState -> IO ()) -> Test
 testBuild name config asserts =
@@ -103,24 +102,24 @@ testBuild name config asserts =
     seed <- randomIO @Int
     let go = if config.withNix then streamNixCommand config command else streamFromFiles name config
          where
-            command =
-              if config.oldStyle
-                then
-                  Process.proc
-                    "nix-build"
-                    ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
-                else
-                  Process.proc
-                    "nix"
-                    ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
+          command =
+            if config.oldStyle
+              then
+                Process.proc
+                  "nix-build"
+                  ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+              else
+                Process.proc
+                  "nix"
+                  ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
 
-    fst <$> go \(output, errors) -> do
-      end_state <- if config.oldStyle then testProcess @OldStyleInput errors else testProcess @NixJSONMessage errors
-      pure ()
-      -- TODO(leana8959): how do I consume the stream for the assertion without running IO twice?
-      -- onException (asserts output end_state) $ do
-      --   ByteString.putStrLn errors
-      --   print end_state
+    (end_state, output, _) <- go (if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage)
+    output' <- atomically $ output
+
+    -- TODO(leana8959): how do I consume the stream for the assertion without running IO twice?
+    onException (asserts output' end_state) $ do
+      TIO.putStrLn output'
+      print end_state
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
 testProcess input = withParser @input \streamParser -> do
