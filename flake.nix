@@ -15,54 +15,49 @@
       git-hooks,
       ...
     }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        inherit (nixpkgs.legacyPackages.${system})
-          lib
-          haskell
-          pkgs
-          haskellPackages
-          ;
-        hlib = (_: haskell.lib.compose) system;
-        golden-tests = import ./test/golden/all.nix;
-        cleanSelf = lib.sourceFilesBySuffices self [
-          ".hs"
-          ".cabal"
-          "stderr"
-          "stdout"
-          "stderr.json"
-          "stdout.json"
-          ".zsh"
-          ".bash"
-          ".fish"
-          "LICENSE"
-          "CHANGELOG.md"
-          "default.nix"
-        ];
-        doCheck = system == "x86_64-linux";
-        injectChecks =
-          opts:
-          opts
-          // {
-            postInstall = opts.postInstall or "" + ''
-              mkdir -p $test
-              cp ./dist/build/golden-tests/golden-tests $test/golden-tests
-            '';
-            preCheck = ''
-              # Make sure golden-tests runtime and buildtime paths are available
-              # ${toString golden-tests}
-              # Other tests call nix, which we can’t do from within a nix build, so we disable it with this variable.
-              export TESTS_FROM_FILE=true;
-            '';
-          };
-
-      in
-      rec {
-        packages = {
-          generateGoldenFiles = import ./generate-expected.nix { inherit system; } "stable";
-
-          default = lib.pipe { } [
+    let
+      inherit (nixpkgs) lib;
+    in
+    {
+      overlays.default = _: pkgs: {
+        nix-output-monitor =
+          let
+            inherit (pkgs) haskellPackages haskell;
+            inherit (pkgs.stdenv.hostPlatform) system;
+            hlib = (_: haskell.lib.compose) system;
+            golden-tests = import ./test/golden/all.nix;
+            cleanSelf = lib.sourceFilesBySuffices self [
+              ".hs"
+              ".cabal"
+              "stderr"
+              "stdout"
+              "stderr.json"
+              "stdout.json"
+              ".zsh"
+              ".bash"
+              ".fish"
+              "LICENSE"
+              "CHANGELOG.md"
+              "default.nix"
+            ];
+            doCheck = system == "x86_64-linux";
+            injectChecks =
+              opts:
+              opts
+              // {
+                postInstall = opts.postInstall or "" + ''
+                  mkdir -p $test
+                  cp ./dist/build/golden-tests/golden-tests $test/golden-tests
+                '';
+                preCheck = ''
+                  # Make sure golden-tests runtime and buildtime paths are available
+                  # ${toString golden-tests}
+                  # Other tests call nix, which we can’t do from within a nix build, so we disable it with this variable.
+                  export TESTS_FROM_FILE=true;
+                '';
+              };
+          in
+          lib.pipe { } [
             (haskellPackages.callPackage cleanSelf)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
@@ -88,6 +83,21 @@
               }
             ))
           ];
+      };
+    }
+    // flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = lib.attrValues self.overlays;
+        };
+      in
+      rec {
+        packages = {
+          generateGoldenFiles = import ./generate-expected.nix { inherit system; } "stable";
+
+          default = pkgs.nix-output-monitor;
         };
         checks = {
           git-hooks-check = git-hooks.lib.${system}.run {
@@ -166,7 +176,7 @@
             '';
           }
         );
-        devShells.default = haskellPackages.shellFor {
+        devShells.default = pkgs.haskellPackages.shellFor {
           packages = _: [ packages.default ];
           buildInputs = [
             (lib.getBin pkgs.haskellPackages.fourmolu)
