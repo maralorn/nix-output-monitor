@@ -8,7 +8,7 @@ import Data.Text qualified as Text
 import NOM.Builds (parseStorePath)
 import NOM.Error (NOMError)
 import NOM.IO (processTextStream)
-import NOM.IO.Input (NOMInput (..), UpdateResult (..))
+import NOM.IO.Input (NOMInput (..), UpdateResult (..), inputStream)
 import NOM.IO.Input.JSON ()
 import NOM.IO.Input.OldStyle (OldStyleInput)
 import NOM.NixMessage.JSON (NixJSONMessage)
@@ -65,30 +65,62 @@ main = do
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
 
+
+streamNixCommand ::
+  TestConfig ->
+  Process.ProcessConfig () () () ->
+  ((Stream.Stream IO Text, Stream.Stream IO ByteString) -> IO r) ->
+  IO (r, Process.ExitCode)
+streamNixCommand test_config process_config use_stream = do
+  let process_config_with_handles =
+        Process.setStdout Process.createPipe
+          . Process.setStderr Process.createPipe
+          $ process_config
+  Process.withProcessWait @IO process_config_with_handles \process -> do
+    let stdout = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStdout process)
+    let stderr = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStderr process)
+
+    -- TODO(leana8959): deal with the errors within the streams
+    result <- use_stream (decodeUtf8 <$> stdout, stderr)
+    exitCode <- Process.waitExitCode process
+    pure (result, exitCode)
+
+streamFromFiles ::
+  String ->
+  TestConfig ->
+  ((Stream.Stream IO Text, Stream.Stream IO ByteString) -> IO r) ->
+  IO (r, Process.ExitCode)
+streamFromFiles name config use_stream = do
+  let suffix = if config.oldStyle then "" else ".json"
+  out <- readFileBS ("test/golden/" <> name <> "/stdout" <> suffix)
+  err <- readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
+  result <- use_stream (Stream.fromPure (decodeUtf8 out), Stream.fromPure err)
+  pure (result, Process.ExitSuccess)
+
 testBuild :: String -> TestConfig -> (Text -> NOMState -> IO ()) -> Test
 testBuild name config asserts =
   label config name ~: do
-    let suffix = if config.oldStyle then "" else ".json"
-        callNix = do
-          seed <- randomIO @Int
-          let command =
-                if config.oldStyle
-                  then
-                    Process.proc
-                      "nix-build"
-                      ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
-                  else
-                    Process.proc
-                      "nix"
-                      ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
-          Process.readProcess command
-            <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
-        readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
-    (output, errors) <- if config.withNix then callNix else readFiles
-    end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
-    onException (asserts output end_state) $ do
-      ByteString.putStrLn errors
-      print end_state
+    seed <- randomIO @Int
+    let go = if config.withNix then streamNixCommand config command else streamFromFiles name config
+         where
+            command =
+              if config.oldStyle
+                then
+                  Process.proc
+                    "nix-build"
+                    ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+                else
+                  Process.proc
+                    "nix"
+                    ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
+
+    fst <$> go \(output, errors) -> do
+      end_state <- if config.oldStyle then testProcess @OldStyleInput errors else testProcess @NixJSONMessage errors
+      pure ()
+      -- TODO(leana8959): how do I consume the stream for the assertion without running IO twice?
+      -- onException (asserts output end_state) $ do
+      --   ByteString.putStrLn errors
+      --   print end_state
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
 testProcess input = withParser @input \streamParser -> do
