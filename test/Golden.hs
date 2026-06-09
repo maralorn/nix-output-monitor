@@ -3,8 +3,9 @@ module Main (main) where
 import Control.Concurrent (threadDelay)
 import Control.Exception (onException)
 import Control.Monad.Trans.Writer.CPS (runWriterT)
+import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
-import Data.Text.IO qualified as TIO
+import Data.Text.IO qualified as TextIO
 import NOM.Builds (parseStorePath)
 import NOM.Error (NOMError)
 import NOM.IO (processTextStream)
@@ -40,7 +41,6 @@ import Test.HUnit (
   runTestTT,
   (~:),
  )
-import Data.ByteString.Char8 qualified as ByteString
 
 tests :: [TestConfig -> Test]
 tests = [goldenStandard, goldenFail]
@@ -115,11 +115,11 @@ testBuild name config asserts =
                   ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
 
     (end_state, output, _) <- go (if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage)
-    output' <- atomically $ output
+    output' <- atomically output
 
     -- TODO(leana8959): how do I consume the stream for the assertion without running IO twice?
     onException (asserts output' end_state) $ do
-      TIO.putStrLn output'
+      TextIO.putStrLn output'
       print end_state
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
