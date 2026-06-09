@@ -111,8 +111,8 @@ testBuild name config asserts =
                   ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
               else
                 Process.proc
-                  "nix"
-                  ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
+                  "nix-build"
+                  ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
 
     (end_state, output, _) <- go (if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage)
     output' <- atomically output
