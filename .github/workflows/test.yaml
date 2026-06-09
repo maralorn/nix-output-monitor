@@ -1,5 +1,9 @@
 name: Nix build
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main]
+
 run-name: Test and build flake
 jobs:
   nix-build:
