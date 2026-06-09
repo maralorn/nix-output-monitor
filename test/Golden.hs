@@ -93,7 +93,7 @@ streamFromFiles name config use_stream = do
   let suffix = if config.oldStyle then "" else ".json"
   out <- readFileBS ("test/golden/" <> name <> "/stdout" <> suffix)
   err <- readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
-  result <- use_stream (Stream.fromPure err)
+  result <- use_stream $ if config.oldStyle then Stream.fromPure err else Stream.fromList (ByteString.lines err)
   pure (result, pure (decodeUtf8 out), Process.ExitSuccess)
 
 testBuild :: String -> TestConfig -> (Text -> NOMState -> IO ()) -> Test
