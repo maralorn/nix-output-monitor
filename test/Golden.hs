@@ -40,6 +40,7 @@ import Test.HUnit (
   runTestTT,
   (~:),
  )
+import Data.ByteString.Char8 qualified as ByteString
 
 tests :: [TestConfig -> Test]
 tests = [goldenStandard, goldenFail]
