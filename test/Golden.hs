@@ -117,7 +117,6 @@ testBuild name config asserts =
     (end_state, output, _) <- go (if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage)
     output' <- atomically output
 
-    -- TODO(leana8959): how do I consume the stream for the assertion without running IO twice?
     onException (asserts output' end_state) $ do
       TextIO.putStrLn output'
       print end_state
