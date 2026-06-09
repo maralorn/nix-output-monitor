@@ -16,21 +16,14 @@ import Data.Attoparsec.Text (eitherResult, parse)
 import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime, getCurrentTime)
 import GHC.Clock qualified
-import NOM.Builds (Derivation, Host, HostContext (WithContext), StorePath)
+import NOM.Builds (Derivation, Host, HostContext (WithContext), StorePath, storePrefix)
 import NOM.Error (NOMError (..))
 import NOM.State (DerivationId)
 import NOM.Update.Monad.CacheBuildReports
 import Nix.Derivation qualified as Nix
 import Relude
 import System.Directory (doesPathExist)
-import System.FilePath (takeDirectory)
-import System.INotify (
-  Event (MovedIn, filePath),
-  EventVariety (MoveIn),
-  INotify,
-  addWatch,
-  removeWatch,
- )
+import System.FSNotify (Event (..), WatchManager, watchDir)
 
 type UpdateMonad m = (MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
@@ -84,7 +77,7 @@ instance (MonadReadDerivation m) => MonadReadDerivation (ReaderT a m) where
 type Update = ReaderT CheckStorePathEnv IO
 
 data CheckStorePathEnv = MkCheckStorePathEnv
-  { iNotifyManager :: INotify
+  { watchManager :: WatchManager
   , pathFoundChannel :: TChan (Host WithContext, DerivationId)
   }
 
@@ -111,18 +104,20 @@ instance MonadCheckStorePath Update where
 
   subscribeStorePath path payload = do
     check_env <- ask
-    let rawStorePath = encodeUtf8 (toString path)
-        rawStore = encodeUtf8 . takeDirectory $ toString path
+    let path_string = toString path
     found <- newTVarIO False
 
     void $ liftIO $ async $ bracket
-      ( addWatch (check_env.iNotifyManager) [MoveIn] rawStore \case
-          MovedIn{filePath}
-            | rawStore <> "/" <> filePath == rawStorePath ->
-                atomically $ writeTVar found True
-          _ -> pure ()
+      ( watchDir
+          check_env.watchManager
+          (toString storePrefix)
+          ( \case
+              Added{eventPath} -> eventPath == path_string
+              _ -> False
+          )
+          (\_ -> atomically $ writeTVar found True)
       )
-      removeWatch
+      id
       \_ -> do
         there <- storePathExistsIO path
         when there $ atomically $ writeTVar found True
