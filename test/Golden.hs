@@ -66,30 +66,29 @@ main = do
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
 
-streamNixCommand ::
+streamFromNixCommand ::
   TestConfig ->
   Process.ProcessConfig () () () ->
   (Stream.Stream IO ByteString -> IO r) ->
   IO (r, STM Text, Process.ExitCode)
-streamNixCommand test_config process_config use_stream = do
+streamFromNixCommand test_config process_config use_stream = do
   let process_config_with_handles =
-        Process.setStdout Process.byteStringOutput
-          . Process.setStderr Process.createPipe
-          $ process_config
-  Process.withProcessWait @IO process_config_with_handles \process -> do
+        process_config
+          & Process.setStdout Process.byteStringOutput
+          & Process.setStderr Process.createPipe
+  Process.withProcessWait process_config_with_handles \process -> do
     let out = decodeUtf8 <$> Process.getStdout process
     let err = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStderr process)
-
     result <- use_stream err
     exitCode <- Process.waitExitCode process
     pure (result, out, exitCode)
 
-streamFromFiles ::
+streamFromGoldenFiles ::
   String ->
   TestConfig ->
   (Stream.Stream IO ByteString -> IO r) ->
   IO (r, STM Text, Process.ExitCode)
-streamFromFiles name config use_stream = do
+streamFromGoldenFiles name config use_stream = do
   let suffix = if config.oldStyle then "" else ".json"
   out <- readFileBS ("test/golden/" <> name <> "/stdout" <> suffix)
   err <- readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
@@ -100,24 +99,18 @@ testBuild :: String -> TestConfig -> (Text -> NOMState -> IO ()) -> Test
 testBuild name config asserts =
   label config name ~: do
     seed <- randomIO @Int
-    let go = if config.withNix then streamNixCommand config command else streamFromFiles name config
+    let go = if config.withNix then streamFromNixCommand config command else streamFromGoldenFiles name config
          where
           command =
-            if config.oldStyle
-              then
-                Process.proc
-                  "nix-build"
-                  ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
-              else
-                Process.proc
-                  "nix-build"
-                  ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
+            Process.proc "nix-build"
+              $ ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+              <> if config.oldStyle then [] else ["-v", "--log-format", "internal-json"]
 
-    (end_state, output, _) <- go (if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage)
-    output' <- atomically output
+    (end_state, output_var, _) <- go (if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage)
 
-    onException (asserts output' end_state) $ do
-      TextIO.putStrLn output'
+    output <- atomically output_var
+    onException (asserts output end_state) $ do
+      TextIO.putStrLn output
       print end_state
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState
