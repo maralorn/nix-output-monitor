@@ -80,7 +80,6 @@ streamNixCommand test_config process_config use_stream = do
     let out = decodeUtf8 <$> Process.getStdout process
     let err = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStderr process)
 
-    -- TODO(leana8959): deal with the errors within the streams
     result <- use_stream err
     exitCode <- Process.waitExitCode process
     pure (result, out, exitCode)
