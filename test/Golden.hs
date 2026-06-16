@@ -99,9 +99,10 @@ testBuild name config asserts =
     let go = if config.withNix then streamFromNixCommand config command else streamFromGoldenFiles name config
          where
           command =
-            Process.proc "nix-build"
+            Process.proc
+              "nix-build"
               ( ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
-              <> if config.oldStyle then [] else ["-v", "--log-format", "internal-json"]
+                  <> if config.oldStyle then [] else ["-v", "--log-format", "internal-json"]
               )
               & Process.setStdout Process.byteStringOutput
               & Process.setStderr Process.createPipe
