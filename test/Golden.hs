@@ -83,6 +83,7 @@ streamFromNixCommand test_config process_config use_stream = do
     exitCode <- Process.waitExitCode process
     pure (result, out, exitCode)
 
+-- Note: we don't care about the timing for this one, because the log is already pre-recorded. Changing this to streaming doesn't do anything to the timing issue we supposedly have with Lix.
 streamFromGoldenFiles ::
   String ->
   TestConfig ->
@@ -106,7 +107,7 @@ testBuild name config asserts =
               $ ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
               <> if config.oldStyle then [] else ["-v", "--log-format", "internal-json"]
 
-    (end_state, output_var, _) <- go (if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage)
+    (end_state, output_var, _) <- go if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage
 
     output <- atomically output_var
     onException (asserts output end_state) $ do
