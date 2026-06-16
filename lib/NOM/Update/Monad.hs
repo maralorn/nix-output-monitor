@@ -8,7 +8,8 @@ module NOM.Update.Monad (
   module NOM.Update.Monad.CacheBuildReports,
 ) where
 
-import Control.Concurrent.Async (async)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (async, withAsync)
 import Control.Concurrent.STM (TChan, retry, tryReadTChan, writeTChan)
 import Control.Exception (bracket, try)
 import Control.Monad.Trans.Writer.CPS (WriterT)
@@ -106,6 +107,11 @@ instance MonadCheckStorePath Update where
     check_env <- ask
     let path_string = toString path
     found <- newTVarIO False
+    let poll_path = do
+          threadDelay 1_000_000
+          storePathExistsIO path >>= \case
+            True -> atomically $ writeTVar found True
+            False -> poll_path
 
     void $ liftIO $ async $ bracket
       ( watchDir
@@ -121,7 +127,7 @@ instance MonadCheckStorePath Update where
       \_ -> do
         there <- storePathExistsIO path
         when there $ atomically $ writeTVar found True
-        atomically do
+        withAsync poll_path $ \_ -> atomically do
           found1 <- readTVar found
           unless found1 retry
           writeTChan (check_env.pathFoundChannel) payload
