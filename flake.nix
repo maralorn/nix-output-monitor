@@ -64,10 +64,15 @@
             (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
 
             (
-              drv:
-              drv.overrideAttrs (oldAttrs: {
-                outputs = oldAttrs.outputs or [ ] ++ [ "test" ];
-              })
+              if doCheck then
+                (
+                  drv:
+                  drv.overrideAttrs (oldAttrs: {
+                    outputs = oldAttrs.outputs or [ ] ++ [ "test" ];
+                  })
+                )
+              else
+                lib.id
             )
 
             (hlib.overrideCabal (
