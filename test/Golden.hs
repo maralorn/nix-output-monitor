@@ -68,15 +68,11 @@ data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
 
 streamFromNixCommand ::
   TestConfig ->
-  Process.ProcessConfig () () () ->
+  Process.ProcessConfig () (STM LByteString) Handle ->
   (Stream.Stream IO ByteString -> IO r) ->
   IO (r, Text, Process.ExitCode)
 streamFromNixCommand test_config process_config use_stream = do
-  let process_config_with_handles =
-        process_config
-          & Process.setStdout Process.byteStringOutput
-          & Process.setStderr Process.createPipe
-  Process.withProcessWait process_config_with_handles \process -> do
+  Process.withProcessWait process_config \process -> do
     let err = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStderr process)
     result <- use_stream err
     exitCode <- Process.waitExitCode process
@@ -104,8 +100,11 @@ testBuild name config asserts =
          where
           command =
             Process.proc "nix-build"
-              $ ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+              ( ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
               <> if config.oldStyle then [] else ["-v", "--log-format", "internal-json"]
+              )
+              & Process.setStdout Process.byteStringOutput
+              & Process.setStderr Process.createPipe
 
     (end_state, output, _) <- go if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage
 
