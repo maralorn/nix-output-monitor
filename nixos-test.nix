@@ -25,12 +25,6 @@ runNixOSTest {
 
       settings = {
         substitute = false;
-
-        # nom testsuite uses nix-command, probably flakes
-        experimental-features = [
-          "nix-command"
-          "flakes"
-        ];
         # When building a, b, c where a depends on b, c should build instead of being pending to match the golden files.
         max-jobs = 4;
       };

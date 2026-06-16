@@ -5,10 +5,11 @@ import Control.Exception (onException)
 import Control.Monad.Trans.Writer.CPS (runWriterT)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Text qualified as Text
+import Data.Text.IO qualified as TextIO
 import NOM.Builds (parseStorePath)
 import NOM.Error (NOMError)
 import NOM.IO (processTextStream)
-import NOM.IO.Input (NOMInput (..), UpdateResult (..))
+import NOM.IO.Input (NOMInput (..), UpdateResult (..), inputStream)
 import NOM.IO.Input.JSON ()
 import NOM.IO.Input.OldStyle (OldStyleInput)
 import NOM.NixMessage.JSON (NixJSONMessage)
@@ -65,29 +66,51 @@ main = do
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
 
+streamFromNixCommand ::
+  TestConfig ->
+  Process.ProcessConfig () (STM LByteString) Handle ->
+  (Stream.Stream IO ByteString -> IO r) ->
+  IO (r, Text, Process.ExitCode)
+streamFromNixCommand test_config process_config use_stream = do
+  Process.withProcessWait process_config \process -> do
+    let err = Stream.catRights $ (if test_config.oldStyle then inputStream OldStyleInput else inputStream NixJSONMessage) (Process.getStderr process)
+    result <- use_stream err
+    exitCode <- Process.waitExitCode process
+    out <- atomically $ Process.getStdout process
+    pure (result, decodeUtf8 out, exitCode)
+
+-- Note: we don't care about the timing for this one, because the log is already pre-recorded. Changing this to streaming doesn't do anything to the timing issue we supposedly have with Lix.
+streamFromGoldenFiles ::
+  String ->
+  TestConfig ->
+  (Stream.Stream IO ByteString -> IO r) ->
+  IO (r, Text, Process.ExitCode)
+streamFromGoldenFiles name config use_stream = do
+  let suffix = if config.oldStyle then "" else ".json"
+  out <- readFileBS ("test/golden/" <> name <> "/stdout" <> suffix)
+  err <- readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
+  result <- use_stream $ if config.oldStyle then Stream.fromPure err else Stream.fromList (ByteString.lines err)
+  pure (result, decodeUtf8 out, Process.ExitSuccess)
+
 testBuild :: String -> TestConfig -> (Text -> NOMState -> IO ()) -> Test
 testBuild name config asserts =
   label config name ~: do
-    let suffix = if config.oldStyle then "" else ".json"
-        callNix = do
-          seed <- randomIO @Int
-          let command =
-                if config.oldStyle
-                  then
-                    Process.proc
-                      "nix-build"
-                      ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
-                  else
-                    Process.proc
-                      "nix"
-                      ["build", "-f", "test/golden/" <> name <> "/default.nix", "--no-link", "--argstr", "seed", show seed, "-v", "--log-format", "internal-json"]
-          Process.readProcess command
-            <&> (\(_, stdout', stderr') -> (decodeUtf8 stdout', toStrict stderr'))
-        readFiles = (,) . decodeUtf8 <$> readFileBS ("test/golden/" <> name <> "/stdout" <> suffix) <*> readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
-    (output, errors) <- if config.withNix then callNix else readFiles
-    end_state <- if config.oldStyle then testProcess @OldStyleInput (Stream.fromPure errors) else testProcess @NixJSONMessage (Stream.fromList (ByteString.lines errors))
+    seed <- randomIO @Int
+    let go = if config.withNix then streamFromNixCommand config command else streamFromGoldenFiles name config
+         where
+          command =
+            Process.proc
+              "nix-build"
+              ( ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+                  <> if config.oldStyle then [] else ["-v", "--log-format", "internal-json"]
+              )
+              & Process.setStdout Process.byteStringOutput
+              & Process.setStderr Process.createPipe
+
+    (end_state, output, _) <- go if config.oldStyle then testProcess @OldStyleInput else testProcess @NixJSONMessage
+
     onException (asserts output end_state) $ do
-      ByteString.putStrLn errors
+      TextIO.putStrLn output
       print end_state
 
 testProcess :: forall input. (NOMInput input) => Stream.Stream IO ByteString -> IO NOMState

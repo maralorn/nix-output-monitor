@@ -112,7 +112,7 @@
             ];
             hooks = {
               hlint.enable = true;
-              nixfmt-rfc-style = {
+              nixfmt = {
                 enable = true;
                 excludes = [ "^default.nix" ];
               };
