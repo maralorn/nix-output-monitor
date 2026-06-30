@@ -44,11 +44,7 @@ common common-config
   default-extensions:
     AllowAmbiguousTypes
     BlockArguments
-    DataKinds
-    DerivingStrategies
     DuplicateRecordFields
-    ImportQualifiedPost
-    LambdaCase
     MultiWayIf
     NoDeriveGeneric
     NoFieldSelectors
@@ -61,7 +57,6 @@ common common-config
     StrictData
     TemplateHaskell
     TypeFamilies
-    TypeOperators
     UndecidableInstances
     UnicodeSyntax
     ViewPatterns
@@ -94,7 +89,7 @@ common common-config
     transformers,
     word8,
 
-  default-language: GHC2021
+  default-language: GHC2024
   ghc-options:
     -Weverything
     -Wno-missing-import-lists
