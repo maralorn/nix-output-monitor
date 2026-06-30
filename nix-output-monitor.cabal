@@ -162,8 +162,6 @@ executable nom
     typed-process,
     unix,
 
-  autogen-modules: Paths_nix_output_monitor
-
 common tests
   import: exes
   build-depends:
