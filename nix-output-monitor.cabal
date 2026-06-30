@@ -157,12 +157,14 @@ executable nom
   hs-source-dirs: exe
   main-is: Main.hs
   other-modules: Paths_nix_output_monitor
+  -- Silence a failing warning on aarch64-darwin
+  -- see https://github.com/haskell/cabal/issues/4739
+  -- and https://github.com/maralorn/nix-output-monitor/issues/279
+  ghc-options: -optP-Wno-nonportable-include-path
   build-depends:
     nix-output-monitor,
     typed-process,
     unix,
-
-  autogen-modules: Paths_nix_output_monitor
 
 common tests
   import: exes
