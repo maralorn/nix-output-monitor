@@ -1,4 +1,4 @@
-module NOM.Print (stateToText, showCode, Config (..)) where
+module NOM.Print (stateToText, showCode, Config (..), showCond) where
 
 import Data.Foldable qualified as Unsafe
 import Data.IntMap.Strict qualified as IntMap
@@ -101,6 +101,14 @@ average = "∅"
 -- | U+2211 N-ARY SUMMATION
 bigsum = "∑"
 
+{- |
+>>> import Relude
+>>> showCond True "foo"
+"foo"
+
+>>> showCond False "foo"
+""
+-}
 showCond :: (Monoid m) => Bool -> m -> m
 showCond = memptyIfFalse
 

@@ -180,3 +180,12 @@ test-suite golden-tests
   build-depends: random
   type: exitcode-stdio-1.0
   main-is: Golden.hs
+
+test-suite doc-tests
+  import: tests
+  build-depends:
+    doctest-parallel
+
+  type: exitcode-stdio-1.0
+  main-is: Doctests.hs
+  hs-source-dirs: test
