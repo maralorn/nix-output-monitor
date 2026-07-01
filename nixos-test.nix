@@ -26,6 +26,7 @@ runNixOSTest {
       settings = {
         substitute = false;
         # When building a, b, c where a depends on b, c should build instead of being pending.
+        # For that reason, we need 4 jobs (4 > 3 which are the a, b, and c builds).
         max-jobs = 4;
       };
     };
