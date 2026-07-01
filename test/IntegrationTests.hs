@@ -43,10 +43,10 @@ import Test.HUnit (
  )
 
 tests :: [TestConfig -> Test]
-tests = [goldenStandard, goldenFail]
+tests = [integrationStandard, integrationFail]
 
 label :: (Semigroup a, IsString a) => TestConfig -> a -> a
-label config name = "golden test " <> name <> " for " <> (if config.oldStyle then "old-style messages" else "json messages") <> if config.withNix then " with nix" else " with log from file"
+label config name = "integration test " <> name <> " for " <> (if config.oldStyle then "old-style messages" else "json messages") <> if config.withNix then " with nix" else " with log from replay file"
 
 allBools :: [Bool]
 allBools = [True, False]
@@ -54,14 +54,12 @@ allBools = [True, False]
 main :: IO ()
 main = do
   with_nix <- isNothing <$> System.Environment.lookupEnv "TESTS_FROM_FILE"
-  counts <- runTestTT
-    $ test
-    $ do
-      test' <- tests
-      if with_nix
-        then do
-          test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
-        else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
+  counts <- runTestTT $ test do
+    test' <- tests
+    if with_nix
+      then do
+        test' <$> [MkTestConfig{..} | withNix <- allBools, oldStyle <- allBools]
+      else test' <$> [MkTestConfig{withNix = with_nix, ..} | oldStyle <- allBools]
   if Test.HUnit.errors counts + failures counts == 0 then exitSuccess else exitFailure
 
 data TestConfig = MkTestConfig {withNix :: Bool, oldStyle :: Bool}
@@ -80,15 +78,15 @@ streamFromNixCommand test_config process_config use_stream = do
     pure (result, decodeUtf8 out, exitCode)
 
 -- Note: we don't care about the timing for this one, because the log is already pre-recorded. Changing this to streaming doesn't do anything to the timing issue we supposedly have with Lix.
-streamFromGoldenFiles ::
+streamFromReplayFiles ::
   String ->
   TestConfig ->
   (Stream.Stream IO ByteString -> IO r) ->
   IO (r, Text, Process.ExitCode)
-streamFromGoldenFiles name config use_stream = do
+streamFromReplayFiles name config use_stream = do
   let suffix = if config.oldStyle then "" else ".json"
-  out <- readFileBS ("test/golden/" <> name <> "/stdout" <> suffix)
-  err <- readFileBS ("test/golden/" <> name <> "/stderr" <> suffix)
+  out <- readFileBS ("test/integration/" <> name <> "/stdout" <> suffix)
+  err <- readFileBS ("test/integration/" <> name <> "/stderr" <> suffix)
   result <- use_stream $ if config.oldStyle then Stream.fromPure err else Stream.fromList (ByteString.lines err)
   pure (result, decodeUtf8 out, Process.ExitSuccess)
 
@@ -96,12 +94,12 @@ testBuild :: String -> TestConfig -> (Text -> NOMState -> IO ()) -> Test
 testBuild name config asserts =
   label config name ~: do
     seed <- randomIO @Int
-    let go = if config.withNix then streamFromNixCommand config command else streamFromGoldenFiles name config
+    let go = if config.withNix then streamFromNixCommand config command else streamFromReplayFiles name config
          where
           command =
             Process.proc
               "nix-build"
-              ( ["test/golden/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
+              ( ["test/integration/" <> name <> "/default.nix", "--no-out-link", "--argstr", "seed", show seed]
                   <> if config.oldStyle then [] else ["-v", "--log-format", "internal-json"]
               )
               & Process.setStdout Process.byteStringOutput
@@ -132,8 +130,8 @@ finalizer = do
   new_state <- execStateT (runWriterT checkFinishedBuilds) old_state
   put new_state
 
-goldenStandard :: TestConfig -> Test
-goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMState{fullSummary = MkDependencySummary{..}} -> do
+integrationStandard :: TestConfig -> Test
+integrationStandard config = testBuild "standard" config \nix_output endState@MkNOMState{fullSummary = MkDependencySummary{..}} -> do
   let noOfBuilds :: Int
       noOfBuilds = 4
   assertBool ("There should be no running builds but there is " <> show plannedBuilds) (CSet.null plannedBuilds)
@@ -152,8 +150,8 @@ goldenStandard config = testBuild "standard" config \nix_output endState@MkNOMSt
     assertEqual "Derivations for all outputs have been found" noOfBuilds (length outputDerivations)
     assertBool "All found derivations have successfully been built" (CSet.isSubsetOf (CSet.fromFoldable outputDerivations) (CMap.keysSet completedBuilds))
 
-goldenFail :: TestConfig -> Test
-goldenFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
+integrationFail :: TestConfig -> Test
+integrationFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
   assertEqual ("There should be one waiting build in " <> show d) 1 (CSet.size plannedBuilds)
   assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
   assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)

@@ -22,14 +22,14 @@ extra-source-files:
   completions/nom.bash
   completions/nom.fish
   completions/nom.zsh
-  test/golden/fail/stderr
-  test/golden/fail/stderr.json
-  test/golden/fail/stdout
-  test/golden/fail/stdout.json
-  test/golden/standard/stderr
-  test/golden/standard/stderr.json
-  test/golden/standard/stdout
-  test/golden/standard/stdout.json
+  test/integration/fail/stderr
+  test/integration/fail/stderr.json
+  test/integration/fail/stdout
+  test/integration/fail/stdout.json
+  test/integration/standard/stderr
+  test/integration/standard/stderr.json
+  test/integration/standard/stdout
+  test/integration/standard/stdout.json
 
 extra-doc-files: CHANGELOG.md
 category:
@@ -172,20 +172,18 @@ test-suite unit-tests
   import: tests
   hs-source-dirs: test
   type: exitcode-stdio-1.0
-  main-is: Property.hs
+  main-is: UnitTests.hs
 
-test-suite golden-tests
+test-suite integration-tests
   import: tests
   hs-source-dirs: test
   build-depends: random
   type: exitcode-stdio-1.0
-  main-is: Golden.hs
+  main-is: IntegrationTests.hs
 
 test-suite doc-tests
   import: tests
-  build-depends:
-    doctest-parallel
-
-  type: exitcode-stdio-1.0
-  main-is: Doctests.hs
+  build-depends: doctest-parallel
   hs-source-dirs: test
+  type: exitcode-stdio-1.0
+  main-is: DocTests.hs

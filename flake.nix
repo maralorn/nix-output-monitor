@@ -25,7 +25,7 @@
             inherit (pkgs) haskellPackages haskell;
             inherit (pkgs.stdenv.hostPlatform) system;
             hlib = (_: haskell.lib.compose) system;
-            golden-tests = import ./test/golden/all.nix;
+            integration-test-builds = import ./test/integration/all.nix;
             cleanSelf = lib.sourceFilesBySuffices self [
               ".hs"
               ".cabal"
@@ -47,11 +47,11 @@
               // {
                 postInstall = opts.postInstall or "" + ''
                   mkdir -p $test
-                  cp ./dist/build/golden-tests/golden-tests $test/golden-tests
+                  cp ./dist/build/integration-tests/integration-tests $test/integration-tests
                 '';
                 preCheck = ''
-                  # Make sure golden-tests runtime and buildtime paths are available
-                  # ${toString golden-tests}
+                  # Make sure integration-tests runtime and buildtime paths are available
+                  # ${toString integration-test-builds}
                   # Other tests call nix, which we can’t do from within a nix build, so we disable it with this variable.
                   export TESTS_FROM_FILE=true;
                 '';
@@ -100,7 +100,7 @@
       in
       rec {
         packages = {
-          generateGoldenFiles = import ./generate-expected.nix { inherit system; } "stable";
+          generateReplayFiles = import ./generate-expected.nix { inherit system; } "stable";
 
           default = pkgs.nix-output-monitor;
         };

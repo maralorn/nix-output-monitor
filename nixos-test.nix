@@ -6,9 +6,9 @@
 }:
 
 let
-  pin = import ./test/golden/pin.nix;
+  pin = import ./test/integration/pin.nix;
   pinned-pkgs = import pin { inherit system; };
-  all-golden-tests = import ./test/golden/all.nix;
+  integration-test-builds = import ./test/integration/all.nix;
 in
 
 nixPackage:
@@ -25,7 +25,8 @@ runNixOSTest {
 
       settings = {
         substitute = false;
-        # When building a, b, c where a depends on b, c should build instead of being pending to match the golden files.
+        # When building a, b, c where a depends on b, c should build instead of being pending.
+        # For that reason, we need 4 jobs (4 > 3 which are the a, b, and c builds).
         max-jobs = 4;
       };
     };
@@ -36,13 +37,13 @@ runNixOSTest {
 
     # (with_nix) Ensure the nixpkgs to evaluate is available
     machine.succeed("nix-store -r ${pin}")
-    # (from files) Make sure golden-tests runtime and buildtime paths are available
-    # ${toString all-golden-tests}
+    # (from files) Make sure integration-tests runtime and buildtime paths are available
+    # ${toString integration-test-builds}
 
-    # golden tests path are hard coded in the test binary.
-    machine.execute("cp -r ${nom-test}/golden-tests .")
+    # integration tests path are hard coded in the test binary.
+    machine.execute("cp -r ${nom-test}/integration-tests .")
     machine.execute("mkdir -p test")
-    machine.execute("cp -r ${./test/golden} test/golden")
-    machine.succeed("./golden-tests 2>&1 | tee stdout.log")
+    machine.execute("cp -r ${./test/integration} test/integration")
+    machine.succeed("./integration-tests 2>&1 | tee stdout.log")
   '';
 }
