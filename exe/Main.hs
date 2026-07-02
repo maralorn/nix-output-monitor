@@ -93,6 +93,7 @@ runApp = \cases
   "nom" ("develop" : args) -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix" ("develop" : withJSON (replaceCommandWithExit args)))
     exitWith =<< runProcess (proc "nix" ("develop" : args))
+  "nom" ("flake" : args) -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix" ("flake" : withJSON args))
   "nom" [] -> do
     finalState <- monitorHandle OldStyleInput defaultConfig{piping = True} stdin
     if CMap.size finalState.fullSummary.failedBuilds + length finalState.nixErrors == 0
