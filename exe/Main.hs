@@ -30,6 +30,7 @@ import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size (Window)
 import System.Environment qualified as Environment
 import System.IO.Error qualified as IOError
+import System.Posix qualified as System
 import System.Posix.Signals qualified as Signals
 import System.Process.Typed (proc, runProcess)
 import System.Process.Typed qualified as Process
@@ -81,11 +82,14 @@ runApp = \cases
   _ ["--version"] -> do
     hPutStrLn stderr ("nix-output-monitor " <> fromString (showVersion version))
     exitWith =<< runProcess (proc "nix" ["--version"])
+  "nom-build" args | "--help" `elem` args -> runNixHelpCommand "nix-build" args
   "nom-build" args -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix-build" (withJSON args))
   "nom-shell" args -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix-shell" (withJSON args <> ["--run", "exit"]))
     exitWith =<< runProcess (proc "nix-shell" args)
+  "nom" ("build" : args) | "--help" `elem` args -> runNixHelpCommand "nix" ("build" : args)
   "nom" ("build" : args) -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix" ("build" : withJSON args))
+  "nom" ("copy" : args) | "--help" `elem` args -> runNixHelpCommand "nix" ("copy" : args)
   "nom" ("copy" : args) -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix" ("copy" : withJSON args))
   "nom" ("shell" : args) -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix" ("shell" : withJSON (replaceCommandWithExit args)))
@@ -93,6 +97,7 @@ runApp = \cases
   "nom" ("develop" : args) -> do
     exitOnFailure =<< runMonitoredCommand defaultConfig{silent = True} (proc "nix" ("develop" : withJSON (replaceCommandWithExit args)))
     exitWith =<< runProcess (proc "nix" ("develop" : args))
+  "nom" ("flake" : args) | "--help" `elem` args -> runNixHelpCommand "nix" ("flake" : args)
   "nom" ("flake" : args) -> exitWith =<< runMonitoredCommand defaultConfig (proc "nix" ("flake" : withJSON args))
   "nom" [] -> do
     finalState <- monitorHandle OldStyleInput defaultConfig{piping = True} stdin
@@ -152,6 +157,9 @@ printIOException io_exception = do
         (True, Just cmd) -> "Command '" <> toText cmd <> "' not available from $PATH."
         _ -> show io_exception
   hPutStrLn stderr $ markup red ("nix-output-monitor: " <> error_msg)
+
+runNixHelpCommand :: String -> [String] -> IO Void
+runNixHelpCommand cmd args = System.executeFile cmd True args Nothing
 
 runMonitoredCommand :: Config -> Process.ProcessConfig () () () -> IO Process.ExitCode
 runMonitoredCommand config process_config = do
