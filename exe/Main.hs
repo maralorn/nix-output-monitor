@@ -228,6 +228,7 @@ helpText =
     , "    nom shell <nix-args>"
     , "    nom develop <nix-args>"
     , "    nom copy <nix-args>"
+    , "    nom flake <nix-args>"
     , ""
     , "    nom-build <nix-args>"
     , "    nom-shell <nix-args>"
