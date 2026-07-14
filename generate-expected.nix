@@ -8,7 +8,7 @@
 { system }:
 
 let
-  pin = import ./test/integration/pin.nix;
+  pin = import ./nix-output-monitor/test/integration/pin.nix;
   pkgs = import pin { inherit system; };
 in
 
@@ -42,7 +42,7 @@ pkgs.testers.runNixOSTest {
 
   testScript = /* python */ ''
     start_all()
-    machine.execute("cp -r ${./test/integration}/* .")
+    machine.execute("cp -r ${./nix-output-monitor/test/integration}/* .")
     machine.succeed("nix-build ./standard/default.nix --no-out-link --argstr seed \"old-style\" 2>./standard/stderr 1>./standard/stdout")
     machine.succeed("nix-build ./standard/default.nix --no-out-link --argstr seed \"json\" --log-format internal-json -v 2>./standard/stderr.json 1>./standard/stdout.json")
     machine.fail("nix-build ./fail/default.nix --no-out-link --argstr seed \"old-style\" 2>./fail/stderr 1>./fail/stdout")

@@ -31,7 +31,6 @@ extra-source-files:
   test/integration/standard/stdout
   test/integration/standard/stdout.json
 
-extra-doc-files: CHANGELOG.md
 category:
   console
   nix
