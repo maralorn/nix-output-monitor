@@ -3,11 +3,14 @@ module NOM.IO (interact, processTextStream, StreamParser, Stream) where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently_, race_)
 import Control.Concurrent.STM (check, newTChanIO, swapTVar)
+import Control.Exception
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as ByteString
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time (ZonedTime, getZonedTime)
+import NOM.Builds (StorePath, parseStorePath, storePrefix)
 import NOM.Error (NOMError)
 import NOM.Print (Config (..))
 import NOM.Print.Table as Table (bold, displayWidth, displayWidthBS, markup, red, truncate)
@@ -18,7 +21,7 @@ import Streamly.Data.Stream qualified as Stream
 import System.Console.ANSI (SGR (Reset), setSGRCode)
 import System.Console.ANSI qualified as Terminal
 import System.Console.Terminal.Size qualified as Terminal.Size
-import System.FSNotify (withManager)
+import System.FSNotify (Event (..), startManager, stopManager, watchDir)
 import System.IO qualified
 
 type Stream = Stream.Stream IO
@@ -222,6 +225,30 @@ minFrameDuration =
   -- feel to sluggish for the eye, for me.
   60_000 -- ~17 times per second
 
+withWatchStoreDir :: (CheckStorePathEnv -> IO r) -> IO r
+withWatchStoreDir k =
+  bracket
+    do
+      is_watch_active <- newTVarIO True
+      subscribed_store_paths <- newTVarIO Set.empty
+      path_found_var <- newTChanIO
+
+      manager <- startManager
+      _ <- watchDir manager (toString storePrefix) (const True) \case
+        Added{eventPath} -> do
+          let ep = parseStorePath (Text.pack eventPath) :: Either String StorePath
+          case ep of
+            Left _ -> pure () -- not a valid StorePath, ignore
+            Right p -> atomically $ modifyTVar' subscribed_store_paths (Set.delete p)
+        _ -> pure ()
+
+      pure (manager, MkCheckStorePathEnv is_watch_active subscribed_store_paths path_found_var)
+    ( \(manager, check_env) -> do
+        atomically $ writeTVar check_env.isWatchActive False
+        stopManager manager
+    )
+    \(_, check_env) -> k check_env
+
 processTextStream ::
   forall update state.
   Config ->
@@ -237,9 +264,7 @@ processTextStream config parser updater maintenance printerMay finalize initialS
   state_var <- newTMVarIO initialState
   output_builder_var <- newTVarIO []
   refresh_display_var <- newTVarIO False
-  path_found_var <- newTChanIO
-  withManager \manager -> do
-    let check_path_env = MkCheckStorePathEnv manager path_found_var
+  withWatchStoreDir \check_path_env -> do
     let keepProcessing :: IO ()
         keepProcessing =
           inputStream

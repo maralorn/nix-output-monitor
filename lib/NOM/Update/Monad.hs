@@ -8,23 +8,22 @@ module NOM.Update.Monad (
   module NOM.Update.Monad.CacheBuildReports,
 ) where
 
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (async, withAsync)
+import Control.Concurrent.Async (async, link)
 import Control.Concurrent.STM (TChan, retry, tryReadTChan, writeTChan)
-import Control.Exception (bracket, try)
+import Control.Exception (mask, try)
 import Control.Monad.Trans.Writer.CPS (WriterT)
 import Data.Attoparsec.Text (eitherResult, parse)
+import Data.Set qualified as Set
 import Data.Text.IO qualified as TextIO
 import Data.Time (UTCTime, getCurrentTime)
 import GHC.Clock qualified
-import NOM.Builds (Derivation, Host, HostContext (WithContext), StorePath, storePrefix)
+import NOM.Builds (Derivation, Host, HostContext (WithContext), StorePath)
 import NOM.Error (NOMError (..))
 import NOM.State (DerivationId)
 import NOM.Update.Monad.CacheBuildReports
 import Nix.Derivation qualified as Nix
 import Relude
 import System.Directory (doesPathExist)
-import System.FSNotify (Event (..), WatchManager, watchDir)
 
 type UpdateMonad m = (MonadNow m, MonadReadDerivation m, MonadCacheBuildReports m, MonadCheckStorePath m)
 
@@ -78,7 +77,12 @@ instance (MonadReadDerivation m) => MonadReadDerivation (ReaderT a m) where
 type Update = ReaderT CheckStorePathEnv IO
 
 data CheckStorePathEnv = MkCheckStorePathEnv
-  { watchManager :: WatchManager
+  { isWatchActive :: TVar Bool
+  -- ^ Needed to prevent blocking indefinitely on STM when the watch is stopped
+  , subscribedStorePaths :: TVar (Set StorePath)
+  {- ^ As long as isWatchActive is True, a path will be deleted from the set
+  when it is added to the nix store.
+  -}
   , pathFoundChannel :: TChan (Host WithContext, DerivationId)
   }
 
@@ -105,32 +109,26 @@ instance MonadCheckStorePath Update where
 
   subscribeStorePath path payload = do
     check_env <- ask
-    let path_string = toString path
-    found <- newTVarIO False
-    let poll_path = do
-          threadDelay 1_000_000
-          storePathExistsIO path >>= \case
-            True -> atomically $ writeTVar found True
-            False -> poll_path
-
-    void $ liftIO $ async $ bracket
-      ( watchDir
-          check_env.watchManager
-          (toString storePrefix)
-          ( \case
-              Added{eventPath} -> eventPath == path_string
-              _ -> False
-          )
-          (\_ -> atomically $ writeTVar found True)
-      )
-      id
-      \_ -> do
-        there <- storePathExistsIO path
-        when there $ atomically $ writeTVar found True
-        withAsync poll_path $ \_ -> atomically do
-          found1 <- readTVar found
-          unless found1 retry
-          writeTChan (check_env.pathFoundChannel) payload
+    liftIO $ atomically $ modifyTVar' check_env.subscribedStorePaths (Set.insert path)
+    b1 <- liftIO $ storePathExistsIO path
+    if b1
+      then liftIO $ do
+        atomically $ modifyTVar' check_env.subscribedStorePaths (Set.delete path)
+        atomically $ writeTChan check_env.pathFoundChannel payload
+      else liftIO $ mask \restore -> do
+        a <- async $ restore do
+          -- Terminates either when the path is no longer in
+          -- subscribedStorePaths, or the watch is inactive.
+          atomically $ do
+            watchActive <- readTVar check_env.isWatchActive
+            when watchActive do
+              paths <- readTVar check_env.subscribedStorePaths
+              when (Set.member path paths) retry
+          b2 <- storePathExistsIO path
+          when b2
+            $ atomically
+            $ writeTChan check_env.pathFoundChannel payload
+        link a
 
 instance (MonadCheckStorePath m) => MonadCheckStorePath (StateT a m) where
   foundStorePaths = lift foundStorePaths
