@@ -25,21 +25,7 @@
             inherit (pkgs) haskellPackages haskell;
             inherit (pkgs.stdenv.hostPlatform) system;
             hlib = (_: haskell.lib.compose) system;
-            integration-test-builds = import ./test/integration/all.nix;
-            cleanSelf = lib.sourceFilesBySuffices self [
-              ".hs"
-              ".cabal"
-              "stderr"
-              "stdout"
-              "stderr.json"
-              "stdout.json"
-              ".zsh"
-              ".bash"
-              ".fish"
-              "LICENSE"
-              "CHANGELOG.md"
-              "default.nix"
-            ];
+            integration-test-builds = import ./nix-output-monitor/test/integration/all.nix;
             doCheck = system == "x86_64-linux";
             injectChecks =
               opts:
@@ -58,7 +44,7 @@
               };
           in
           lib.pipe { } [
-            (haskellPackages.callPackage cleanSelf)
+            (haskellPackages.callPackage ./nix-output-monitor)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
             (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
@@ -119,7 +105,7 @@
               hlint.enable = true;
               nixfmt = {
                 enable = true;
-                excludes = [ "^default.nix" ];
+                excludes = [ "^nix-output-monitor/default.nix" ];
               };
               cabal2nix.enable = true;
               nil.enable = true;

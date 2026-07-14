@@ -1,0 +1,2 @@
+packages: nix-output-monitor/nix-output-monitor.cabal
+write-ghc-environment-files: always

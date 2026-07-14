@@ -1,5 +1,7 @@
 dist-newstyle
 .direnv
 .pre-commit-config.yaml
+.ghc.environment*
+cabal.project.local
 result*
 bench/profile-run-*

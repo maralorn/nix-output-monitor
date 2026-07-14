@@ -6,9 +6,9 @@
 }:
 
 let
-  pin = import ./test/integration/pin.nix;
+  pin = import ./nix-output-monitor/test/integration/pin.nix;
   pinned-pkgs = import pin { inherit system; };
-  integration-test-builds = import ./test/integration/all.nix;
+  integration-test-builds = import ./nix-output-monitor/test/integration/all.nix;
 in
 
 nixPackage:
@@ -43,7 +43,7 @@ runNixOSTest {
     # integration tests path are hard coded in the test binary.
     machine.execute("cp -r ${nom-test}/integration-tests .")
     machine.execute("mkdir -p test")
-    machine.execute("cp -r ${./test/integration} test/integration")
+    machine.execute("cp -r ${./nix-output-monitor/test/integration} test/integration")
     machine.succeed("./integration-tests 2>&1 | tee stdout.log")
   '';
 }
