@@ -384,7 +384,7 @@ insertDerivation derivation drvId = do
         parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
           modifying' #derivationInfos $ CMap.adjust (#derivationParents %~ CSet.insert drvId) depId
-          modifying' #forestRoots $ Seq.filter (/= depId)
+          modifying' #forestRoots $ CSet.delete depId
           pure depId
       pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = Set.map (parseOutputName . Text.copy) outputs_of_input}) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
@@ -404,7 +404,7 @@ insertDerivation derivation drvId = do
           drvId
     )
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
-  when noParents $ modifying' #forestRoots (drvId Seq.<|)
+  when noParents $ modifying' #forestRoots (CSet.insert drvId)
 
 planBuilds :: (MonadNOMState m) => Set DerivationId -> m ()
 planBuilds drvIds = forM_ drvIds \drvId ->
