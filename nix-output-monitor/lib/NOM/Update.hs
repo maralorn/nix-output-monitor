@@ -58,7 +58,7 @@ import NOM.State (
 import NOM.State qualified as State
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
-import NOM.State.Sorting (sortDepsOfSet, sortKey)
+import NOM.State.Sorting (sortDepsOfSet)
 import NOM.StreamParser (stripANSICodes)
 import NOM.Update.Monad (
   BuildReportMap,
@@ -94,7 +94,6 @@ maintainState now = execState $ do
   currentState <- get
   unless (CSet.null currentState.touchedIds) $ do
     sortDepsOfSet currentState.touchedIds
-    modifying' #forestRoots $ Seq.sortOn (sortKey currentState)
     assign' #touchedIds mempty
   when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
     assign' (#evaluationState % #lastFileName) Strict.Nothing
