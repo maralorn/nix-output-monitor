@@ -130,6 +130,7 @@ parseStopAction = MkStopAction . MkId <$> JSON.atKey "id" JSON.uint
 parseStartAction :: JSON.FieldsDecoder StartAction
 parseStartAction = do
   idField <- JSON.atKey "id" JSON.uint
+  parentField <- JSON.atKeyOptional "parent" JSON.uint
   text <- JSON.atKey "text" JSON.text
   level <- JSON.atKey "level" parseVerbosity
   activityType <- JSON.atKey "type" (JSON.withInt parseActivityType)
@@ -163,4 +164,5 @@ parseStartAction = do
     PostBuildHookType -> PostBuildHook <$> (one txt >>= parseDerivation)
     BuildWaitingType -> pure BuildWaiting
     FetchTreeType -> pure FetchTree
-  pure MkStartAction{id = MkId idField, text, activity, level}
+  -- A parent of 0 means the activity is a root, i.e. it has no parent.
+  pure MkStartAction{id = MkId idField, parent = MkId <$> mfilter (/= 0) parentField, text, activity, level}
