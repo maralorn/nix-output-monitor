@@ -3,8 +3,7 @@
 module NOM.Update.Monad.CacheBuildReports (
   MonadCacheBuildReports (..),
   BuildReport (..),
-  BuildReportContext (..),
-  BuildReportKey,
+  BuildReportKey (..),
   BuildReportMap,
 ) where
 
@@ -16,7 +15,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, parseTimeM)
 import NOM.Builds (Host (..), HostContext (..))
-import NOM.State (BuildReportContext (..), BuildReportKey, BuildReportMap)
+import NOM.State (BuildReportKey (..), BuildReportMap)
 import Optics.TH (makeFieldLabelsNoPrefix)
 import Relude
 import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
@@ -155,7 +154,7 @@ toCSV :: BuildReportMap -> [BuildReport]
 toCSV = Map.assocs >=> traverse Map.assocs >>> fmap toCSVLine
 
 toCSVLine :: (BuildReportKey, (UTCTime, Int)) -> BuildReport
-toCSVLine ((host, drvName, BuildReportContext{..}), (endTime, buildSecs)) = BuildReport{..}
+toCSVLine (BuildReportKey{..}, (endTime, buildSecs)) = BuildReport{..}
 
 loadBuildReports :: FilePath -> IO BuildReportMap
 loadBuildReports dir = catchIO tryLoad mempty
@@ -169,4 +168,4 @@ fromCSV :: [BuildReport] -> BuildReportMap
 fromCSV = fmap fromCSVLine >>> Map.fromListWith Map.union
 
 fromCSVLine :: BuildReport -> (BuildReportKey, Map UTCTime Int)
-fromCSVLine BuildReport{..} = ((host, drvName, BuildReportContext{..}), Map.singleton endTime buildSecs)
+fromCSVLine BuildReport{..} = (BuildReportKey{..}, Map.singleton endTime buildSecs)

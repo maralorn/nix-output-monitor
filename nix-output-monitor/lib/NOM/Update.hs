@@ -61,8 +61,7 @@ import NOM.State.CacheId.Set qualified as CSet
 import NOM.State.Sorting (sortDepsOfSet, sortKey)
 import NOM.StreamParser (stripANSICodes)
 import NOM.Update.Monad (
-  BuildReportContext (..),
-  BuildReportKey,
+  BuildReportKey (..),
   BuildReportMap,
   MonadCacheBuildReports (..),
   MonadCheckStorePath (..),
@@ -86,15 +85,14 @@ getReportName drv = case drv.pname of
 
 buildReportKey :: Maybe Text -> Host WithoutContext -> DerivationInfo -> BuildReportKey
 buildReportKey currentBuildPlatform host drv =
-  ( host
-  , getReportName drv
-  , BuildReportContext
-      { buildPlatform = case host of
-          Localhost -> currentBuildPlatform
-          Hostname _ -> Nothing
-      , targetPlatform = Strict.toLazy drv.platform
-      }
-  )
+  BuildReportKey
+    { host
+    , drvName = getReportName drv
+    , buildPlatform = case host of
+        Localhost -> currentBuildPlatform
+        Hostname _ -> Nothing
+    , targetPlatform = Strict.toLazy drv.platform
+    }
 
 setInputReceived :: (MonadNOMState m) => m Bool
 setInputReceived = do
