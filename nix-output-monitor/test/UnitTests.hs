@@ -1,11 +1,19 @@
+import Control.Exception (bracket)
 import Data.ByteString.Char8 qualified as ByteString
+import Data.Map.Strict qualified as Map
 import Data.Set (singleton)
+import Data.Time (UTCTime (..), fromGregorian)
 import NOM.Builds
 import NOM.NixMessage.OldStyle (NixOldStyleMessage (..))
 import NOM.Parser
+import NOM.Update.Monad.CacheBuildReports (BuildReportKey (..), MonadCacheBuildReports (..))
 import NOM.Util (parseOne)
 import Relude
 import Relude.Unsafe qualified as Unsafe
+import System.Directory (createDirectory, getTemporaryDirectory, removeFile, removePathForcibly)
+import System.Environment (setEnv, unsetEnv)
+import System.FilePath ((</>))
+import System.IO (hClose, openTempFile)
 import Test.HUnit
 
 assertOldStyleParse :: ByteString -> IO (ByteString, NixOldStyleMessage)
@@ -16,12 +24,67 @@ assertOldStyleParse input = do
   assertBool "parsing succeeds with an actual match" (isJust res')
   pure (t, Unsafe.fromJust res')
 
+withBuildReportsFile :: (FilePath -> IO a) -> IO a
+withBuildReportsFile action = bracket acquire removePathForcibly \dir ->
+  bracket (lookupEnv "XDG_STATE_HOME") restore \_ -> do
+    setEnv "XDG_STATE_HOME" dir
+    let reportsDir = dir </> "nix-output-monitor"
+    createDirectory reportsDir
+    action (reportsDir </> "build-reports.csv")
+ where
+  acquire = do
+    tmp <- getTemporaryDirectory
+    (path, handle) <- openTempFile tmp "nom-build-reports"
+    hClose handle
+    removeFile path
+    createDirectory path
+    pure path
+  restore = maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME")
+
+buildReportTests :: Test
+buildReportTests =
+  "Build report cache"
+    ~: test
+      [ "Legacy CSV" ~: withBuildReportsFile \path -> do
+          writeFileBS path "hostname,derivation name,utc time,build seconds\n,example,2026-01-01 00:00:00,12\n"
+          reports <- getCachedBuildReports
+          assertEqual
+            "missing platform columns remain unknown"
+            (Map.singleton (BuildReportKey Localhost "example" Nothing Nothing) (Map.singleton timestamp 12))
+            reports
+      , "Blank platform columns" ~: withBuildReportsFile \path -> do
+          writeFileBS path "hostname,derivation name,build platform,target platform,utc time,build seconds\nbuilder,example,,,2026-01-01 00:00:00,12\n"
+          reports <- getCachedBuildReports
+          assertEqual
+            "empty platform fields remain unknown"
+            (Map.singleton (BuildReportKey (Hostname "builder") "example" Nothing Nothing) (Map.singleton timestamp 12))
+            reports
+      , "Platform histories survive saving and loading" ~: withBuildReportsFile \_ -> do
+          let key = BuildReportKey Localhost "example" (Just "x86_64-linux") (Just "armv7l-linux")
+              keys =
+                [ key
+                , key{targetPlatform = Just "i686-linux"}
+                , key{buildPlatform = Just "aarch64-linux"}
+                , key{host = Hostname "builder", buildPlatform = Nothing}
+                , key{drvName = "another,package"}
+                , key{buildPlatform = Nothing, targetPlatform = Nothing}
+                ]
+              expected = Map.fromList $ zipWith (\k duration -> (k, Map.fromList [(timestamp, duration), (later, duration + 1)])) keys [10 ..]
+          _ <- updateBuildReports (const expected)
+          reports <- getCachedBuildReports
+          assertEqual "distinct hosts, names and platforms retain their own histories" expected reports
+      ]
+ where
+  timestamp = UTCTime (fromGregorian 2026 1 1) 0
+  later = UTCTime (fromGregorian 2026 1 2) 0
+
 main :: IO ()
 main = do
   counts <-
     runTestTT
       $ test
-        [ "Parse Plan" ~: do
+        [ buildReportTests
+        , "Parse Plan" ~: do
             (rest, result) <-
               assertOldStyleParse
                 "these derivations will be built:\n  /nix/store/7n05q79qhrgvnfmvv2v3cnj3yqf4d1hf-haskell-language-server-0.4.0.0.drv\nthese paths will be fetched (134.19 MiB download, 1863.82 MiB unpacked):\n  /nix/store/60zb5dndaw1fzir3s69sy3xhy19gll1p-ghc-8.8.2\ngarbage"
