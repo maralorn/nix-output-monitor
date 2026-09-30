@@ -58,6 +58,11 @@ data Activity where
   PostBuildHook :: Derivation -> Activity
   BuildWaiting :: Activity
   FetchTree :: Activity
+  -- | A content-addressed derivation was resolved: the announced (original)
+  -- derivation on the left will actually be built as the resolved twin on
+  -- the right. Nix emits this as an actBuildWaiting activity with both
+  -- paths in @fields@.
+  ResolvedDerivation :: Derivation -> Derivation -> Activity
   deriving stock (Show, Eq, Ord)
 
 -- | nix src/libutil/include/nix/util/logging.hh ResultType
