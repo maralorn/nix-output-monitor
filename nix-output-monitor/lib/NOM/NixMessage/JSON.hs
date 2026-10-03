@@ -40,6 +40,7 @@ data ActivityType where
   PostBuildHookType :: ActivityType
   BuildWaitingType :: ActivityType
   FetchTreeType :: ActivityType
+  OtherType :: Int -> ActivityType
   deriving stock (Show, Eq)
 
 -- | nix src/libutil/include/nix/util/logging.hh ActivityType

@@ -45,7 +45,7 @@ parseActivityType = \case
   110 -> pure PostBuildHookType
   111 -> pure BuildWaitingType
   112 -> pure FetchTreeType
-  other -> fail ("invalid activity type: " <> show other)
+  other -> pure (OtherType other)
 
 parseAction :: JSON.Decoder NixJSONMessage
 parseAction = JSON.object $ do
@@ -136,6 +136,7 @@ parseStartAction = do
   let txt = textFields
   activity <- case activityType of
     UnknownType -> pure Unknown
+    OtherType _ -> pure Unknown
     CopyPathType ->
       three txt >>= \(path, from, to) -> do
         path' <- parseStorePath path
