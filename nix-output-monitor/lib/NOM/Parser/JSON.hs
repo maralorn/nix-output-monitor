@@ -121,7 +121,7 @@ parseResultAction = do
       pure $ SetExpected activityType number
     107 -> PostBuildLogLine <$> one txt
     108 -> FetchStatus <$> one txt
-    other -> fail ("invalid activity result type: " <> show other)
+    other -> pure (OtherResult other)
   pure MkResultAction{id = idField, result}
 
 parseStopAction :: JSON.FieldsDecoder StopAction

@@ -72,6 +72,7 @@ data ActivityResult where
   SetExpected :: ActivityType -> Int -> ActivityResult
   PostBuildLogLine :: Text -> ActivityResult
   FetchStatus :: Text -> ActivityResult
+  OtherResult :: Int -> ActivityResult
   deriving stock (Show, Eq)
 
 data ActivityProgress = MkActivityProgress
