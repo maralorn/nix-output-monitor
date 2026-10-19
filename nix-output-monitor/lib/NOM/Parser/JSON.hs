@@ -29,23 +29,23 @@ parseVerbosity = JSON.withInt \case
   7 -> pure Vomit
   other -> fail ("invalid verbosity level:" <> show other)
 
-parseActivityType :: (MonadFail m) => Int -> m ActivityType
+parseActivityType :: Int -> ActivityType
 parseActivityType = \case
-  0 -> pure UnknownType
-  100 -> pure CopyPathType
-  101 -> pure FileTransferType
-  102 -> pure RealiseType
-  103 -> pure CopyPathsType
-  104 -> pure BuildsType
-  105 -> pure BuildType
-  106 -> pure OptimiseStoreType
-  107 -> pure VerifyPathsType
-  108 -> pure SubstituteType
-  109 -> pure QueryPathInfoType
-  110 -> pure PostBuildHookType
-  111 -> pure BuildWaitingType
-  112 -> pure FetchTreeType
-  other -> fail ("invalid activity type: " <> show other)
+  0 -> UnknownType
+  100 -> CopyPathType
+  101 -> FileTransferType
+  102 -> RealiseType
+  103 -> CopyPathsType
+  104 -> BuildsType
+  105 -> BuildType
+  106 -> OptimiseStoreType
+  107 -> VerifyPathsType
+  108 -> SubstituteType
+  109 -> QueryPathInfoType
+  110 -> PostBuildHookType
+  111 -> BuildWaitingType
+  112 -> FetchTreeType
+  other -> OtherType other
 
 parseAction :: JSON.Decoder NixJSONMessage
 parseAction = JSON.object $ do
@@ -117,11 +117,10 @@ parseResultAction = do
     105 -> (\(done, expected, running, failed) -> Progress (MkActivityProgress{..})) <$> four num
     106 -> do
       (typeNum, number) <- two num
-      activityType <- parseActivityType typeNum
-      pure $ SetExpected activityType number
+      pure $ SetExpected (parseActivityType typeNum) number
     107 -> PostBuildLogLine <$> one txt
     108 -> FetchStatus <$> one txt
-    other -> fail ("invalid activity result type: " <> show other)
+    other -> pure (OtherResult other)
   pure MkResultAction{id = idField, result}
 
 parseStopAction :: JSON.FieldsDecoder StopAction
@@ -132,10 +131,11 @@ parseStartAction = do
   idField <- JSON.atKey "id" JSON.uint
   text <- JSON.atKey "text" JSON.text
   level <- JSON.atKey "level" parseVerbosity
-  activityType <- JSON.atKey "type" (JSON.withInt parseActivityType)
+  activityType <- parseActivityType <$> JSON.atKey "type" JSON.int
   let txt = textFields
   activity <- case activityType of
     UnknownType -> pure Unknown
+    OtherType _ -> pure Unknown
     CopyPathType ->
       three txt >>= \(path, from, to) -> do
         path' <- parseStorePath path

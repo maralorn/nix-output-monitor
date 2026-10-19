@@ -40,6 +40,7 @@ data ActivityType where
   PostBuildHookType :: ActivityType
   BuildWaitingType :: ActivityType
   FetchTreeType :: ActivityType
+  OtherType :: Int -> ActivityType
   deriving stock (Show, Eq)
 
 -- | nix src/libutil/include/nix/util/logging.hh ActivityType
@@ -71,6 +72,7 @@ data ActivityResult where
   SetExpected :: ActivityType -> Int -> ActivityResult
   PostBuildLogLine :: Text -> ActivityResult
   FetchStatus :: Text -> ActivityResult
+  OtherResult :: Int -> ActivityResult
   deriving stock (Show, Eq)
 
 data ActivityProgress = MkActivityProgress
