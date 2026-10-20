@@ -27,9 +27,9 @@ printProgressBar len progress = toText $ lookupProgressChar . progressWord5AtPos
 
 lookupProgressChar :: Word8 -> Char
 lookupProgressChar =
-  $( lamCaseE $
-       [0 .. 31 :: Word8]
-         <&> \n -> match (litP (integerL (toInteger n))) (normalB (litE (charL $ progressByteToBrailleChar (word5ToWord8 n)))) []
+  $( lamCaseE
+       $ [0 .. 31 :: Word8]
+       <&> \n -> match (litP (integerL (toInteger n))) (normalB (litE (charL $ progressByteToBrailleChar (word5ToWord8 n)))) []
    )
 
 {- | >>> clampToByte (-23)
