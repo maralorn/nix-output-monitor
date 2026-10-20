@@ -186,7 +186,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
             -- (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
             (not (Seq.null nixErrors), const errorDisplay)
           , (not (Seq.null nixTraces), const traceDisplay)
-          , (not (Seq.null forestRoots), buildsDisplay . snd)
+          , (not (CSet.null forestRoots), buildsDisplay . snd)
           ]
     maxWindow = case maybeWindow of
       Just (Window height width) -> Window (height `div` targetRatio) (width - 2) -- targetRatio is hardcoded to be bigger than zero.
@@ -396,7 +396,7 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
         <> maybe "" (\p -> printProgressBar (limits.width - left_width - 6) p <> printPercent p) r
    where
     left_width = max 60 (1 + maximum1 (0 :| (displayWidth . fst <$> filter (isJust . snd) rows)))
-  num_raw_roots = length forestRoots
+  num_raw_roots = CSet.size forestRoots
   num_roots = length preparedPrintForest
   graphTitle = markup bold "Dependency Graph"
   graphHeader = " " <> graphHeaderInner <> ":"
@@ -413,8 +413,11 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
         display_summary = location == Leaf && planned && not (Text.null summary)
      in \now -> (display_drv now <> showCond display_summary (markup grey " waiting for " <> summary), progress now)
 
+  sortedRoots :: Seq DerivationId
+  sortedRoots = Seq.sortOn (sortKey nomState) $ Seq.fromList $ CSet.toDescList forestRoots
+
   buildForest :: Forest DerivationInfo
-  buildForest = evalState (goBuildForest forestRoots) mempty
+  buildForest = evalState (goBuildForest sortedRoots) mempty
 
   goBuildForest :: Seq DerivationId -> State DerivationSet (Forest DerivationInfo)
   goBuildForest = \case
@@ -434,7 +437,7 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
   derivationsToShow :: DerivationSet
   derivationsToShow =
     let should_be_shown (index, (can_be_hidden, _, _)) = not can_be_hidden || index < limits.height
-        (_, sorted_set) = execState (goDerivationsToShow forestRoots) mempty
+        (_, sorted_set) = execState (goDerivationsToShow sortedRoots) mempty
      in CSet.fromFoldable
           $ fmap (\(_, (_, _, drvId)) -> drvId)
           $ takeWhile should_be_shown

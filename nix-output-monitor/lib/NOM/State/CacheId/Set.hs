@@ -2,6 +2,7 @@ module NOM.State.CacheId.Set (
   insert,
   CacheIdSet (MkCacheIdSet),
   NOM.State.CacheId.Set.toList,
+  NOM.State.CacheId.Set.toDescList,
   NOM.State.CacheId.Set.null,
   fromFoldable,
   maxView,
@@ -26,6 +27,9 @@ insert (MkCacheId x) = MkCacheIdSet . IntSet.insert x . (.ints)
 
 toList :: CacheIdSet b -> [CacheId b]
 toList = fmap MkCacheId . IntSet.toList . (.ints)
+
+toDescList :: CacheIdSet b -> [CacheId b]
+toDescList = fmap MkCacheId . IntSet.toDescList . (.ints)
 
 fromFoldable :: (Foldable f) => f (CacheId b) -> CacheIdSet b
 fromFoldable = foldl' (flip insert) mempty
