@@ -43,7 +43,7 @@ import Test.HUnit (
  )
 
 tests :: [TestConfig -> Test]
-tests = [integrationStandard, integrationFail]
+tests = [integrationStandard, integrationFail, integrationCA]
 
 label :: (Semigroup a, IsString a) => TestConfig -> a -> a
 label config name = "integration test " <> name <> " for " <> (if config.oldStyle then "old-style messages" else "json messages") <> if config.withNix then " with nix" else " with log from replay file"
@@ -156,3 +156,20 @@ integrationFail config = testBuild "fail" config \_ MkNOMState{fullSummary = d@M
   assertEqual ("There should be one failed build in " <> show d) 1 (CMap.size failedBuilds)
   assertEqual ("There should be no completed builds in " <> show d) 0 (CMap.size completedBuilds)
   assertEqual ("There should be one unfinished build " <> show d) 1 (CMap.size runningBuilds)
+
+integrationCA :: TestConfig -> Test
+integrationCA config' = testBuild "ca" config \_ MkNOMState{fullSummary = d@MkDependencySummary{..}} -> do
+  assertBool ("There should be no planned builds left but there is " <> show d) (CSet.null plannedBuilds)
+  assertBool ("There should be no running builds but there is " <> show d) (CMap.null runningBuilds)
+  assertEqual ("There should be one completed build in " <> show d) 1 (CMap.size completedBuilds)
+  assertBool ("There should be no failed builds but there is " <> show d) (CMap.null failedBuilds)
+ where
+  -- The recorded log replays a content-addressed build (from a real
+  -- multi-builder run): the plan announces the original derivation, a
+  -- "resolved derivation" activity (type 111) ties it to its resolved twin,
+  -- and the build events reference only the twin. Without the pairing the
+  -- planned build would never complete. The recording is internal-json only
+  -- (old-style output carries no resolution info) and is replayed instead of
+  -- built live, since building would require the ca-derivations experimental
+  -- feature.
+  config = config'{oldStyle = False, withNix = False}
