@@ -58,7 +58,7 @@ import Text.Printf (printf)
 showCode :: Text -> [String]
 showCode = map (printf "%02X" . fromEnum) . toString
 
-vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, leftT, average :: Text
+vertical, lowerleft, upperleft, horizontal, down, up, clock, running, done, bigsum, warning, todo, goal, leftT, average :: Text
 
 -- | U+2503 BOX DRAWINGS HEAVY VERTICAL
 vertical = "┃"
@@ -92,6 +92,9 @@ done = "✔"
 
 -- | U+23F8 DOUBLE VERTICAL BAR
 todo = "⏸"
+
+-- | U+2691 BLACK FLAG — the goal: all builds known so far
+goal = "⚑"
 
 -- | U+26A0 WARNING SIGN
 warning = "⚠"
@@ -220,7 +223,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
   innerTable :: [NonEmpty Entry]
   innerTable = fromMaybe (one (text "")) (nonEmpty headers) : showCond showHosts printHosts
   headers =
-    (cells 3 <$> optHeader showBuilds "Builds")
+    (cells 4 <$> optHeader showBuilds "Builds")
       <> (cells 3 <$> optHeader showDownloads "Downloads")
       <> (cells 2 <$> optHeader showUploads "Uploads")
       <> optHeader showHosts "Host"
@@ -228,9 +231,15 @@ stateToText config buildState@MkNOMState{..} = printWithSize
   partial_last_row =
     showCond
       showBuilds
-      [ yellow $ nonZeroBold running numRunningBuilds
-      , green $ nonZeroBold done numCompletedBuilds
+      [ -- Reading left to right tells the pipeline story: running, waiting,
+        -- done, and the goal — the total known so far (planned + running +
+        -- completed + failed), which may still grow while evaluation
+        -- discovers more work (IFD), so it is a "known so far", not a
+        -- promise.
+        yellow $ nonZeroBold running numRunningBuilds
       , blue $ nonZeroBold todo numPlannedBuilds
+      , green $ nonZeroBold done numCompletedBuilds
+      , magenta $ nonZeroBold goal totalBuildsEver
       ]
       <> showCond
         showDownloads
@@ -262,6 +271,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
   numCompletedBuilds = CMap.size completedBuilds
   numPlannedBuilds = CSet.size plannedBuilds
   totalBuilds = numPlannedBuilds + numRunningBuilds + numCompletedBuilds
+  totalBuildsEver = numPlannedBuilds + numRunningBuilds + numCompletedBuilds + numFailedBuilds
   downloadsDone = CMap.size completedDownloads
   downloadsRunning = CMap.size runningDownloads
   uploadsRunning = CMap.size runningUploads
@@ -289,6 +299,7 @@ stateToText config buildState@MkNOMState{..} = printWithSize
       showCond
         showBuilds
         [ yellow $ nonZeroShowBold running numRunningBuildsOnHost
+        , dummy
         , green $ nonZeroShowBold done doneBuilds
         , dummy
         ]

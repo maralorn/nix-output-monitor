@@ -251,6 +251,15 @@ processJsonMessage = \case
         uploading to pathId now (Just id')
       JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
       JSON.QueryPathInfo{} -> set_interesting
+      JSON.ResolvedDerivation original resolved -> withChange do
+        -- A content-addressed derivation resolved to its concrete twin. All
+        -- later events (build start/stop, failures) reference the twin,
+        -- while the plan ("will be built") announced the original — without
+        -- this link the original stays Planned forever and the twin shows
+        -- up as an unplanned build. Point the twin's name at the original's
+        -- id, so every subsequent lookup unifies the two.
+        originalId <- lookupDerivation original
+        modifying' #derivationIds $ Map.insert resolved originalId
       _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
     when changed $ modifying' #activities $ Map.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
     pure changed

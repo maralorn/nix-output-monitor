@@ -22,6 +22,8 @@ extra-source-files:
   completions/nom.bash
   completions/nom.fish
   completions/nom.zsh
+  test/integration/ca/stderr.json
+  test/integration/ca/stdout.json
   test/integration/fail/stderr
   test/integration/fail/stderr.json
   test/integration/fail/stdout

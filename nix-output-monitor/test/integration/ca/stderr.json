@@ -1,0 +1,5 @@
+@nix {"action":"msg","level":3,"msg":"these 1 derivations will be built:"}
+@nix {"action":"msg","level":3,"msg":"  /nix/store/039vqclsbn9vm577xs3i4dmh223r18p9-varycon-get-video.drv"}
+@nix {"action":"start","fields":["/nix/store/039vqclsbn9vm577xs3i4dmh223r18p9-varycon-get-video.drv","/nix/store/kwdksrcg6bxw1vfkwwd359nfw9q0klj3-varycon-get-video.drv"],"id":387487654486041,"level":3,"parent":0,"text":"resolved derivation: '/nix/store/039vqclsbn9vm577xs3i4dmh223r18p9-varycon-get-video.drv' -> '/nix/store/kwdksrcg6bxw1vfkwwd359nfw9q0klj3-varycon-get-video.drv'","type":111}
+@nix {"action":"start","fields":["/nix/store/kwdksrcg6bxw1vfkwwd359nfw9q0klj3-varycon-get-video.drv","ssh://render-worker-16",1,1],"id":387487654488483,"level":3,"parent":0,"text":"building '/nix/store/kwdksrcg6bxw1vfkwwd359nfw9q0klj3-varycon-get-video.drv' on 'ssh://render-worker-16'","type":105}
+@nix {"action":"stop","id":387487654488483}

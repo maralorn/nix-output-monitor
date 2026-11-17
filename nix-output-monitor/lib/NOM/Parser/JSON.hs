@@ -161,6 +161,19 @@ parseStartAction = do
         path' <- parseStorePath path
         pure $ QueryPathInfo path' (parseHost host)
     PostBuildHookType -> PostBuildHook <$> (one txt >>= parseDerivation)
-    BuildWaitingType -> pure BuildWaiting
+    BuildWaitingType -> do
+      -- Nix reuses the actBuildWaiting type for two things: plain "waiting
+      -- for a machine to build …" (no useful fields) and "resolved
+      -- derivation: '<original>' -> '<resolved>'" for content-addressed
+      -- derivations, which carries both .drv paths in the fields. The
+      -- latter is the only place the log ties an announced derivation to
+      -- the resolved twin that actually builds, so parse it.
+      fields <- fromMaybe [] <$> JSON.atKeyOptional "fields" (JSON.list JSON.text)
+      case fields of
+        [original, resolved] -> do
+          original' <- parseDerivation original
+          resolved' <- parseDerivation resolved
+          pure $ ResolvedDerivation original' resolved'
+        _ -> pure BuildWaiting
     FetchTreeType -> pure FetchTree
   pure MkStartAction{id = MkId idField, text, activity, level}
