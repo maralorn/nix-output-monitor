@@ -2,7 +2,7 @@ name: All checks via Nix
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "gitea-mq/**"]
 
 run-name: Test and build flake
 jobs:
