@@ -1,3 +1,8 @@
 indentation: 2
 unicode: never
 respectful: false
+
+fixities:
+  - "infix 4 <, <=, >, >=, =, /="
+  - "infixr 3 &&"
+  - "infixr 2 ||"

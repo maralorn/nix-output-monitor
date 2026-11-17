@@ -390,12 +390,24 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
   printBuildsWithTime now = (graphHeader :|) $ with_progress $ showForest $ fmap (fmap ($ now)) preparedPrintForest
   with_progress :: [(Text, Maybe Double)] -> [Text]
   with_progress rows =
-    rows <&> \(l, r) ->
-      l
-        <> stimes (max 0 $ left_width - displayWidth l) " "
-        <> maybe "" (\p -> printProgressBar (limits.width - left_width - 6) p <> printPercent p) r
-   where
-    left_width = max 60 (1 + maximum1 (0 :| (displayWidth . fst <$> filter (isJust . snd) rows)))
+    rows <&> \case
+      (left_part, Nothing) -> left_part
+      (left_part, Just p) ->
+        let
+          left_width
+            | limits.width > 120 = limits.width `div` 2
+            | otherwise = limits.width * 2 `div` 3
+          right_width = limits.width - left_width
+          percent_text = printPercent p
+          progress_bar = printProgressBar (right_width - 2 {- bracket -} - 1 {- pipe -} - 6 {- percent_text -}) p
+          with_bracket_symbol x = "[" <> x <> "]"
+          right_part = with_bracket_symbol (progress_bar <> "|" <> percent_text)
+          overrun_length = displayWidth left_part - left_width
+          right_part'
+            | overrun_length > 0 = "… " <> markup grey (Text.drop (overrun_length + 2) right_part)
+            | otherwise = Text.replicate (-overrun_length) " " <> right_part
+         in
+          left_part <> right_part'
   num_raw_roots = length forestRoots
   num_roots = length preparedPrintForest
   graphTitle = markup bold "Dependency Graph"
@@ -466,16 +478,12 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
              in infos.inputFor <> CSet.fromFoldable infos.producer
           may_hide = CSet.isSubsetOf (nodesOfRunningTransfers <> CMap.keysSet failedBuilds <> CMap.keysSet runningBuilds) seen_ids
           show_this_node =
-            limits.height
-              > 0
-              && summary
-              /= mempty
+            limits.height > 0
+              && summary /= mempty
               && not (CSet.member thisDrv seen_ids)
               && ( not may_hide
-                     || Set.size sorted_set
-                     < limits.height
-                     || sort_key
-                     < view _2 (Set.elemAt (limits.height - 1) sorted_set)
+                     || Set.size sorted_set < limits.height
+                     || sort_key < view _2 (Set.elemAt (limits.height - 1) sorted_set)
                  )
           new_seen_ids = CSet.insert thisDrv seen_ids
           new_sorted_set = Set.insert (may_hide, sort_key, thisDrv) sorted_set
