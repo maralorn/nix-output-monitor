@@ -87,6 +87,7 @@ common common-config
     text,
     time,
     transformers,
+    unordered-containers,
     word8,
 
   default-language: GHC2024

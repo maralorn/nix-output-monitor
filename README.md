@@ -134,6 +134,7 @@ Right now nom uses four sources of information:
 2. it checks if build results exist in the nix-store (only in human-readable mode)
 3. it queries `.drv` files for information about the `out` output path.
 4. It caches build times in `$XDG_STATE_HOME/nix-output-monitor/build-reports.csv`.
+   Build time estimates are keyed by build host, derivation report name, local build platform for local builds, and target platform.
 
 ## Limitations
 
