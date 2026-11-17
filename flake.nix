@@ -47,8 +47,6 @@
             (haskellPackages.callPackage ./nix-output-monitor)
             haskellPackages.buildFromCabalSdist
             hlib.justStaticExecutables
-            (hlib.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags")
-
             (
               if doCheck then
                 (
@@ -83,6 +81,8 @@
           inherit system;
           overlays = lib.attrValues self.overlays;
         };
+        # Built in CI only, so users are not broken by new GHC warnings.
+        nix-output-monitor-strict = pkgs.haskell.lib.compose.appendConfigureFlag "--ghc-option=-Werror --ghc-option=-Wno-error=unrecognised-warning-flags" pkgs.nix-output-monitor;
       in
       rec {
         packages = {
@@ -91,6 +91,7 @@
           default = pkgs.nix-output-monitor;
         };
         checks = {
+          build = nix-output-monitor-strict;
           git-hooks-check = git-hooks.lib.${system}.run {
             src = ./.;
             tools = {
@@ -148,7 +149,7 @@
                 "git"
               ];
             testNomAgainstNixImpl = import ./nixos-test.nix {
-              nom-test = lib.getOutput "test" packages.default;
+              nom-test = lib.getOutput "test" nix-output-monitor-strict;
               inherit system lib;
               inherit (pkgs.testers) runNixOSTest;
             };
