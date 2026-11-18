@@ -244,7 +244,7 @@ data NOMState = MkNOMState
   { derivationInfos :: DerivationMap DerivationInfo
   , storePathInfos :: StorePathMap StorePathInfo
   , fullSummary :: DependencySummary
-  , forestRoots :: Seq DerivationId
+  , forestRoots :: DerivationSet
   , buildReports :: BuildReportMap
   , startTime :: Double
   , progressState :: ProgressState

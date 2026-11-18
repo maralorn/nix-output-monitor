@@ -58,7 +58,7 @@ import NOM.State (
 import NOM.State qualified as State
 import NOM.State.CacheId.Map qualified as CMap
 import NOM.State.CacheId.Set qualified as CSet
-import NOM.State.Sorting (sortDepsOfSet, sortKey)
+import NOM.State.Sorting (sortDepsOfSet)
 import NOM.StreamParser (stripANSICodes)
 import NOM.Update.Monad (
   BuildReportMap,
@@ -94,7 +94,6 @@ maintainState now = execState $ do
   currentState <- get
   unless (CSet.null currentState.touchedIds) $ do
     sortDepsOfSet currentState.touchedIds
-    modifying' #forestRoots $ Seq.sortOn (sortKey currentState)
     assign' #touchedIds mempty
   when (Strict.isJust currentState.evaluationState.lastFileName && currentState.evaluationState.at <= now - 5 && currentState.fullSummary /= mempty) do
     assign' (#evaluationState % #lastFileName) Strict.Nothing
@@ -385,7 +384,7 @@ insertDerivation derivation drvId = do
         parseDerivation (toText drvPath) & mapM \depName -> do
           depId <- lookupDerivation depName
           modifying' #derivationInfos $ CMap.adjust (#derivationParents %~ CSet.insert drvId) depId
-          modifying' #forestRoots $ Seq.filter (/= depId)
+          modifying' #forestRoots $ CSet.delete depId
           pure depId
       pure $ (\derivation_id -> MkInputDerivation{derivation = derivation_id, outputs = Set.map (parseOutputName . Text.copy) outputs_of_input}) <$> depIdMay
   let inputDerivations = Seq.fromList inputDerivationsList
@@ -405,7 +404,7 @@ insertDerivation derivation drvId = do
           drvId
     )
   noParents <- CSet.null . (.derivationParents) <$> getDerivationInfos drvId
-  when noParents $ modifying' #forestRoots (drvId Seq.<|)
+  when noParents $ modifying' #forestRoots (CSet.insert drvId)
 
 planBuilds :: (MonadNOMState m) => Set DerivationId -> m ()
 planBuilds drvIds = forM_ drvIds \drvId ->
