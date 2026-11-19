@@ -147,6 +147,38 @@ printTraces traces maxHeight =
   compact_traces = sum (length . lines <$> interesting_traces) > maxHeight
   filtered_traces = (if compact_traces then map compactError else id) interesting_traces
 
+printFailures :: [(Derivation, BuildInfo BuildFail)] -> Int -> Int -> Text
+printFailures failures dependencyFailures maxHeight =
+  prependLines
+    ""
+    (vertical <> " ")
+    (vertical <> " ")
+    (horizontal <> markup (bold . red) (" " <> show (length failures) <> failureLabel <> ": ") :| limitedRows)
+ where
+  failureLabel = if length failures == 1 then " Failed Build" else " Failed Builds"
+  failureRows = printFailure <$> failures
+  summaryRows =
+    [ markup grey
+        $ show dependencyFailures
+        <> if dependencyFailures == 1 then " dependent failure omitted" else " dependent failures omitted"
+    | dependencyFailures > 0
+    ]
+  limitedRows = limitRows (max 0 (maxHeight - 1)) (failureRows <> summaryRows)
+
+  printFailure :: (Derivation, BuildInfo BuildFail) -> Text
+  printFailure (drv, buildInfo) =
+    markups [red, bold] (warning <> " " <> toText drv)
+      <> markup grey (" (" <> printFailType buildInfo.end.failType <> ")")
+
+limitRows :: Int -> [Text] -> [Text]
+limitRows maxRows rows
+  | length rows <= maxRows = rows
+  | maxRows <= 0 = []
+  | maxRows == 1 = [markup grey ("⋮ " <> show (length rows) <> " rows omitted")]
+  | otherwise =
+      take (maxRows - 1) rows
+        <> [markup grey ("⋮ " <> show (length rows - maxRows + 1) <> " more")]
+
 printErrors :: Seq Text -> Int -> Text
 printErrors errors maxHeight =
   prependLines
@@ -163,7 +195,25 @@ printErrors errors maxHeight =
   filtered_errors = (if compact_errors then map compactError else id) interesting_errors
 
 compactError :: Text -> Text
-compactError = fst . Text.breakOn "\n       last 10 log lines:"
+compactError = Text.intercalate "\n" . takeWhile (not . isLogTailHeader) . Text.lines
+ where
+  isLogTailHeader line =
+    let normalized = Text.toLower (Text.strip line)
+     in Text.isPrefixOf "last " normalized && Text.isSuffixOf " log lines:" normalized
+
+isDependencyFailure :: Text -> Bool
+isDependencyFailure message =
+  Text.isInfixOf "dependencies of derivation" normalized
+    || ( Text.isInfixOf "reason:" normalized
+           && ( Text.isInfixOf " dependency failed." normalized
+                  || Text.isInfixOf " dependencies failed." normalized
+              )
+       )
+ where
+  normalized = Text.toLower message
+
+isErrorFor :: [Derivation] -> Text -> Bool
+isErrorFor derivations message = any ((`Text.isInfixOf` message) . toText) derivations
 
 stateToText :: Config -> NOMState -> Maybe (Window Int) -> (ZonedTime, Double) -> Text
 stateToText config buildState@MkNOMState{..} = printWithSize
@@ -184,9 +234,10 @@ stateToText config buildState@MkNOMState{..} = printWithSize
         . filter fst
         $ [
             -- (not (IntMap.null interestingActivities) || isJust evalMessage, printInterestingActivities evalMessage interestingActivities)
-            (not (Seq.null nixErrors), const errorDisplay)
+            (not (Seq.null otherErrors), const errorDisplay)
           , (not (Seq.null nixTraces), const traceDisplay)
           , (not (Seq.null forestRoots), buildsDisplay . snd)
+          , (not (null failures), const failureDisplay)
           ]
     maxWindow = case maybeWindow of
       Just (Window height width) -> Window (height `div` targetRatio) (width - 2) -- targetRatio is hardcoded to be bigger than zero.
@@ -197,8 +248,23 @@ stateToText config buildState@MkNOMState{..} = printWithSize
         (vertical <> " ")
         (vertical <> " ")
         (printBuilds buildState hostAbbrevs maxWindow now)
-    errorDisplay = printErrors nixErrors maxWindow.height
+    failureDisplay = printFailures failures dependencyFailures maxWindow.height
+    errorDisplay = printErrors otherErrors maxWindow.height
     traceDisplay = printTraces nixTraces maxWindow.height
+    failures =
+      sortOn ((.at) . (.end) . snd)
+        $ CMap.toList failedBuilds
+        <&> \(drvId, buildInfo) ->
+          let drvInfo = evalState (getDerivationInfos drvId) buildState
+           in (drvInfo.name, buildInfo)
+    failedDerivations = fst <$> failures
+    dependencyFailures = Seq.length $ Seq.filter isDependencyFailure nixErrors
+    -- Nix repeats build failures for every blocked dependent. Once we have canonical failures,
+    -- hide those duplicates while retaining unrelated errors.
+    otherErrors
+      | null failures = nixErrors
+      | otherwise = Seq.filter (not . isKnownBuildError) nixErrors
+    isKnownBuildError message = isDependencyFailure message || isErrorFor failedDerivations message
   -- evalMessage = case evaluationState.lastFileName of
   --   Strict.Just file_name -> Just ("Evaluated " <> show (evaluationState.count) <> " files, last one was '" <> file_name <> "'")
   --   Strict.Nothing -> Nothing
