@@ -14,7 +14,7 @@ import Data.Time (NominalDiffTime, ZonedTime, defaultTimeLocale, formatTime)
 import Data.Tree (Forest, Tree (Node))
 import GHC.Records (HasField)
 import NOM.Builds (Derivation (..), FailType (..), Host (..), HostContext (..), StorePath (..), forgetProto)
-import NOM.NixMessage.JSON (ActivityId (..), ActivityProgress (..))
+import NOM.NixMessage.JSON (Activity (FileTransfer), ActivityId (..), ActivityProgress (..))
 import NOM.Print.ProgressBar (printProgressBar)
 import NOM.Print.Table (Entry, blue, bold, cells, displayWidth, dummy, green, grey, header, label, magenta, markup, markups, prependLines, printAlignedSep, red, text, yellow)
 import NOM.Print.Tree (showForest)
@@ -514,6 +514,17 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
   hostMarkup _ Localhost = mempty
   hostMarkup color host = ["on", hostLabel color host]
 
+  -- The downloads which builders reported themselves, e.g. a fixed-output
+  -- derivation fetching its source, grouped by the build they belong to.
+  transfersByBuild :: Map Word [ActivityProgress]
+  transfersByBuild =
+    Map.fromListWith
+      (<>)
+      [ (parentId.value, [progress])
+      | MkActivityStatus{activity = FileTransfer{}, parent = Just parentId, progress = Strict.Just progress} <-
+          Map.elems activities
+      ]
+
   print_hosts :: Bool -> Text -> [Host WithContext] -> [Text]
   print_hosts color direction_label hosts
     | null hosts || length hostAbbrevs <= 1 = []
@@ -540,6 +551,10 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
           Strict.toLazy $ view field activity_status
         progressMay = activityField #progress
         phaseMay = activityField #phase
+        transfersMay :: Strict.Maybe ActivityId -> [ActivityProgress]
+        transfersMay activityId' = fromMaybe [] do
+          activityId <- Strict.toLazy activityId'
+          Map.lookup activityId.value transfersByBuild
         drvName = appendDifferingPlatform nomState drvInfo drvInfo.name.storePath.name
         downloadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningDownloads
         uploadingOutputs = store_paths_in_map drvInfo.dependencySummary.runningUploads
@@ -622,9 +637,10 @@ printBuilds nomState@MkNOMState{..} hostAbbrevs limits = printBuildsWithTime
                     <> hostMarkup True buildInfo.host
                     <> phaseList
                 after_time = Strict.maybe [] (\x -> ["(" <> average <> " " <> timeDiffSeconds x <> ")"]) buildInfo.estimate
+                (transfer_percentage, transfer_progress) = printTransferProgress (transfersMay buildInfo.activityId)
              in ( False
-                , \now -> unwords $ before_time <> ifTimeDiffRelevant now buildInfo.start (<> after_time)
-                , const Nothing
+                , \now -> unwords $ before_time <> ifTimeDiffRelevant now buildInfo.start (<> after_time) <> transfer_progress
+                , const transfer_percentage
                 )
           Failed buildInfo ->
             let MkBuildFail endTime failType = buildInfo.end
@@ -660,10 +676,13 @@ printPercent = markup bold . fromString . printf "%5.1f%%" . (* 100)
 printTransferProgress :: [ActivityProgress] -> (Maybe Double, [Text])
 printTransferProgress = \case
   [] -> (Nothing, [])
-  ap ->
-    ( Just $ intToDouble done' / intToDouble expected
-    , [printBytes done' <> "/" <> printBytes expected]
-    )
+  ap
+    -- Nix reports an expected size of zero until it knows the real one.
+    | expected <= 0 -> (Nothing, [])
+    | otherwise ->
+        ( Just $ intToDouble done' / intToDouble expected
+        , [printBytes done' <> "/" <> printBytes expected]
+        )
    where
     (done', expected) = ap & (fmap (\(MkActivityProgress d e _ _) -> (d, e)) >>> unzip >>> bimap sum sum)
 

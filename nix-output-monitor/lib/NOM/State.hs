@@ -211,6 +211,7 @@ makeFieldLabelsNoPrefix ''StorePathInfo
 
 data ActivityStatus = MkActivityStatus
   { activity :: Activity
+  , parent :: Maybe ActivityId
   , phase :: Strict.Maybe Text
   , progress :: Strict.Maybe ActivityProgress
   }

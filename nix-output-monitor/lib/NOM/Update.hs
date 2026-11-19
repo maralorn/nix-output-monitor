@@ -249,10 +249,20 @@ processJsonMessage = \case
         now <- getNow
         pathId <- getStorePathId path
         uploading to pathId now (Just id')
+      -- Nix nests every download under the activity which requested it. We only
+      -- want the ones a builder reported itself, e.g. a fixed-output derivation
+      -- fetching its source; those are nested under the build. Downloads which
+      -- nix performs on its own behalf are nested under a substitution instead
+      -- and are already accounted for in the downloads column.
+      JSON.FileTransfer{} -> do
+        activities' <- gets (.activities)
+        case (`Map.lookup` activities') . (.value) =<< startAction.parent of
+          Just MkActivityStatus{activity = JSON.Build{}} -> withChange pass
+          _ -> noChange
       JSON.Unknown | Text.isPrefixOf "querying info" startAction.text -> set_interesting
       JSON.QueryPathInfo{} -> set_interesting
       _ -> noChange -- tell [Right (encodeUtf8 (markup yellow "unused activity: " <> show startAction.id <> " " <> show startAction.activity))]
-    when changed $ modifying' #activities $ Map.insert id'.value (MkActivityStatus startAction.activity Strict.Nothing Strict.Nothing)
+    when changed $ modifying' #activities $ Map.insert id'.value (MkActivityStatus startAction.activity startAction.parent Strict.Nothing Strict.Nothing)
     pure changed
   Stop MkStopAction{id = id'} -> do
     activity <- preuse (#activities % ix id'.value)
