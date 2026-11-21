@@ -1,5 +1,6 @@
-module NOM.Print (stateToText, showCode, Config (..), showCond) where
+module NOM.Print (stateToText, showCode, Config (..), showCond, collisionFreeHandles) where
 
+import Data.Char (isAlphaNum)
 import Data.Foldable qualified as Unsafe
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet qualified as IntSet
@@ -327,8 +328,16 @@ stateToText config buildState@MkNOMState{..} = printWithSize
    where
     prots = setOf (folded % filteredBy (to forgetProto % only host) % #_Host % _1 % _Just) hosts
 
+-- | Abbreviations for hostnames, extended until they are unique.
+--
+-- >>> import Data.Set qualified as Set
 -- >>> collisionFreeHandles (Set.fromList ["build.example.com", "build2.example.com"])
--- fromList [(Hostname "build.example.com","ec"),(Hostname "build2.example.com","2ec")]
+-- fromList [("build.example.com","ec"),("build2.example.com","2ec")]
+--
+-- Non-alphanumeric characters (like the @/@ in a URL path) are only used when nothing else tells hosts apart.
+--
+-- >>> collisionFreeHandles (Set.fromList ["leaf.h.junco.dev", "rustfs.junco.dev/cache-v6"])
+-- fromList [("leaf.h.junco.dev","hjd"),("rustfs.junco.dev/cache-v6","rjd")]
 collisionFreeHandles :: Set Text -> Map Text Text
 collisionFreeHandles hosts = Map.mapWithKey mkHandle improvedMap
  where
@@ -349,14 +358,19 @@ collisionFreeHandles hosts = Map.mapWithKey mkHandle improvedMap
     colls = Map.keys $ Map.filterWithKey (\i k -> mkHandle i k == mkHandle host poss) $ Map.delete host defaultMap
 
   firstDiff :: Text -> Text -> [IntSet]
-  firstDiff t1 t2 =
-    uncurry (<>)
-      $ second (mapTail (const mempty))
-      $ break (/= mempty)
-      $ maybe mempty (IntSet.singleton . fst)
-      . IntMap.lookupMin
-      . IntMap.filter id
-      <$> zipWith (IntMap.intersectionWith (/=)) (indexMaps t1) (indexMaps t2)
+  firstDiff t1 t2 = case firstDiffBy alnumDiffers of
+    diffs | all IntSet.null diffs -> firstDiffBy (/=)
+    diffs -> diffs
+   where
+    alnumDiffers a b = a /= b && (any isAlphaNum a || any isAlphaNum b)
+    firstDiffBy differs =
+      uncurry (<>)
+        $ second (mapTail (const mempty))
+        $ break (/= mempty)
+        $ maybe mempty (IntSet.singleton . fst)
+        . IntMap.lookupMin
+        . IntMap.filter id
+        <$> zipWith (IntMap.intersectionWith differs) (indexMaps t1) (indexMaps t2)
 
 mapTail :: (a -> a) -> [a] -> [a]
 mapTail _ [] = []
